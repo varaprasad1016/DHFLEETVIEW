@@ -4,11 +4,11 @@ import { alpha } from '@mui/material/styles';
 import {
   IconButton,
   Tooltip,
+  Avatar,
   ListItemAvatar,
   ListItemText,
   ListItemButton,
   Typography,
-  Box,
 } from '@mui/material';
 import BatteryFullIcon from '@mui/icons-material/BatteryFull';
 import BatteryChargingFullIcon from '@mui/icons-material/BatteryChargingFull';
@@ -28,6 +28,7 @@ import {
   getStatusColor,
 } from '../common/util/formatter';
 import { useTranslation } from '../common/components/LocalizationProvider';
+import { mapIconKey, mapIcons } from '../map/core/preloadImages';
 import { useAdministrator } from '../common/util/permissions';
 import EngineIcon from '../resources/images/data/engine.svg?react';
 import { useAttributePreference } from '../common/util/preferences';
@@ -38,53 +39,18 @@ import MotionBar from './components/MotionBar';
 dayjs.extend(relativeTime);
 
 const useStyles = makeStyles()((theme) => ({
-  root: {
-    borderRadius: 10,
-    margin: theme.spacing(0, 1.5),
-    marginBottom: theme.spacing(0.5),
-    transition: 'background-color 0.15s',
-  },
-  selected: {
-    backgroundColor: alpha(theme.palette.primary.main, 0.08),
-    '&:hover': {
-      backgroundColor: alpha(theme.palette.primary.main, 0.12),
-    },
-  },
   icon: {
-    width: '18px',
-    height: '18px',
+    width: '22px',
+    height: '22px',
     filter: 'brightness(0) invert(1)',
   },
   avatar: {
-    backgroundColor: alpha(theme.palette.primary.main, 0.12),
-    borderRadius: 8,
-    width: 36,
-    height: 36,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: '50%',
-    flexShrink: 0,
-  },
-  onlineDot: {
-    backgroundColor: theme.palette.success.main,
-    boxShadow: `0 0 6px ${alpha(theme.palette.success.main, 0.4)}`,
-  },
-  offlineDot: {
-    backgroundColor: theme.palette.neutral.main,
-  },
-  unknownDot: {
-    backgroundColor: theme.palette.warning.main,
-  },
-  meta: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: theme.spacing(0.5),
-    mt: 0.25,
+    backgroundColor:
+      theme.palette.mode === 'light' ? theme.palette.primary.main : '#4338ca',
+    borderRadius: 10,
   },
   batteryText: {
-    fontSize: '0.65rem',
+    fontSize: '0.75rem',
     fontWeight: 'normal',
     lineHeight: '0.875rem',
   },
@@ -99,6 +65,12 @@ const useStyles = makeStyles()((theme) => ({
   },
   neutral: {
     color: theme.palette.neutral.main,
+  },
+  selected: {
+    backgroundColor: alpha(theme.palette.primary.main, 0.08),
+    '&:hover': {
+      backgroundColor: alpha(theme.palette.primary.main, 0.12),
+    },
   },
 }));
 
@@ -134,10 +106,6 @@ const DeviceRow = ({ devices, index, style }) => {
   const primaryValue = resolveFieldValue(devicePrimary);
   const secondaryValue = resolveFieldValue(deviceSecondary);
 
-  const dotClass = item.status === 'online' ? classes.onlineDot
-    : item.status === 'offline' ? classes.offlineDot
-    : classes.unknownDot;
-
   const secondaryText = () => {
     let status;
     if (item.status === 'online' || !item.lastUpdate) {
@@ -146,21 +114,15 @@ const DeviceRow = ({ devices, index, style }) => {
       status = dayjs(item.lastUpdate).fromNow();
     }
     return (
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25 }}>
-        <span className={`${classes.statusDot} ${dotClass}`} />
+      <>
         {secondaryValue && (
-          <Typography variant="caption" color="text.secondary" noWrap>
-            {secondaryValue} •
-          </Typography>
+          <>
+            {secondaryValue}
+            {' • '}
+          </>
         )}
-        <Typography
-          variant="caption"
-          className={classes[getStatusColor(item.status)]}
-          noWrap
-        >
-          {status}
-        </Typography>
-      </Box>
+        <span className={classes[getStatusColor(item.status)]}>{status}</span>
+      </>
     );
   };
 
@@ -171,36 +133,44 @@ const DeviceRow = ({ devices, index, style }) => {
         onClick={() => dispatch(devicesActions.selectId(item.id))}
         disabled={!admin && item.disabled}
         selected={selectedDeviceId === item.id}
-        className={`${classes.root} ${selectedDeviceId === item.id ? classes.selected : ''}`}
-        sx={{ borderRadius: 2.5 }}
+        className={selectedDeviceId === item.id ? classes.selected : null}
       >
         <ListItemAvatar>
-          <div className={classes.avatar} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <img className={classes.icon} src={item.category === 'camera' ? undefined : undefined} alt="" />
-            <EngineIcon
-              width={18}
-              height={18}
-              className={position?.attributes?.ignition ? classes.success : classes.neutral}
-            />
-          </div>
+          <Avatar className={classes.avatar}>
+            <img className={classes.icon} src={mapIcons[mapIconKey(item.category)]} alt="" />
+          </Avatar>
         </ListItemAvatar>
         <ListItemText
           primary={primaryValue}
           secondary={secondaryText()}
           slots={{
             primary: Typography,
-            secondary: 'div',
+            secondary: Typography,
           }}
           slotProps={{
-            primary: { noWrap: true, variant: 'body2', fontWeight: 600 },
+            primary: { noWrap: true },
+            secondary: { noWrap: true },
           }}
         />
         {position && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, flexShrink: 0 }}>
+          <>
             {position.attributes.hasOwnProperty('alarm') && (
               <Tooltip title={`${t('eventAlarm')}: ${formatAlarm(position.attributes.alarm, t)}`}>
-                <IconButton size="small" sx={{ p: 0.25 }}>
+                <IconButton size="small">
                   <ErrorIcon fontSize="small" className={classes.error} />
+                </IconButton>
+              </Tooltip>
+            )}
+            {position.attributes.hasOwnProperty('ignition') && (
+              <Tooltip
+                title={`${t('positionIgnition')}: ${formatBoolean(position.attributes.ignition, t)}`}
+              >
+                <IconButton size="small">
+                  {position.attributes.ignition ? (
+                    <EngineIcon width={20} height={20} className={classes.success} />
+                  ) : (
+                    <EngineIcon width={20} height={20} className={classes.neutral} />
+                  )}
                 </IconButton>
               </Tooltip>
             )}
@@ -208,7 +178,7 @@ const DeviceRow = ({ devices, index, style }) => {
               <Tooltip
                 title={`${t('positionBatteryLevel')}: ${formatPercentage(position.attributes.batteryLevel)}`}
               >
-                <IconButton size="small" sx={{ p: 0.25 }}>
+                <IconButton size="small">
                   {(position.attributes.batteryLevel > 70 &&
                     (position.attributes.charge ? (
                       <BatteryChargingFullIcon fontSize="small" className={classes.success} />
@@ -229,7 +199,7 @@ const DeviceRow = ({ devices, index, style }) => {
                 </IconButton>
               </Tooltip>
             )}
-          </Box>
+          </>
         )}
       </ListItemButton>
     </div>
