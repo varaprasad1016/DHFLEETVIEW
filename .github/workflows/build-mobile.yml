@@ -27,6 +27,9 @@ jobs:
         working-directory: traccar-manager
         run: flutter pub get
 
+      - name: Disable experimental Swift Package Manager (use CocoaPods)
+        run: flutter config --no-enable-swift-package-manager
+
       - name: Build iOS (unsigned)
         working-directory: traccar-manager
         run: flutter build ios --release --no-codesign
