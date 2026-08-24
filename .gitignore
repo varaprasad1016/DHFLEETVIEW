@@ -17,3 +17,5 @@ bin
 local-data/
 release/
 traccar-client/
+environment/dhfleetview.keystore
+environment/key.properties
