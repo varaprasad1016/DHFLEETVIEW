@@ -1,19 +1,30 @@
 import { lazy, Suspense, useState, useCallback, useEffect } from 'react';
-import { Paper } from '@mui/material';
 import { makeStyles } from 'tss-react/mui';
 import { alpha, useTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useDispatch, useSelector } from 'react-redux';
+import { useNavigate, useLocation } from 'react-router-dom';
+import MapIcon from '@mui/icons-material/Map';
+import DescriptionIcon from '@mui/icons-material/Description';
+import SettingsIcon from '@mui/icons-material/Settings';
+import PersonIcon from '@mui/icons-material/Person';
+import LogoutIcon from '@mui/icons-material/Logout';
+import Badge from '@mui/material/Badge';
+import Divider from '@mui/material/Divider';
+import Typography from '@mui/material/Typography';
+import Box from '@mui/material/Box';
 import DeviceList from './DeviceList';
-import BottomMenu from '../common/components/BottomMenu';
 import StatusCard from '../common/components/StatusCard';
 import FleetDashboard from './FleetDashboard';
-import { devicesActions } from '../store';
+import { devicesActions, sessionActions } from '../store';
+import { nativePostMessage } from '../common/components/NativeInterface';
 import usePersistedState from '../common/util/usePersistedState';
 import EventsDrawer from './EventsDrawer';
 import useFilter from './useFilter';
 import MainToolbar from './MainToolbar';
 import { useAttributePreference } from '../common/util/preferences';
+import { useTranslation } from '../common/components/LocalizationProvider';
+import { useRestriction } from '../common/util/permissions';
 
 const MainMap = lazy(() => import('./MainMap'));
 
@@ -57,22 +68,10 @@ const useStyles = makeStyles()((theme) => ({
     minWidth: SIDEBAR_WIDTH,
     overflow: 'hidden',
   },
-  sidebarScroll: {
-    flex: 1,
-    overflow: 'auto',
-    minHeight: 0,
-  },
   mapArea: {
     flex: 1,
     position: 'relative',
     minWidth: 0,
-  },
-  dashboardWrap: {
-    flexShrink: 0,
-  },
-  searchWrap: {
-    flexShrink: 0,
-    padding: theme.spacing(0, 2, 1),
   },
   sectionTitle: {
     fontWeight: 600,
@@ -83,13 +82,40 @@ const useStyles = makeStyles()((theme) => ({
     padding: theme.spacing(1, 2, 0.5),
     flexShrink: 0,
   },
-  deviceWrap: {
-    flex: 1,
-    minHeight: 0,
+  navSection: {
+    flexShrink: 0,
+    borderTop: `1px solid ${theme.palette.divider}`,
+    padding: theme.spacing(0.5, 0),
   },
-  footer: {
-    pointerEvents: 'auto',
-    zIndex: 5,
+  navItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(1.5),
+    padding: theme.spacing(1, 2),
+    cursor: 'pointer',
+    color: theme.palette.text.secondary,
+    fontSize: '0.875rem',
+    fontWeight: 500,
+    transition: 'background 0.15s, color 0.15s',
+    border: 'none',
+    background: 'none',
+    width: '100%',
+    textAlign: 'left',
+    '&:hover': {
+      backgroundColor: alpha(theme.palette.primary.main, 0.06),
+      color: theme.palette.text.primary,
+    },
+  },
+  navItemActive: {
+    backgroundColor: alpha(theme.palette.primary.main, 0.08),
+    color: theme.palette.primary.main,
+    fontWeight: 600,
+  },
+  navItemDanger: {
+    color: theme.palette.error.main,
+    '&:hover': {
+      backgroundColor: alpha(theme.palette.error.main, 0.06),
+    },
   },
 }));
 
@@ -97,13 +123,21 @@ const MainPage = () => {
   const { classes } = useStyles();
   const dispatch = useDispatch();
   const theme = useTheme();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const t = useTranslation();
 
   const desktop = useMediaQuery(theme.breakpoints.up('md'));
+
+  const readonly = useRestriction('readonly');
+  const disableReports = useRestriction('disableReports');
 
   const mapOnSelect = useAttributePreference('mapOnSelect', true);
 
   const selectedDeviceId = useSelector((state) => state.devices.selectedId);
   const positions = useSelector((state) => state.session.positions);
+  const user = useSelector((state) => state.session.user);
+  const devices = useSelector((state) => state.devices.items);
   const [filteredPositions, setFilteredPositions] = useState([]);
   const selectedPosition = filteredPositions.find(
     (position) => selectedDeviceId && position.deviceId === selectedDeviceId,
@@ -123,7 +157,7 @@ const MainPage = () => {
   const [devicesOpen, setDevicesOpen] = useState(desktop);
   const [eventsOpen, setEventsOpen] = useState(false);
 
-  const onEventsClick = useCallback(() => setEventsOpen(true), [setEventsOpen]);
+  const onEventsClick = useCallback(() => setEventsOpen(true), [setEventsClick]);
 
   useEffect(() => {
     if (!desktop && mapOnSelect && selectedDeviceId) {
@@ -140,6 +174,80 @@ const MainPage = () => {
     setFilteredDevices,
     setFilteredPositions,
   );
+
+  const currentNav = () => {
+    if (location.pathname === '/') return 'map';
+    if (location.pathname.startsWith('/reports')) return 'reports';
+    if (location.pathname.startsWith('/settings/user/')) return 'account';
+    if (location.pathname.startsWith('/settings')) return 'settings';
+    return null;
+  };
+
+  const handleNav = (value) => {
+    switch (value) {
+      case 'map':
+        navigate('/');
+        break;
+      case 'reports': {
+        let id = selectedDeviceId;
+        if (id == null) {
+          const deviceIds = Object.keys(devices);
+          if (deviceIds.length === 1) id = deviceIds[0];
+        }
+        navigate(id != null ? `/reports/combined?deviceId=${id}` : '/reports/combined');
+        break;
+      }
+      case 'settings':
+        navigate('/settings/preferences?menu=true');
+        break;
+      case 'account':
+        navigate(`/settings/user/${user.id}`);
+        break;
+      case 'logout':
+        handleLogout();
+        break;
+      default:
+        break;
+    }
+  };
+
+  const handleLogout = async () => {
+    const notificationToken = window.localStorage.getItem('notificationToken');
+    if (notificationToken && !user.readonly) {
+      window.localStorage.removeItem('notificationToken');
+      const tokens = user.attributes.notificationTokens?.split(',') || [];
+      if (tokens.includes(notificationToken)) {
+        const updatedUser = {
+          ...user,
+          attributes: {
+            ...user.attributes,
+            notificationTokens:
+              tokens.length > 1
+                ? tokens.filter((it) => it !== notificationToken).join(',')
+                : undefined,
+          },
+        };
+        await fetch(`/api/users/${user.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updatedUser),
+        });
+      }
+    }
+    await fetch('/api/session', { method: 'DELETE' });
+    nativePostMessage('logout');
+    navigate('/login');
+    dispatch(sessionActions.updateUser(null));
+  };
+
+  const nav = currentNav();
+
+  const navItems = [
+    { key: 'map', label: t('mapTitle'), icon: <MapIcon fontSize="small" /> },
+    !disableReports && { key: 'reports', label: t('reportTitle'), icon: <DescriptionIcon fontSize="small" /> },
+    !readonly && { key: 'settings', label: t('settingsTitle'), icon: <SettingsIcon fontSize="small" /> },
+    !readonly && { key: 'account', label: t('settingsUser'), icon: <PersonIcon fontSize="small" /> },
+  ].filter(Boolean);
 
   return (
     <div className={classes.root}>
@@ -160,17 +268,38 @@ const MainPage = () => {
         {/* Sidebar */}
         <div className={`${classes.sidebar} ${devicesOpen ? '' : classes.sidebarClosed}`}>
           <div className={classes.sidebarInner}>
-            <div className={classes.dashboardWrap}>
-              <FleetDashboard />
-            </div>
-            <div className={classes.searchWrap}>
-              {/* Search is handled in MainToolbar now — placeholder for filter row */}
-            </div>
+            {/* Fleet Dashboard */}
+            <FleetDashboard />
+
+            <Divider />
+
+            {/* Vehicle List */}
             <div className={classes.sectionTitle}>
               Vehicles ({filteredDevices.length})
             </div>
-            <div className={classes.deviceWrap}>
+            <div style={{ flex: 1, minHeight: 0 }}>
               <DeviceList devices={filteredDevices} />
+            </div>
+
+            {/* Navigation */}
+            <div className={classes.navSection}>
+              {navItems.map((item) => (
+                <button
+                  key={item.key}
+                  className={`${classes.navItem} ${nav === item.key ? classes.navItemActive : ''}`}
+                  onClick={() => handleNav(item.key)}
+                >
+                  {item.icon}
+                  {item.label}
+                </button>
+              ))}
+              <button
+                className={`${classes.navItem} ${classes.navItemDanger}`}
+                onClick={handleLogout}
+              >
+                <LogoutIcon fontSize="small" />
+                {t('loginLogout')}
+              </button>
             </div>
           </div>
         </div>
@@ -186,11 +315,6 @@ const MainPage = () => {
           </Suspense>
         </div>
       </div>
-      {!desktop && (
-        <div className={classes.footer}>
-          <BottomMenu />
-        </div>
-      )}
       <EventsDrawer open={eventsOpen} onClose={() => setEventsOpen(false)} />
       {selectedDeviceId && (
         <StatusCard
