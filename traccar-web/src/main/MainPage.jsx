@@ -1,10 +1,36 @@
 import { lazy, Suspense, useState, useCallback, useEffect } from 'react';
-import { Paper } from '@mui/material';
+import {
+  Drawer,
+  Box,
+  Divider,
+  Typography,
+  IconButton,
+  InputBase,
+  Paper,
+} from '@mui/material';
 import { makeStyles } from 'tss-react/mui';
-import { alpha, useTheme } from '@mui/material/styles';
+import { alpha } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useDispatch, useSelector } from 'react-redux';
+import CloseIcon from '@mui/icons-material/Close';
+import SearchIcon from '@mui/icons-material/Search';
+import TuneIcon from '@mui/icons-material/Tune';
+import FilterListIcon from '@mui/icons-material/FilterList';
+import AddIcon from '@mui/icons-material/Add';
+import {
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  FormGroup,
+  FormControlLabel,
+  Checkbox,
+  Badge,
+  Popover,
+  Tooltip,
+} from '@mui/material';
 import DeviceList from './DeviceList';
+import FleetDashboard from './FleetDashboard';
 import BottomMenu from '../common/components/BottomMenu';
 import StatusCard from '../common/components/StatusCard';
 import { devicesActions } from '../store';
@@ -13,78 +39,201 @@ import EventsDrawer from './EventsDrawer';
 import useFilter from './useFilter';
 import MainToolbar from './MainToolbar';
 import { useAttributePreference } from '../common/util/preferences';
+import { useDeviceReadonly } from '../common/util/permissions';
+import { useTranslation } from '../common/components/LocalizationProvider';
 
 const MainMap = lazy(() => import('./MainMap'));
+
+const DRAWER_WIDTH = 380;
 
 const useStyles = makeStyles()((theme) => ({
   root: {
     height: '100%',
-  },
-  sidebar: {
-    pointerEvents: 'none',
     display: 'flex',
     flexDirection: 'column',
-    [theme.breakpoints.up('md')]: {
-      position: 'fixed',
-      left: 0,
-      top: 0,
-      height: 'calc(100% - 24px)',
-      width: theme.dimensions.drawerWidthDesktop,
-      margin: 12,
-      borderRadius: 16,
-      overflow: 'hidden',
-      backgroundColor: alpha(theme.palette.background.paper, 0.86),
-      backdropFilter: 'blur(14px)',
-      WebkitBackdropFilter: 'blur(14px)',
-      border: `1px solid ${theme.palette.divider}`,
-      boxShadow: '0 16px 40px rgba(16, 24, 40, 0.12), 0 2px 8px rgba(16, 24, 40, 0.06)',
-      zIndex: 3,
-    },
-    [theme.breakpoints.down('md')]: {
-      height: '100%',
+  },
+  toolbarSpacer: {
+    height: 56,
+    flexShrink: 0,
+  },
+  mapContainer: {
+    flex: 1,
+    position: 'relative',
+    minHeight: 0,
+  },
+  drawer: {
+    width: DRAWER_WIDTH,
+    [theme.breakpoints.down('sm')]: {
       width: '100%',
     },
   },
-  header: {
-    pointerEvents: 'auto',
-    zIndex: 6,
-    backgroundColor: 'transparent',
-    boxShadow: 'none',
+  drawerPaper: {
+    width: DRAWER_WIDTH,
+    [theme.breakpoints.down('sm')]: {
+      width: '100%',
+    },
+    borderRight: `1px solid ${theme.palette.divider}`,
+    backgroundColor: theme.palette.background.default,
+  },
+  drawerHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: theme.spacing(1.5, 2),
     borderBottom: `1px solid ${theme.palette.divider}`,
+    backgroundColor: theme.palette.background.paper,
+  },
+  drawerTitle: {
+    fontWeight: 700,
+    fontSize: '1rem',
+    letterSpacing: '-0.01em',
+  },
+  searchBox: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(0.5),
+    margin: theme.spacing(1.5, 2),
+    padding: theme.spacing(0.75, 1.5),
+    borderRadius: 10,
+    backgroundColor: alpha(theme.palette.text.primary, 0.04),
+    border: `1px solid ${theme.palette.divider}`,
+    transition: 'border-color 0.2s, box-shadow 0.2s',
+    '&:focus-within': {
+      borderColor: theme.palette.primary.main,
+      boxShadow: `0 0 0 3px ${alpha(theme.palette.primary.main, 0.1)}`,
+      backgroundColor: theme.palette.background.paper,
+    },
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: '0.875rem',
+    padding: 0,
+    border: 'none',
+    outline: 'none',
+    backgroundColor: 'transparent',
+    color: theme.palette.text.primary,
+    '&::placeholder': {
+      color: theme.palette.text.secondary,
+    },
+  },
+  dashboardSection: {
+    padding: theme.spacing(0),
+  },
+  sectionTitle: {
+    fontWeight: 600,
+    fontSize: '0.7rem',
+    textTransform: 'uppercase',
+    letterSpacing: '0.06em',
+    color: theme.palette.text.secondary,
+    padding: theme.spacing(1.5, 2, 0.5),
+  },
+  deviceSection: {
+    flex: 1,
+    minHeight: 0,
+    overflow: 'hidden',
   },
   footer: {
     pointerEvents: 'auto',
     zIndex: 5,
-    backgroundColor: 'transparent',
-  },
-  middle: {
-    flex: 1,
-    display: 'grid',
-    minHeight: 0,
-  },
-  contentMap: {
-    pointerEvents: 'auto',
-    gridArea: '1 / 1',
-  },
-  contentList: {
-    pointerEvents: 'auto',
-    gridArea: '1 / 1',
-    zIndex: 4,
-    display: 'flex',
-    minHeight: 0,
-    backgroundColor: 'transparent',
-    [theme.breakpoints.down('md')]: {
-      backgroundColor: theme.palette.background.paper,
-    },
   },
 }));
+
+const MainToolbarPopover = ({
+  anchorEl,
+  onClose,
+  filter,
+  setFilter,
+  filterSort,
+  setFilterSort,
+  filterMap,
+  setFilterMap,
+  groups,
+  geofences,
+  deviceStatusCount,
+  t,
+}) => {
+  return (
+    <Popover
+      open={Boolean(anchorEl)}
+      anchorEl={anchorEl}
+      onClose={onClose}
+      anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+      marginThreshold={0}
+    >
+      <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 2, width: 280 }}>
+        <FormControl size="small">
+          <InputLabel>{t('deviceStatus')}</InputLabel>
+          <Select
+            label={t('deviceStatus')}
+            value={filter.statuses}
+            onChange={(e) => setFilter({ ...filter, statuses: e.target.value })}
+            multiple
+          >
+            <MenuItem value="online">{`${t('deviceStatusOnline')} (${deviceStatusCount('online')})`}</MenuItem>
+            <MenuItem value="offline">{`${t('deviceStatusOffline')} (${deviceStatusCount('offline')})`}</MenuItem>
+            <MenuItem value="unknown">{`${t('deviceStatusUnknown')} (${deviceStatusCount('unknown')})`}</MenuItem>
+          </Select>
+        </FormControl>
+        <FormControl size="small">
+          <InputLabel>{t('settingsGroups')}</InputLabel>
+          <Select
+            label={t('settingsGroups')}
+            value={filter.groups}
+            onChange={(e) => setFilter({ ...filter, groups: e.target.value })}
+            multiple
+          >
+            {Object.values(groups)
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .map((group) => (
+                <MenuItem key={group.id} value={group.id}>{group.name}</MenuItem>
+              ))}
+          </Select>
+        </FormControl>
+        <FormControl size="small">
+          <InputLabel>{t('sharedGeofences')}</InputLabel>
+          <Select
+            label={t('sharedGeofences')}
+            value={filter.geofences}
+            onChange={(e) => setFilter({ ...filter, geofences: e.target.value })}
+            multiple
+          >
+            {Object.values(geofences)
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .map((geofence) => (
+                <MenuItem key={geofence.id} value={geofence.id}>{geofence.name}</MenuItem>
+              ))}
+          </Select>
+        </FormControl>
+        <FormControl size="small">
+          <InputLabel>{t('sharedSortBy')}</InputLabel>
+          <Select
+            label={t('sharedSortBy')}
+            value={filterSort}
+            onChange={(e) => setFilterSort(e.target.value)}
+          >
+            <MenuItem value="">&nbsp;</MenuItem>
+            <MenuItem value="name">{t('sharedName')}</MenuItem>
+            <MenuItem value="lastUpdate">{t('deviceLastUpdate')}</MenuItem>
+          </Select>
+        </FormControl>
+        <FormGroup>
+          <FormControlLabel
+            control={
+              <Checkbox checked={filterMap} onChange={(e) => setFilterMap(e.target.checked)} size="small" />
+            }
+            label={t('sharedFilterMap')}
+          />
+        </FormGroup>
+      </Box>
+    </Popover>
+  );
+};
 
 const MainPage = () => {
   const { classes } = useStyles();
   const dispatch = useDispatch();
-  const theme = useTheme();
-
-  const desktop = useMediaQuery(theme.breakpoints.up('md'));
+  const t = useTranslation();
+  const deviceReadonly = useDeviceReadonly();
 
   const mapOnSelect = useAttributePreference('mapOnSelect', true);
 
@@ -106,16 +255,24 @@ const MainPage = () => {
   const [filterSort, setFilterSort] = usePersistedState('filterSort', '');
   const [filterMap, setFilterMap] = usePersistedState('filterMap', false);
 
-  const [devicesOpen, setDevicesOpen] = useState(desktop);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [eventsOpen, setEventsOpen] = useState(false);
+  const [filterAnchorEl, setFilterAnchorEl] = useState(null);
 
   const onEventsClick = useCallback(() => setEventsOpen(true), [setEventsOpen]);
 
+  const groups = useSelector((state) => state.groups.items);
+  const devices = useSelector((state) => state.devices.items);
+  const geofences = useSelector((state) => state.geofences.items);
+
+  const deviceStatusCount = (status) =>
+    Object.values(devices).filter((d) => d.status === status).length;
+
   useEffect(() => {
-    if (!desktop && mapOnSelect && selectedDeviceId) {
-      setDevicesOpen(false);
+    if (mapOnSelect && selectedDeviceId) {
+      setSidebarOpen(false);
     }
-  }, [desktop, mapOnSelect, selectedDeviceId]);
+  }, [mapOnSelect, selectedDeviceId]);
 
   useFilter(
     keyword,
@@ -129,7 +286,110 @@ const MainPage = () => {
 
   return (
     <div className={classes.root}>
-      {desktop && (
+      <MainToolbar sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
+      <div className={classes.toolbarSpacer} />
+
+      {/* Sidebar Drawer */}
+      <Drawer
+        variant="persistent"
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        classes={{
+          paper: classes.drawerPaper,
+        }}
+        PaperProps={{ elevation: 0 }}
+        sx={{
+          width: sidebarOpen ? DRAWER_WIDTH : 0,
+          flexShrink: 0,
+          '& .MuiDrawer-paper': {
+            width: DRAWER_WIDTH,
+            boxSizing: 'border-box',
+            position: 'relative',
+          },
+        }}
+      >
+        {/* Drawer Header */}
+        <div className={classes.drawerHeader}>
+          <Typography className={classes.drawerTitle}>Fleet Overview</Typography>
+          <IconButton size="small" onClick={() => setSidebarOpen(false)}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </div>
+
+        {/* Dashboard Stats */}
+        <div className={classes.dashboardSection}>
+          <FleetDashboard />
+        </div>
+
+        <Divider />
+
+        {/* Search + Filter */}
+        <div className={classes.searchBox}>
+          <SearchIcon fontSize="small" sx={{ color: 'text.secondary' }} />
+          <input
+            className={classes.searchInput}
+            placeholder={t('sharedSearchDevices')}
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+          />
+          <IconButton size="small" onClick={(e) => setFilterAnchorEl(e.currentTarget)}>
+            <Badge
+              color="info"
+              variant="dot"
+              invisible={!filter.statuses.length && !filter.groups.length && !filter.geofences.length}
+            >
+              <FilterListIcon fontSize="small" sx={{ color: 'text.secondary' }} />
+            </Badge>
+          </IconButton>
+        </div>
+
+        <MainToolbarPopover
+          anchorEl={filterAnchorEl}
+          onClose={() => setFilterAnchorEl(null)}
+          filter={filter}
+          setFilter={setFilter}
+          filterSort={filterSort}
+          setFilterSort={setFilterSort}
+          filterMap={filterMap}
+          setFilterMap={setFilterMap}
+          groups={groups}
+          geofences={geofences}
+          deviceStatusCount={deviceStatusCount}
+          t={t}
+        />
+
+        {/* Device List */}
+        <div className={classes.deviceSection}>
+          <div className={classes.sectionTitle}>
+            Vehicles ({filteredDevices.length})
+          </div>
+          <DeviceList devices={filteredDevices} />
+        </div>
+
+        {/* Add device button */}
+        {!deviceReadonly && (
+          <Box sx={{ p: 1.5, borderTop: 1, borderColor: 'divider' }}>
+            <Tooltip title={t('deviceRegisterFirst')}>
+              <IconButton
+                fullWidth
+                size="small"
+                sx={{
+                  borderRadius: 2,
+                  backgroundColor: alpha('#4f46e5', 0.06),
+                  color: 'primary.main',
+                  '&:hover': { backgroundColor: alpha('#4f46e5', 0.12) },
+                }}
+                onClick={() => window.location.href = '/settings/device'}
+              >
+                <AddIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
+        )}
+      </Drawer>
+
+      {/* Map — full width, always rendered */}
+      <div className={classes.mapContainer}>
         <Suspense fallback={null}>
           <MainMap
             filteredPositions={filteredPositions}
@@ -137,52 +397,15 @@ const MainPage = () => {
             onEventsClick={onEventsClick}
           />
         </Suspense>
-      )}
-      <div className={classes.sidebar}>
-        <Paper square elevation={0} className={classes.header}>
-          <MainToolbar
-            filteredDevices={filteredDevices}
-            devicesOpen={devicesOpen}
-            setDevicesOpen={setDevicesOpen}
-            keyword={keyword}
-            setKeyword={setKeyword}
-            filter={filter}
-            setFilter={setFilter}
-            filterSort={filterSort}
-            setFilterSort={setFilterSort}
-            filterMap={filterMap}
-            setFilterMap={setFilterMap}
-          />
-        </Paper>
-        <div className={classes.middle}>
-          {!desktop && (
-            <div className={classes.contentMap}>
-              <Suspense fallback={null}>
-                <MainMap
-                  filteredPositions={filteredPositions}
-                  selectedPosition={selectedPosition}
-                  onEventsClick={onEventsClick}
-                />
-              </Suspense>
-            </div>
-          )}
-          <Paper square elevation={0} className={classes.contentList} style={devicesOpen ? {} : { visibility: 'hidden' }}>
-            <DeviceList devices={filteredDevices} />
-          </Paper>
-        </div>
-        {desktop && (
-          <div className={classes.footer}>
-            <BottomMenu />
-          </div>
-        )}
       </div>
+
       <EventsDrawer open={eventsOpen} onClose={() => setEventsOpen(false)} />
       {selectedDeviceId && (
         <StatusCard
           deviceId={selectedDeviceId}
           position={selectedPosition}
           onClose={() => dispatch(devicesActions.selectId(null))}
-          desktopPadding={theme.dimensions.drawerWidthDesktop}
+          desktopPadding={sidebarOpen ? DRAWER_WIDTH : 0}
         />
       )}
     </div>
