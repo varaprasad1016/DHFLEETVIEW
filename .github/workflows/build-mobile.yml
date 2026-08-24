@@ -1,0 +1,75 @@
+name: Build Mobile Apps
+
+# Builds the DH FleetView Android APK and iOS app on GitHub-hosted runners.
+# iOS requires a macOS runner (Xcode) - no local Mac needed.
+
+on:
+  workflow_dispatch:        # manual trigger from the Actions tab
+  push:
+    branches: [main]
+    tags: ['v*']
+
+jobs:
+  ios:
+    name: iOS (macOS runner)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.1'
+          channel: stable
+
+      - name: Get dependencies
+        working-directory: traccar-manager
+        run: flutter pub get
+
+      - name: Build iOS (unsigned)
+        working-directory: traccar-manager
+        run: flutter build ios --release --no-codesign
+
+      - name: Package .ipa
+        working-directory: traccar-manager
+        run: |
+          mkdir -p Payload
+          cp -r build/ios/iphoneos/Runner.app Payload/
+          zip -r DH-FleetView.ipa Payload
+          rm -rf Payload
+
+      - name: Upload .ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: DH-FleetView-iOS
+          path: traccar-manager/DH-FleetView.ipa
+          if-no-files-found: error
+
+  android:
+    name: Android (APK)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.1'
+          channel: stable
+
+      - name: Get dependencies
+        working-directory: traccar-manager
+        run: flutter pub get
+
+      - name: Build APK (release)
+        working-directory: traccar-manager
+        run: flutter build apk --release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DH-FleetView-Android
+          path: traccar-manager/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
