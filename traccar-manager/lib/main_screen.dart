@@ -98,10 +98,10 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   String _getUrl() {
-    // Android emulator reaches the host via 10.0.2.2; iOS simulator uses localhost.
+    // On first launch, try the local dev addresses, then fall back to LAN.
     // A saved server URL (from the first-run screen) always takes precedence.
     final saved = _preferences.getString(_urlKey);
-    final fallback = Platform.isAndroid ? 'http://10.0.2.2:8082' : 'http://localhost:8082';
+    final fallback = Platform.isAndroid ? 'http://192.168.0.130:8082' : 'http://localhost:8082';
     final url = saved ?? fallback;
     return url.endsWith('/') ? url.substring(0, url.length - 1) : url;
   }
