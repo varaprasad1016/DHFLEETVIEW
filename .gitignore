@@ -9,7 +9,10 @@ nbactions.xml
 .checkstyle
 .gradle
 out
-build
+# build (allow traccar-web/build for deployment)
+build/
+!traccar-web/build/
+!traccar-web/build/**
 .vscode
 bin
 
