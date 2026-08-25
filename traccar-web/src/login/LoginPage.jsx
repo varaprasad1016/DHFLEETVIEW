@@ -168,17 +168,7 @@ const LoginPage = () => {
   return (
     <LoginLayout>
       <div className={classes.options}>
-        {nativeEnvironment && changeEnabled && (
-          <IconButton color="primary" onClick={() => navigate('/change-server')}>
-            <Tooltip
-              title={`${t('settingsServer')}: ${window.location.hostname}`}
-              open={showServerTooltip}
-              arrow
-            >
-              <VpnLockIcon />
-            </Tooltip>
-          </IconButton>
-        )}
+        {/* Server change button hidden for end users */}
         {!nativeEnvironment && (
           <IconButton color="primary" onClick={() => setShowQr(true)}>
             <QrCode2Icon />
