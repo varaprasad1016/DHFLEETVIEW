@@ -52,7 +52,7 @@ android {
         if (hasReleaseSigning) {
             create("release") {
                 keyAlias = secret("KEY_ALIAS") ?: "dhfleetview"
-                keyPassword = secret("KEY_PASSWORD")
+                keyPassword = secret("KEY_PASSWORD") ?: secret("KEYSTORE_PASSWORD")
                 storeFile = releaseStoreFile
                 storePassword = secret("KEYSTORE_PASSWORD")
             }
