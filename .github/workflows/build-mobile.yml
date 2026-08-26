@@ -68,6 +68,18 @@ jobs:
         working-directory: traccar-manager
         run: flutter pub get
 
+      - name: Verify signing secrets
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          : "${KEYSTORE_BASE64:?Missing repository secret: KEYSTORE_BASE64}"
+          : "${KEYSTORE_PASSWORD:?Missing repository secret: KEYSTORE_PASSWORD}"
+          : "${KEY_PASSWORD:?Missing repository secret: KEY_PASSWORD}"
+          echo "All signing secrets present"
+
       - name: Restore signing keystore
         shell: bash
         env:
