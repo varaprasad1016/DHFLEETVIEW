@@ -14,6 +14,10 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
+fun secret(name: String): String? {
+    return keystoreProperties.getProperty(name) ?: System.getenv(name)
+}
+
 android {
     namespace = "com.dhgroup.fleetview"
     compileSdk = flutter.compileSdkVersion
@@ -39,18 +43,19 @@ android {
     }
 
     signingConfigs {
-        if (keystorePropertiesFile.exists()) {
+        if (secret("KEYSTORE_PASSWORD") != null) {
             create("release") {
-                keyAlias = keystoreProperties["keyAlias"] as String
-                keyPassword = keystoreProperties["keyPassword"] as String
-                storeFile = keystoreProperties["storeFile"]?.let { file(it) }
-                storePassword = keystoreProperties["storePassword"] as String
+                keyAlias = secret("KEY_ALIAS") ?: "dhfleetview"
+                keyPassword = secret("KEY_PASSWORD")
+                storeFile = secret("STORE_FILE")?.let { file(it) }
+                    ?: keystoreProperties["storeFile"]?.let { file(it) }
+                storePassword = secret("KEYSTORE_PASSWORD")
             }
         }
     }
     buildTypes {
         release {
-            if (keystorePropertiesFile.exists()) {
+            if (secret("KEYSTORE_PASSWORD") != null) {
                 signingConfig = signingConfigs.getByName("release")
             }
         }
