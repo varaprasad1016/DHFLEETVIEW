@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE properties SYSTEM 'http://java.sun.com/dtd/properties.dtd'>
+<properties>
+    <entry key='database.driver'>org.h2.Driver</entry>
+    <entry key='database.url'>jdbc:h2:./data/database</entry>
+    <entry key='database.user'>sa</entry>
+    <entry key='database.password' />
+    <entry key='web.cacheControl'>no-cache</entry>
+    <entry key='registration.enable'>true</entry>
+    <entry key="web.port">8090</entry>
+
+    <!-- CNMS video platform integration -->
+    <entry key="cmsv9.url">https://portal.dhfleetview.co.uk</entry>
+    <entry key="cmsv9.account">admin</entry>
+    <entry key="cmsv9.password">SLGviL9bXjFfSh8</entry>
+    <entry key="cmsv9.mediaPort">4022</entry>
+    <entry key="cmsv9.channels">4</entry>
+    <entry key="cmsv9.clientPort">10077</entry>
+    <entry key="cmsv9.wsPort">9006</entry>
+    <entry key="cmsv9.wsKey">J04Tb9pcLF7y6QrFmgTJLeVv33YbMhqW</entry>
+
+</properties>

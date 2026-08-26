@@ -1,1 +1,0 @@
-var e=async(e,t)=>{let n=await fetch(e,t);if(!n.ok)throw Error(await n.text());return n};export{e as t};

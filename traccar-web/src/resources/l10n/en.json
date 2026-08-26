@@ -291,6 +291,7 @@
     "sharedLive": "Live",
     "sharedPlay": "Play",
     "sharedStop": "Stop",
+    "sharedRetry": "Retry",
     "sharedChannel": "Channel",
     "sharedFile": "File",
     "cmsv9Multi": "Multi",

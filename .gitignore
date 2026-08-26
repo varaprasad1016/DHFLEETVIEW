@@ -22,3 +22,9 @@ release/
 traccar-client/
 environment/dhfleetview.keystore
 environment/key.properties
+
+# DH FleetView runtime/local
+logs/
+data/
+web.backup-*/
+

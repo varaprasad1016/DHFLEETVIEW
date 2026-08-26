@@ -21,10 +21,8 @@ import {
 import { makeStyles } from 'tss-react/mui';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
-import { default as Hls, Events } from 'hls.js/light';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import StopIcon from '@mui/icons-material/Stop';
-import DownloadIcon from '@mui/icons-material/Download';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import VideocamIcon from '@mui/icons-material/Videocam';
 import SearchIcon from '@mui/icons-material/Search';
@@ -34,11 +32,11 @@ import BackIcon from '../common/components/BackIcon';
 import { useTranslation } from '../common/components/LocalizationProvider';
 import { useAttributePreference } from '../common/util/preferences';
 import {
-  cmsv9Login,
-  cmsv9LiveHlsUrl,
+  cmsv9GetConfig,
+  cmsv9StartLive,
+  cmsv9StopLive,
+  cmsv9StartPlayback,
   cmsv9Search,
-  cmsv9PlaybackUrl,
-  cmsv9DownloadUrl,
 } from '../common/util/cmsv9';
 import { useCatch, useCatchCallback } from '../reactHelper';
 
@@ -149,39 +147,109 @@ const useStyles = makeStyles()((theme) => ({
   },
 }));
 
+let jessibucaPromise = null;
+function loadJessibuca() {
+  if (!jessibucaPromise) {
+    jessibucaPromise = new Promise((resolve, reject) => {
+      if (window.jessibuca) {
+        resolve(window.jessibuca);
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = '/jessibuca.js';
+      script.onload = () => resolve(window.jessibuca);
+      script.onerror = () => reject(new Error('Failed to load video player'));
+      document.head.appendChild(script);
+    });
+  }
+  return jessibucaPromise;
+}
+
+async function createFlvPlayer(container, url) {
+  const Jessibuca = await loadJessibuca();
+  const player = new Jessibuca({
+    container,
+    videoBuffer: 0.6,
+    decoder: '/decoder.js',
+    hasAudio: true,
+    isFlv: true,
+    useMSE: false,
+    autoWasm: true,
+    debug: true,
+    showBandwidth: false,
+    isResize: false,
+    useWebFullScreen: false,
+    timeout: 20,
+    loadingTimeout: 30,
+  });
+  player.on('error', (err) => console.log('[cmsv9] error:', err));
+  player.on('videoInfo', (d) => console.log('[cmsv9] videoInfo:', d));
+  player.on('audioInfo', (d) => console.log('[cmsv9] audioInfo:', d));
+  player.on('load', () => console.log('[cmsv9] load'));
+  player.on('play', () => console.log('[cmsv9] play'));
+  player.on('start', () => console.log('[cmsv9] start'));
+  player.on('timeout', () => console.log('[cmsv9] timeout'));
+  player.on('loadingTimeout', () => console.log('[cmsv9] loadingTimeout'));
+  player.play(url).then(
+    () => console.log('[cmsv9] play() resolved'),
+    (e) => console.log('[cmsv9] play() rejected:', e),
+  );
+  return player;
+}
+
+function destroyFlvPlayer(player) {
+  if (player) {
+    try {
+      player.destroy();
+    } catch (e) {
+      // ignore cleanup errors
+    }
+  }
+}
+
+async function waitForStream(url, timeoutMs = 45000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2500);
+      const res = await fetch(url, { signal: controller.signal, cache: 'no-store' });
+      clearTimeout(timer);
+      if (res.ok) return true;
+    } catch (e) {
+      // keep polling while device starts pushing
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+  return false;
+}
+
 const Cmsv9VideoPage = () => {
   const { classes } = useStyles();
   const navigate = useNavigate();
   const t = useTranslation();
 
   const videoRef = useRef(null);
-  const hlsRef = useRef(null);
-  const gridRefs = useRef({});
+  const flvPlayerRef = useRef(null);
+  const gridPlayers = useRef({});
 
   const [searchParams] = useSearchParams();
   const deviceId = searchParams.get('deviceId');
   const device = useSelector((state) => state.devices.items[deviceId]);
 
-  // Configuration: server-level attributes set in Settings -> Server (custom attributes)
-  const serverUrl = useAttributePreference('cmsv9Url', '');
-  const mediaPort = useAttributePreference('cmsv9MediaPort', 6604);
-  const account = useAttributePreference('cmsv9Account', '');
-  const password = useAttributePreference('cmsv9Password', '');
   const defaultChannels = useAttributePreference('cmsv9Channels', 4);
 
-  // Per-device mapping: device attribute "cmsv9DeviceId" links Traccar device -> CMSV9 devIdno
   const cmsv9DeviceId = device?.attributes?.cmsv9DeviceId;
 
   const [tab, setTab] = useState(0);
-  const [session, setSession] = useState(null);
-  const [loginError, setLoginError] = useState(null);
-  const [loggingIn, setLoggingIn] = useState(false);
+  const [config, setConfig] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   const [channel, setChannel] = useState(0);
-  const [streamType, setStreamType] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [liveError, setLiveError] = useState(false);
-  const [playUrl, setPlayUrl] = useState(null);
+  const [playerMsg, setPlayerMsg] = useState('');
 
   const [gridActive, setGridActive] = useState(false);
   const [gridErrors, setGridErrors] = useState({});
@@ -191,245 +259,302 @@ const Cmsv9VideoPage = () => {
   const [searching, setSearching] = useState(false);
   const [recordings, setRecordings] = useState([]);
 
-  const channels = useMemo(() => Array.from({ length: Number(defaultChannels) || 4 }, (_, i) => i), [defaultChannels]);
+  const channels = useMemo(
+    () => Array.from({ length: Number(defaultChannels) || 4 }, (_, i) => i),
+    [defaultChannels],
+  );
 
-  const ensureSession = useCallback(async () => {
-    if (session) return session;
-    setLoggingIn(true);
-    setLoginError(null);
+  const ensureConfig = useCallback(async () => {
+    if (config) return config;
+    setLoading(true);
+    setError(null);
     try {
-      const jsession = await cmsv9Login({ serverUrl, account, password });
-      setSession(jsession);
-      return jsession;
-    } catch (error) {
-      setLoginError(error.message);
+      const data = await cmsv9GetConfig();
+      if (data.configured) {
+        setConfig(data);
+        return data;
+      }
+      throw new Error('CMSV9 not configured on server');
+    } catch (e) {
+      setError(e.message);
       return null;
     } finally {
-      setLoggingIn(false);
+      setLoading(false);
     }
-  }, [serverUrl, account, password, session]);
+  }, [config]);
 
   useEffect(() => {
-    if (serverUrl && cmsv9DeviceId) {
-      ensureSession();
+    if (cmsv9DeviceId) {
+      ensureConfig();
     }
-  }, [serverUrl, cmsv9DeviceId, ensureSession]);
+  }, [cmsv9DeviceId, ensureConfig]);
 
   const stopPlayback = useCallback(() => {
-    if (hlsRef.current) {
-      hlsRef.current.destroy();
-      hlsRef.current = null;
-    }
+    destroyFlvPlayer(flvPlayerRef.current);
+    flvPlayerRef.current = null;
     if (videoRef.current) {
-      videoRef.current.pause();
-      videoRef.current.removeAttribute('src');
-      videoRef.current.load();
+      videoRef.current.innerHTML = '';
     }
-    setPlayUrl(null);
     setPlaying(false);
   }, []);
 
-  // Single player: attach HLS once the <video> element renders
-  useEffect(() => {
-    if (!playUrl || !videoRef.current) return;
-    setLiveError(false);
-    let hls = null;
-    if (Hls.isSupported()) {
-      hls = new Hls();
-      hlsRef.current = hls;
-      hls.loadSource(playUrl);
-      hls.attachMedia(videoRef.current);
-      hls.on(Events.MANIFEST_PARSED, () => videoRef.current.play());
-      hls.on(Events.ERROR, (_, data) => {
-        console.error('HLS error', data.type, data.details, data.fatal, data.networkDetails?.status, data.response?.url);
-        if (data.fatal) {
-          setLiveError(true);
-          setPlaying(false);
-        }
-      });
-    } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
-      videoRef.current.src = playUrl;
-      videoRef.current.play();
-    } else {
-      setLiveError(true);
-      setPlaying(false);
-    }
-    return () => {
-      if (hls) {
-        hls.destroy();
-        hlsRef.current = null;
-      }
-    };
-  }, [playUrl]);
-
   const startLive = useCallback(async () => {
     setLiveError(false);
+    setPlayerMsg('');
     stopPlayback();
-    const jsession = await ensureSession();
-    if (!jsession) return;
-    const url = cmsv9LiveHlsUrl({
-      serverUrl,
-      mediaPort,
-      jsession,
-      deviceId: cmsv9DeviceId,
-      channel,
-      streamType,
-    });
-    setPlaying(true);
-    setPlayUrl(url);
-  }, [serverUrl, mediaPort, ensureSession, cmsv9DeviceId, channel, streamType, stopPlayback]);
+    await ensureConfig();
+    if (!cmsv9DeviceId) return;
 
-  // Grid: attach one HLS instance per channel cell
-  useEffect(() => {
-    if (!gridActive) return;
-    Object.entries(gridRefs.current).forEach(([ch, videoEl]) => {
-      if (!videoEl || videoEl.dataset.attached) return;
-      const url = cmsv9LiveHlsUrl({
-        serverUrl,
-        mediaPort,
-        jsession: session,
-        deviceId: cmsv9DeviceId,
-        channel: Number(ch),
-        streamType,
-      });
-      let hls = null;
-      if (Hls.isSupported()) {
-        hls = new Hls();
-        videoEl.hls = hls;
-        hls.loadSource(url);
-        hls.attachMedia(videoEl);
-        hls.on(Events.MANIFEST_PARSED, () => videoEl.play());
-        hls.on(Events.ERROR, (_, data) => {
-          if (data.fatal) {
-            setGridErrors((prev) => ({ ...prev, [ch]: true }));
-          }
-        });
-      } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-        videoEl.src = url;
-        videoEl.play();
-      } else {
-        setGridErrors((prev) => ({ ...prev, [ch]: true }));
+    setLoading(true);
+    try {
+      const data = await cmsv9StartLive(deviceId, channel);
+      if (data.errCode !== 0 && data.errCode !== -1) {
+        throw new Error(data.resultMsg || 'Failed to start live');
       }
-      videoEl.dataset.attached = '1';
-    });
-    return () => {
-      Object.values(gridRefs.current).forEach((videoEl) => {
-        if (videoEl?.hls) {
-          videoEl.hls.destroy();
-          videoEl.hls = null;
-        }
-        if (videoEl) {
-          delete videoEl.dataset.attached;
-        }
+      const { flvUrl } = data;
+      if (!flvUrl) throw new Error('No stream URL returned');
+      setPlaying(true);
+      const found = await waitForStream(flvUrl);
+      if (!found) {
+        setLiveError(true);
+        setPlaying(false);
+        return;
+      }
+      if (!videoRef.current) return;
+      const player = await createFlvPlayer(videoRef.current, flvUrl);
+      if (!player) {
+        setLiveError(true);
+        setPlaying(false);
+        return;
+      }
+      flvPlayerRef.current = player;
+      const timeout = setTimeout(() => {
+        setLiveError(true);
+        setPlaying(false);
+        destroyFlvPlayer(player);
+        flvPlayerRef.current = null;
+      }, 30000);
+      player.on('videoInfo', () => {
+        clearTimeout(timeout);
       });
-    };
-  }, [gridActive, serverUrl, mediaPort, session, cmsv9DeviceId, streamType]);
+      player.on('error', (err) => {
+        clearTimeout(timeout);
+        setPlayerMsg(String(err || 'decode error'));
+        setLiveError(true);
+        setPlaying(false);
+      });
+    } catch (e) {
+      setLiveError(true);
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [ensureConfig, cmsv9DeviceId, channel, stopPlayback]);
 
-  const startGrid = useCallback(async () => {
-    const jsession = await ensureSession();
-    if (!jsession) return;
-    setGridErrors({});
-    setGridActive(true);
-  }, [ensureSession]);
+  const doStopLive = useCallback(async () => {
+    stopPlayback();
+    if (cmsv9DeviceId) {
+      try {
+        await cmsv9StopLive(deviceId, channel);
+      } catch (e) {
+        // ignore
+      }
+    }
+  }, [cmsv9DeviceId, channel, stopPlayback]);
+
+  useEffect(() => () => stopPlayback(), [stopPlayback]);
+
+  const [pendingMaximize, setPendingMaximize] = useState(null);
 
   const stopGrid = useCallback(() => {
+    channels.forEach((ch) => {
+      destroyFlvPlayer(gridPlayers.current[ch]?.player);
+      delete gridPlayers.current[ch];
+    });
     setGridActive(false);
     setGridErrors({});
-  }, []);
+  }, [channels]);
+
+  useEffect(() => {
+    if (pendingMaximize !== null && tab === 0) {
+      setPendingMaximize(null);
+      startLive();
+    }
+  }, [pendingMaximize, tab, startLive]);
 
   const maximizeChannel = useCallback(
     (ch) => {
       stopGrid();
       setChannel(ch);
       setTab(0);
-      setTimeout(() => startLive(), 50);
+      setPendingMaximize(ch);
     },
-    [stopGrid, startLive],
+    [stopGrid],
   );
 
-  const takeSnapshot = useCatch(async (videoEl) => {
-    if (!videoEl || !videoEl.videoWidth) return;
-    const canvas = document.createElement('canvas');
-    canvas.width = videoEl.videoWidth;
-    canvas.height = videoEl.videoHeight;
-    canvas.getContext('2d').drawImage(videoEl, 0, 0);
-    const link = document.createElement('a');
-    link.download = `cmsv9-${cmsv9DeviceId}-${dayjs().format('YYYYMMDD-HHmmss')}.png`;
-    link.href = canvas.toDataURL('image/png');
-    link.click();
-  }, [cmsv9DeviceId]);
+  const startGrid = useCallback(async () => {
+    await ensureConfig();
+    if (!cmsv9DeviceId) return;
+    setGridErrors({});
+    setGridActive(true);
+  }, [ensureConfig, cmsv9DeviceId]);
 
-  const doSearch = useCatchCallback(
-    async () => {
-      const jsession = await ensureSession();
-      if (!jsession) return;
-      setSearching(true);
+  useEffect(() => {
+    if (!gridActive || !config) return;
+    const timers = [];
+    channels.forEach(async (ch) => {
+      const videoEl = gridPlayers.current[ch]?.videoEl;
+      if (!videoEl || videoEl.dataset.attached) return;
       try {
-        const data = await cmsv9Search({
-          serverUrl,
-          jsession,
-          deviceId: cmsv9DeviceId,
-          channel,
-          beginTime: from.format('YYYY-MM-DD HH:mm:ss'),
-          endTime: to.format('YYYY-MM-DD HH:mm:ss'),
-        });
-        const list = data?.data?.list || data?.list || (Array.isArray(data?.data) ? data.data : []);
-        setRecordings(list);
-      } finally {
-        setSearching(false);
+        const data = await cmsv9StartLive(deviceId, ch);
+        if (data.errCode !== 0 && data.errCode !== -1) {
+          setGridErrors((prev) => ({ ...prev, [ch]: true }));
+          return;
+        }
+        if (!data.flvUrl) {
+          setGridErrors((prev) => ({ ...prev, [ch]: true }));
+          return;
+        }
+        const found = await waitForStream(data.flvUrl);
+        if (!found) {
+          setGridErrors((prev) => ({ ...prev, [ch]: true }));
+          return;
+        }
+        const player = await createFlvPlayer(videoEl, data.flvUrl);
+        gridPlayers.current[ch] = { player, videoEl };
+        videoEl.dataset.attached = '1';
+        if (player) {
+          const timer = setTimeout(() => {
+            setGridErrors((prev) => ({ ...prev, [ch]: true }));
+            destroyFlvPlayer(player);
+            delete gridPlayers.current[ch];
+          }, 60000);
+          timers.push(timer);
+          player.on('videoInfo', () => {
+            clearTimeout(timer);
+          });
+          player.on('error', () => {
+            clearTimeout(timer);
+            setGridErrors((prev) => ({ ...prev, [ch]: true }));
+          });
+        } else {
+          setGridErrors((prev) => ({ ...prev, [ch]: true }));
+        }
+      } catch (e) {
+        setGridErrors((prev) => ({ ...prev, [ch]: true }));
       }
+    });
+    return () => {
+      timers.forEach(clearTimeout);
+      channels.forEach((ch) => {
+        destroyFlvPlayer(gridPlayers.current[ch]?.player);
+        if (gridPlayers.current[ch]?.videoEl) {
+          delete gridPlayers.current[ch].videoEl.dataset.attached;
+        }
+        delete gridPlayers.current[ch];
+      });
+    };
+  }, [gridActive, config, cmsv9DeviceId, channels]);
+
+  const takeSnapshot = useCatch(
+    async (player) => {
+      if (!player || typeof player.screenshot !== 'function') return;
+      const base64 = player.screenshot('snapshot', 'png', 0.92, 'base64');
+      if (!base64) return;
+      const link = document.createElement('a');
+      link.download = `cmsv9-${cmsv9DeviceId}-${dayjs().format('YYYYMMDD-HHmmss')}.png`;
+      link.href = base64;
+      link.click();
     },
-    [serverUrl, ensureSession, cmsv9DeviceId, channel, from, to],
+    [cmsv9DeviceId],
   );
+
+  const doSearch = useCatchCallback(async () => {
+    const cfg = await ensureConfig();
+    if (!cfg) return;
+    setSearching(true);
+    try {
+      const data = await cmsv9Search({
+        deviceId: deviceId,
+        channel,
+        from: from.format('YYYY-MM-DD'),
+        to: to.format('YYYY-MM-DD'),
+        type: '1',
+      });
+      const list = data?.resultData?.list || [];
+      setRecordings(Array.isArray(list) ? list : []);
+    } finally {
+      setSearching(false);
+    }
+  }, [ensureConfig, cmsv9DeviceId, channel, from, to]);
 
   const playRecording = useCallback(
-    (item) => {
+    async (item) => {
       setLiveError(false);
       stopPlayback();
-      const filePath = item.filePath || item.FPATH || item.videoFile;
-      const fileBeg = item.fileBeg ?? item.FILEBEG ?? 0;
-      const fileEnd = item.fileEnd ?? item.FILEEND ?? 0;
-      const url = cmsv9PlaybackUrl({
-        serverUrl,
-        mediaPort,
-        jsession: session,
-        deviceId: cmsv9DeviceId,
-        channel,
-        filePath,
-        fileBeg,
-        fileEnd,
-      });
-      setPlaying(true);
-      setPlayUrl(url);
+      if (!cmsv9DeviceId) return;
+      setLoading(true);
+      try {
+        const data = await cmsv9StartPlayback(
+          deviceId,
+          channel,
+          item.startTime || from.format('YYYY-MM-DD HH:mm:ss'),
+          item.endTime || to.format('YYYY-MM-DD HH:mm:ss'),
+        );
+        if (data.errCode !== 0) {
+          throw new Error(data.resultMsg || 'Failed to start playback');
+        }
+        const { flvUrl } = data;
+        if (!flvUrl) throw new Error('No playback URL returned');
+        setPlaying(true);
+        const found = await waitForStream(flvUrl);
+        if (!found) {
+          setLiveError(true);
+          setPlaying(false);
+          return;
+        }
+        if (!videoRef.current) return;
+        const player = await createFlvPlayer(videoRef.current, flvUrl);
+        flvPlayerRef.current = player;
+        if (!player) {
+          setLiveError(true);
+          setPlaying(false);
+          return;
+        }
+        const timeout = setTimeout(() => {
+          setLiveError(true);
+          setPlaying(false);
+          destroyFlvPlayer(player);
+          flvPlayerRef.current = null;
+        }, 30000);
+        player.on('videoInfo', () => {
+          clearTimeout(timeout);
+        });
+        player.on('error', () => {
+          clearTimeout(timeout);
+          setLiveError(true);
+          setPlaying(false);
+        });
+      } catch (e) {
+        setLiveError(true);
+        setError(e.message);
+      } finally {
+        setLoading(false);
+      }
     },
-    [serverUrl, mediaPort, session, cmsv9DeviceId, channel, stopPlayback],
+    [cmsv9DeviceId, channel, from, to, stopPlayback],
   );
 
-  const downloadRecording = useCatchCallback(
-    (item) => {
-      const filePath = item.filePath || item.FPATH || item.videoFile;
-      const fileLength = item.fileLength ?? item.FLENGTH ?? 0;
-      const url = cmsv9DownloadUrl({
-        serverUrl,
-        mediaPort,
-        jsession: session,
-        deviceId: cmsv9DeviceId,
-        filePath,
-        fileLength,
-        saveName: item.saveName,
-      });
-      window.open(url, '_blank');
-    },
-    [serverUrl, mediaPort, session, cmsv9DeviceId],
-  );
-
-  useEffect(() => () => stopPlayback(), [stopPlayback]);
-
-  const configured = Boolean(serverUrl && cmsv9DeviceId);
+  const configured = Boolean(cmsv9DeviceId);
 
   return (
     <div className={classes.root}>
-      <AppBar position="static" color="transparent" elevation={0} sx={{ borderBottom: 1, borderColor: 'divider' }}>
+      <AppBar
+        position="static"
+        color="transparent"
+        elevation={0}
+        sx={{ borderBottom: 1, borderColor: 'divider' }}
+      >
         <Toolbar>
           <IconButton edge="start" sx={{ mr: 2 }} onClick={() => navigate(-1)}>
             <BackIcon />
@@ -469,24 +594,13 @@ const Cmsv9VideoPage = () => {
                 </MenuItem>
               ))}
             </TextField>
-            <TextField
-              select
-              size="small"
-              label={t('cmsv9StreamType')}
-              value={streamType}
-              onChange={(e) => setStreamType(Number(e.target.value))}
-              sx={{ minWidth: 130 }}
-            >
-              <MenuItem value={0}>{t('cmsv9MainStream')}</MenuItem>
-              <MenuItem value={1}>{t('cmsv9SubStream')}</MenuItem>
-            </TextField>
             {tab === 0 && (
               <Button
                 variant="contained"
                 color={playing ? 'error' : 'primary'}
                 startIcon={playing ? <StopIcon /> : <PlayArrowIcon />}
-                disabled={loggingIn || !session}
-                onClick={() => (playing ? stopPlayback() : startLive())}
+                disabled={loading}
+                onClick={() => (playing ? doStopLive() : startLive())}
               >
                 {playing ? t('sharedStop') : t('sharedPlay')}
               </Button>
@@ -496,7 +610,7 @@ const Cmsv9VideoPage = () => {
                 variant="contained"
                 color={gridActive ? 'error' : 'primary'}
                 startIcon={gridActive ? <StopIcon /> : <PlayArrowIcon />}
-                disabled={loggingIn || !session}
+                disabled={loading}
                 onClick={() => (gridActive ? stopGrid() : startGrid())}
               >
                 {gridActive ? t('sharedStop') : t('cmsv9PlayAll')}
@@ -506,40 +620,61 @@ const Cmsv9VideoPage = () => {
               <Button
                 variant="outlined"
                 startIcon={<PhotoCameraIcon />}
-                onClick={() => takeSnapshot(videoRef.current)}
+                onClick={() => takeSnapshot(flvPlayerRef.current)}
                 disabled={!playing}
               >
                 {t('cmsv9Snapshot')}
               </Button>
             )}
-            {loggingIn && <CircularProgress size={20} />}
+            {loading && <CircularProgress size={20} />}
           </div>
-          {loginError && (
-            <Typography color="error" variant="body2" sx={{ px: 2 }}>
-              {t('cmsv9LoginFailed')}: {loginError}
-            </Typography>
+          {error && (
+            <Box sx={{ px: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography color="error" variant="body2">
+                {t('cmsv9LoginFailed')}: {error}
+              </Typography>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => {
+                  setConfig(null);
+                  ensureConfig();
+                }}
+              >
+                {t('sharedRetry')}
+              </Button>
+            </Box>
           )}
           {tab === 0 && (
             <div className={classes.video}>
-              {playing && !liveError && <video ref={videoRef} className={classes.player} autoPlay muted controls />}
-              {liveError && <Typography className={classes.overlay}>{t('errorConnection')}</Typography>}
-              {!playing && !liveError && <Typography className={classes.overlay}>{t('sharedPlay')}</Typography>}
+              {playing && !liveError && (
+                <div ref={videoRef} className={classes.player} />
+              )}
+              {liveError && (
+                <Typography className={classes.overlay}>
+                  {playerMsg || t('errorConnection')}
+                </Typography>
+              )}
+              {!playing && !liveError && (
+                <Typography className={classes.overlay}>{t('sharedPlay')}</Typography>
+              )}
             </div>
           )}
           {tab === 1 && (
             <div className={classes.grid}>
               {channels.map((ch) => (
                 <div key={ch} className={classes.cell}>
-                  <Chip label={`${t('sharedChannel')} ${ch + 1}`} size="small" className={classes.cellLabel} />
+                  <Chip
+                    label={`${t('sharedChannel')} ${ch + 1}`}
+                    size="small"
+                    className={classes.cellLabel}
+                  />
                   {gridActive && !gridErrors[ch] && (
-                    <video
+                    <div
                       ref={(el) => {
-                        gridRefs.current[ch] = el;
+                        if (el) gridPlayers.current[ch] = { ...gridPlayers.current[ch], videoEl: el };
                       }}
                       className={classes.cellVideo}
-                      autoPlay
-                      muted
-                      playsInline
                     />
                   )}
                   {(!gridActive || gridErrors[ch]) && (
@@ -559,7 +694,10 @@ const Cmsv9VideoPage = () => {
                     <IconButton
                       size="small"
                       className={classes.cellButton}
-                      onClick={() => takeSnapshot(gridRefs.current[ch])}
+                      onClick={() => {
+                        const ctx = gridPlayers.current[ch];
+                        takeSnapshot(ctx?.player);
+                      }}
                       disabled={!gridActive || gridErrors[ch]}
                     >
                       <PhotoCameraIcon fontSize="small" />
@@ -586,7 +724,12 @@ const Cmsv9VideoPage = () => {
                   value={to.format('YYYY-MM-DDTHH:mm')}
                   onChange={(e) => setTo(dayjs(e.target.value))}
                 />
-                <Button variant="contained" startIcon={<SearchIcon />} onClick={doSearch} disabled={searching || !session}>
+                <Button
+                  variant="contained"
+                  startIcon={<SearchIcon />}
+                  onClick={doSearch}
+                  disabled={searching || !config}
+                >
                   {t('sharedSearch')}
                 </Button>
                 {searching && <CircularProgress size={20} />}
@@ -598,22 +741,15 @@ const Cmsv9VideoPage = () => {
                   </ListItem>
                 )}
                 {recordings.map((item, index) => {
-                  const label = item.filePath || item.FPATH || item.videoFile || `${t('sharedFile')} ${index + 1}`;
+                  const label = item.dName
+                    ? `${item.dName} - ${t('sharedFile')} ${index + 1}`
+                    : `${t('sharedFile')} ${index + 1}`;
+                  const time = item.startTime
+                    ? `${item.startTime} - ${item.endTime}`
+                    : '';
                   return (
-                    <ListItemButton key={`${label}-${index}`} onClick={() => playRecording(item)}>
-                      <ListItemText
-                        primary={label}
-                        secondary={item.startTime || item.begintime || item.fileBeg || ''}
-                      />
-                      <IconButton
-                        edge="end"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          downloadRecording(item);
-                        }}
-                      >
-                        <DownloadIcon />
-                      </IconButton>
+                    <ListItemButton key={`${index}`} onClick={() => playRecording(item)}>
+                      <ListItemText primary={label} secondary={time} />
                     </ListItemButton>
                   );
                 })}

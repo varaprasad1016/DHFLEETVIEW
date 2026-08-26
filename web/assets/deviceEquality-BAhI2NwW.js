@@ -1,0 +1,1 @@
+const o=n=>(r={},e={})=>{if(r===e)return!0;const f=Object.keys(r);if(f.length!==Object.keys(e).length)return!1;for(const t of f){if(!e[t])return!1;for(const s of n)if(r[t][s]!==e[t][s])return!1}return!0};export{o as d};

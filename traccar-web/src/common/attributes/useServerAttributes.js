@@ -69,6 +69,27 @@ export default (t) =>
         name: t('serverDisableShare'),
         type: 'boolean',
       },
+      cmsv9Url: {
+        name: 'CMSV9 URL',
+        type: 'string',
+      },
+      cmsv9Account: {
+        name: 'CMSV9 Account',
+        type: 'string',
+      },
+      cmsv9Password: {
+        name: 'CMSV9 Password',
+        type: 'string',
+        dataType: 'password',
+      },
+      cmsv9MediaPort: {
+        name: 'CMSV9 Media Port',
+        type: 'number',
+      },
+      cmsv9Channels: {
+        name: 'CMSV9 Channels',
+        type: 'number',
+      },
     }),
     [t],
   );

@@ -2319,4 +2319,71 @@ public final class Keys {
             "broadcast.secondary",
             List.of(KeyType.CONFIG));
 
+    /**
+     * CMSV9 / 808gps video platform server URL (e.g. http://host:port).
+     */
+    public static final ConfigKey<String> CMSV9_URL = new StringConfigKey(
+            "cmsv9.url",
+            List.of(KeyType.CONFIG));
+
+    /**
+     * CMSV9 platform login account (username).
+     */
+    public static final ConfigKey<String> CMSV9_ACCOUNT = new StringConfigKey(
+            "cmsv9.account",
+            List.of(KeyType.CONFIG));
+
+    /**
+     * CMSV9 platform login password.
+     */
+    public static final ConfigKey<String> CMSV9_PASSWORD = new StringConfigKey(
+            "cmsv9.password",
+            List.of(KeyType.CONFIG));
+
+    /**
+     * CMSV9 media server port for HLS streams. Defaults to 6604.
+     */
+    public static final ConfigKey<Integer> CMSV9_MEDIA_PORT = new IntegerConfigKey(
+            "cmsv9.mediaPort",
+            List.of(KeyType.CONFIG),
+            6604);
+
+    /**
+     * Number of camera channels per CMSV9 device. Defaults to 4.
+     */
+    public static final ConfigKey<Integer> CMSV9_CHANNELS = new IntegerConfigKey(
+            "cmsv9.channels",
+            List.of(KeyType.CONFIG),
+            4);
+
+    /**
+     * Optional CMSV9 media server URL override. When not set, derived from cmsv9.url with cmsv9.mediaPort.
+     */
+    public static final ConfigKey<String> CMSV9_MEDIA_URL = new StringConfigKey(
+            "cmsv9.mediaUrl",
+            List.of(KeyType.CONFIG));
+
+    /**
+     * CMSV9 ZLMediaKit RTSP push port for live streams. Defaults to 10077.
+     */
+    public static final ConfigKey<Integer> CMSV9_CLIENT_PORT = new IntegerConfigKey(
+            "cmsv9.clientPort",
+            List.of(KeyType.CONFIG),
+            10077);
+
+    /**
+     * CMSV9 WebSocket server port for device commands. Defaults to 9006.
+     */
+    public static final ConfigKey<Integer> CMSV9_WS_PORT = new IntegerConfigKey(
+            "cmsv9.wsPort",
+            List.of(KeyType.CONFIG),
+            9006);
+
+    /**
+     * CMSV9 WebSocket authentication key. Required for signing WebSocket messages.
+     */
+    public static final ConfigKey<String> CMSV9_WS_KEY = new StringConfigKey(
+            "cmsv9.wsKey",
+            List.of(KeyType.CONFIG));
+
 }
