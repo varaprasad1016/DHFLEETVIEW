@@ -157,6 +157,23 @@ public class Cmsv9Manager {
         return signedPost("/ajax/cmsapi/deptTree", new LinkedHashMap<>());
     }
 
+    public int getDeviceChannels(String terminal) throws Exception {
+        JsonNode response = deptTree();
+        JsonNode list = response.path("resultData");
+        if (list.isArray()) {
+            for (JsonNode node : list) {
+                if (node.path("nodetype").asInt(0) == 2
+                        && terminal.equals(node.path("terminal").asText(""))) {
+                    int channels = node.path("channeltotals").asInt(0);
+                    if (channels > 0) {
+                        return channels;
+                    }
+                }
+            }
+        }
+        return -1;
+    }
+
     public JsonNode playSend(String terminal, String channel, boolean start) throws Exception {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("type", start ? "1" : "0");

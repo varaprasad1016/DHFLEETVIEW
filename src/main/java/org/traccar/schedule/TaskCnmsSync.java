@@ -140,7 +140,7 @@ public class TaskCnmsSync extends SingleScheduleTask {
                         new Columns.Include("positionId"),
                         new Condition.Equals("id", device.getId())));
 
-                if (device.getUniqueId() != null && device.getUniqueId().startsWith("cnms-")) {
+                if (connectionManager.getDeviceSession(device.getId()) == null) {
                     boolean acc = data.path("acc").asInt(0) == 1;
                     int carstatus = data.path("carstatus").asInt(0);
                     if (carstatus == 2) {

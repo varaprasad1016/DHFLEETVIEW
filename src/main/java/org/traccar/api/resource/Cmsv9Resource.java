@@ -36,15 +36,27 @@ public class Cmsv9Resource extends BaseResource {
 
     @GET
     @Path("config")
-    public Map<String, Object> config() throws Exception {
+    public Map<String, Object> config(@QueryParam("deviceId") Long deviceId) throws Exception {
         if (!cmsv9Manager.isConfigured()) {
             return Map.of("configured", false);
         }
         cmsv9Manager.login();
+        int channels = cmsv9Manager.getChannels();
+        if (deviceId != null) {
+            try {
+                String terminal = getCmsDeviceId(deviceId);
+                int deviceChannels = cmsv9Manager.getDeviceChannels(terminal);
+                if (deviceChannels > 0) {
+                    channels = deviceChannels;
+                }
+            } catch (Exception e) {
+                // fall back to configured default
+            }
+        }
         return Map.of(
                 "configured", true,
                 "mediaPort", cmsv9Manager.getMediaPort(),
-                "channels", cmsv9Manager.getChannels());
+                "channels", channels);
     }
 
     @GET

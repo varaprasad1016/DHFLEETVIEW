@@ -10,8 +10,9 @@
  *   - Search:  GET  /api/cmsv9/search?deviceId=&channel=&from=&to=&type=
  */
 
-export const cmsv9GetConfig = async () => {
-  const response = await fetch('api/cmsv9/config');
+export const cmsv9GetConfig = async (deviceId) => {
+  const query = deviceId ? `?deviceId=${deviceId}` : '';
+  const response = await fetch(`api/cmsv9/config${query}`);
   if (!response.ok) throw new Error('Failed to fetch CMSV9 config');
   return response.json();
 };

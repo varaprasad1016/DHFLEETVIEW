@@ -259,17 +259,17 @@ const Cmsv9VideoPage = () => {
   const [searching, setSearching] = useState(false);
   const [recordings, setRecordings] = useState([]);
 
-  const channels = useMemo(
-    () => Array.from({ length: Number(defaultChannels) || 4 }, (_, i) => i),
-    [defaultChannels],
-  );
+  const channels = useMemo(() => {
+    const n = config?.channels || Number(defaultChannels) || 4;
+    return Array.from({ length: Math.min(Math.max(Number(n), 1), 16) }, (_, i) => i);
+  }, [config, defaultChannels]);
 
   const ensureConfig = useCallback(async () => {
     if (config) return config;
     setLoading(true);
     setError(null);
     try {
-      const data = await cmsv9GetConfig();
+      const data = await cmsv9GetConfig(deviceId);
       if (data.configured) {
         setConfig(data);
         return data;
@@ -281,7 +281,7 @@ const Cmsv9VideoPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [config]);
+  }, [config, deviceId]);
 
   useEffect(() => {
     if (cmsv9DeviceId) {
@@ -402,11 +402,12 @@ const Cmsv9VideoPage = () => {
   useEffect(() => {
     if (!gridActive || !config) return;
     const timers = [];
+    const cancelled = new Set();
     channels.forEach(async (ch) => {
       const videoEl = gridPlayers.current[ch]?.videoEl;
       if (!videoEl || videoEl.dataset.attached) return;
       try {
-        const data = await cmsv9StartLive(deviceId, ch);
+        let data = await cmsv9StartLive(deviceId, ch);
         if (data.errCode !== 0 && data.errCode !== -1) {
           setGridErrors((prev) => ({ ...prev, [ch]: true }));
           return;
@@ -415,11 +416,16 @@ const Cmsv9VideoPage = () => {
           setGridErrors((prev) => ({ ...prev, [ch]: true }));
           return;
         }
-        const found = await waitForStream(data.flvUrl);
+        let found = await waitForStream(data.flvUrl, 120000);
+        if (!found) {
+          data = await cmsv9StartLive(deviceId, ch);
+          found = data.flvUrl ? await waitForStream(data.flvUrl, 90000) : false;
+        }
         if (!found) {
           setGridErrors((prev) => ({ ...prev, [ch]: true }));
           return;
         }
+        if (cancelled.has(ch)) return;
         const player = await createFlvPlayer(videoEl, data.flvUrl);
         gridPlayers.current[ch] = { player, videoEl };
         videoEl.dataset.attached = '1';
@@ -428,7 +434,7 @@ const Cmsv9VideoPage = () => {
             setGridErrors((prev) => ({ ...prev, [ch]: true }));
             destroyFlvPlayer(player);
             delete gridPlayers.current[ch];
-          }, 60000);
+          }, 120000);
           timers.push(timer);
           player.on('videoInfo', () => {
             clearTimeout(timer);
@@ -445,6 +451,7 @@ const Cmsv9VideoPage = () => {
       }
     });
     return () => {
+      channels.forEach((ch) => cancelled.add(ch));
       timers.forEach(clearTimeout);
       channels.forEach((ch) => {
         destroyFlvPlayer(gridPlayers.current[ch]?.player);
