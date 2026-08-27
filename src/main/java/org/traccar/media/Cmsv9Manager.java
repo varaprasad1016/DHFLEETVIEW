@@ -33,6 +33,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -259,6 +261,73 @@ public class Cmsv9Manager {
                 return false;
             }
             return waitForStreamLive(liveStreamName(terminal, channel), timeoutMillis);
+        }
+    }
+
+    private final ExecutorService playExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "cmsv9-play");
+        t.setDaemon(true);
+        return t;
+    });
+
+    /**
+     * Queues a channel play in the background: sends the WS order AND the
+     * internal mediacontrol command, then waits for the stream to register.
+     * Returns immediately so the API response is never blocked.
+     */
+    public void playLiveAsync(String terminal, int channel) {
+        playExecutor.submit(() -> {
+            try {
+                synchronized (wsOrderLock) {
+                    wsPlay(terminal, channel);
+                    mediacontrol(terminal, channel, 0);
+                    waitForStreamLive(liveStreamName(terminal, channel), 45000);
+                }
+            } catch (Exception e) {
+                LOG.warn("Live play failed for {}/{}: {}", terminal, channel, e.getMessage());
+            }
+        });
+    }
+
+    public void stopLiveAsync(String terminal, int channel) {
+        playExecutor.submit(() -> {
+            try {
+                synchronized (wsOrderLock) {
+                    wsStop(terminal, channel);
+                    mediacontrol(terminal, channel, 1);
+                }
+            } catch (Exception e) {
+                LOG.warn("Live stop failed for {}/{}: {}", terminal, channel, e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * Internal CNMS media control API (same one the portal's on-demand
+     * hooks use). The device appears to only start pushing when this
+     * command is delivered; the WebSocket order alone is not enough.
+     */
+    private void mediacontrol(String terminal, int channel, int type) {
+        try {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("sign", "ifNTSJ5vmA");
+            body.put("type", type);
+            body.put("terminal", "0" + terminal);
+            body.put("id", String.valueOf(channel));
+            body.put("protocol", 1);
+            body.put("vedioType", 0);
+            body.put("streamType", 1);
+            String json = objectMapper.writeValueAsString(body);
+            HttpRequest request = HttpRequest.newBuilder(
+                            URI.create("http://127.0.0.1:9005/cmsapi/mediacontrol"))
+                    .timeout(Duration.ofSeconds(8))
+                    .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
+                    .header("Content-Type", "application/json")
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            LOG.info("mediacontrol type={} terminal={} channel={} -> {}", type, terminal, channel, response.body());
+        } catch (Exception e) {
+            LOG.warn("mediacontrol failed for {}/{}: {}", terminal, channel, e.getMessage());
         }
     }
 

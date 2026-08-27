@@ -320,7 +320,7 @@ const Cmsv9VideoPage = () => {
       const { flvUrl } = data;
       if (!flvUrl) throw new Error('No stream URL returned');
       setPlaying(true);
-      const found = await waitForStream(flvUrl, 45000, () => cancelledRef.current);
+      const found = await waitForStream(flvUrl, 90000, () => cancelledRef.current);
       if (!found) {
         if (!cancelledRef.current) {
           setLiveError(true);
