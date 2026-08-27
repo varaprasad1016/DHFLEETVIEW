@@ -16,6 +16,8 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.StreamingOutput;
 import org.traccar.api.BaseResource;
 import org.traccar.media.Cmsv9Manager;
 import org.traccar.model.Device;
@@ -24,6 +26,8 @@ import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Condition;
 import org.traccar.storage.query.Request;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -74,15 +78,54 @@ public class Cmsv9Resource extends BaseResource {
         String terminal = getCmsDeviceId(deviceId);
         int cnmsChannel = channel + 1;
 
-        boolean ready = cmsv9Manager.playLiveAndWait(terminal, cnmsChannel, 40000);
-        String flvUrl = cmsv9Manager.buildLiveFlvUrl(terminal, cnmsChannel);
+        cmsv9Manager.playLiveAsync(terminal, cnmsChannel);
 
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("errCode", ready ? 0 : -1);
-        result.put("flvUrl", flvUrl);
+        result.put("errCode", 0);
+        result.put("flvUrl", "/api/cmsv9/stream/" + deviceId + "/" + channel);
         result.put("terminal", terminal);
         result.put("channel", channel);
         return result;
+    }
+
+    /**
+     * Proxies the live FLV stream from the local ZLMediaKit. Returns 404
+     * when the stream is not live yet (checked via the media API, so no
+     * CNMS on-demand hooks are triggered).
+     */
+    @GET
+    @Path("stream/{deviceId}/{channel}")
+    public Response stream(
+            @PathParam("deviceId") long deviceId,
+            @PathParam("channel") int channel) throws Exception {
+        String terminal = getCmsDeviceId(deviceId);
+        int cnmsChannel = channel + 1;
+        String streamName = cmsv9Manager.liveStreamName(terminal, cnmsChannel);
+
+        if (!cmsv9Manager.isStreamLive(streamName)) {
+            return Response.status(Response.Status.NOT_FOUND).build();
+        }
+        InputStream input = cmsv9Manager.openStream(streamName);
+        if (input == null) {
+            return Response.status(Response.Status.NOT_FOUND).build();
+        }
+
+        StreamingOutput output = out -> {
+            try (InputStream in = input) {
+                byte[] buffer = new byte[8192];
+                int length;
+                while ((length = in.read(buffer)) != -1) {
+                    out.write(buffer, 0, length);
+                    out.flush();
+                }
+            } catch (IOException e) {
+                // client disconnected or stream ended
+            }
+        };
+        return Response.ok(output)
+                .header("Content-Type", "video/x-flv")
+                .header("Cache-Control", "no-cache")
+                .build();
     }
 
     @POST

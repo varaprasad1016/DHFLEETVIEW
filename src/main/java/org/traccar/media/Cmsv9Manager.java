@@ -18,6 +18,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -337,40 +338,69 @@ public class Cmsv9Manager {
     }
 
     /**
+     * Checks whether the named stream is currently registered on the local
+     * ZLMediaKit. Uses the media API (no stream URL requests, so no CNMS
+     * on-demand hooks are triggered).
+     */
+    public boolean isStreamLive(String streamName) {
+        String secret = value(Keys.CMSV9_MEDIA_SECRET);
+        if (secret == null) {
+            return false;
+        }
+        try {
+            URI uri = URI.create("https://127.0.0.1:" + getMediaPort()
+                    + "/index/api/getMediaList?secret=" + secret);
+            HttpRequest request = HttpRequest.newBuilder(uri)
+                    .timeout(Duration.ofSeconds(5))
+                    .GET()
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() / 100 == 2) {
+                JsonNode root = objectMapper.readTree(response.body());
+                JsonNode data = root.path("data");
+                if (data.isArray()) {
+                    for (JsonNode item : data) {
+                        if (streamName.equals(item.path("stream").asText(""))) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // treat as not live
+        }
+        return false;
+    }
+
+    /**
+     * Opens the FLV stream from the local ZLMediaKit. Returns null when the
+     * stream is not available.
+     */
+    public InputStream openStream(String streamName) throws Exception {
+        URI uri = URI.create("https://127.0.0.1:" + getMediaPort()
+                + "/live/" + streamName + ".live.flv");
+        HttpRequest request = HttpRequest.newBuilder(uri)
+                .timeout(Duration.ofSeconds(10))
+                .GET()
+                .build();
+        HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        if (response.statusCode() / 100 != 2) {
+            response.body().close();
+            return null;
+        }
+        return response.body();
+    }
+
+    /**
      * Polls the local ZLMediaKit API until the named stream appears.
      * Avoids HTTP requests to the stream URL (which would trigger the
      * CNMS on-demand hooks and overload the video backend).
      */
     public boolean waitForStreamLive(String streamName, long timeoutMillis) {
-        String secret = value(Keys.CMSV9_MEDIA_SECRET);
-        if (secret == null) {
-            LOG.warn("cmsv9.mediaSecret not configured, skipping stream wait");
-            return true;
-        }
         long deadline = System.currentTimeMillis() + timeoutMillis;
         while (System.currentTimeMillis() < deadline) {
-            try {
-                URI uri = URI.create("https://127.0.0.1:" + getMediaPort()
-                        + "/index/api/getMediaList?secret=" + secret);
-                HttpRequest request = HttpRequest.newBuilder(uri)
-                        .timeout(Duration.ofSeconds(5))
-                        .GET()
-                        .build();
-                HttpResponse<String> response = client.send(
-                        request, HttpResponse.BodyHandlers.ofString());
-                if (response.statusCode() / 100 == 2) {
-                    JsonNode root = objectMapper.readTree(response.body());
-                    JsonNode data = root.path("data");
-                    if (data.isArray()) {
-                        for (JsonNode item : data) {
-                            if (streamName.equals(item.path("stream").asText(""))) {
-                                return true;
-                            }
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                // keep polling
+            if (isStreamLive(streamName)) {
+                return true;
             }
             try {
                 Thread.sleep(1000);

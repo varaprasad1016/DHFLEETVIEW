@@ -181,8 +181,7 @@ async function createFlvPlayer(container, url) {
     useWebFullScreen: false,
     timeout: 20,
     loadingTimeout: 30,
-  });
-  player.on('error', (err) => console.log('[cmsv9] error:', err));
+  });  player.on('error', (err) => console.log('[cmsv9] error:', err));
   player.on('videoInfo', (d) => console.log('[cmsv9] videoInfo:', d));
   player.on('audioInfo', (d) => console.log('[cmsv9] audioInfo:', d));
   player.on('load', () => console.log('[cmsv9] load'));
@@ -190,7 +189,7 @@ async function createFlvPlayer(container, url) {
   player.on('start', () => console.log('[cmsv9] start'));
   player.on('timeout', () => console.log('[cmsv9] timeout'));
   player.on('loadingTimeout', () => console.log('[cmsv9] loadingTimeout'));
-  player.play(url).then(
+  player.play(resolveUrl(url)).then(
     () => console.log('[cmsv9] play() resolved'),
     (e) => console.log('[cmsv9] play() rejected:', e),
   );
@@ -207,14 +206,23 @@ function destroyFlvPlayer(player) {
   }
 }
 
+function resolveUrl(url) {
+  try {
+    return new URL(url, window.location.origin).href;
+  } catch (e) {
+    return url;
+  }
+}
+
 async function waitForStream(url, timeoutMs = 45000, cancelFn) {
+  const absolute = resolveUrl(url);
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (cancelFn && cancelFn()) return false;
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 2000);
-      const res = await fetch(url, { signal: controller.signal, cache: 'no-store' });
+      const res = await fetch(absolute, { signal: controller.signal, cache: 'no-store' });
       clearTimeout(timer);
       if (res.ok) return true;
     } catch (e) {
@@ -448,7 +456,7 @@ const Cmsv9VideoPage = () => {
       const videoEl = gridPlayers.current[ch]?.videoEl;
       if (!videoEl || videoEl.dataset.attached) return;
       try {
-        let data = await cmsv9StartLive(deviceId, ch);
+        const data = await cmsv9StartLive(deviceId, ch);
         if (data.errCode !== 0 && data.errCode !== -1) {
           setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
           return;
@@ -457,12 +465,7 @@ const Cmsv9VideoPage = () => {
           setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
           return;
         }
-        let found = await waitForStream(
-          data.flvUrl, data.errCode === 0 ? 15000 : 60000, () => cancelledRef.current);
-        if (!found && !cancelledRef.current && data.errCode === 0) {
-          data = await cmsv9StartLive(deviceId, ch);
-          found = data.flvUrl ? await waitForStream(data.flvUrl, 90000, () => cancelledRef.current) : false;
-        }
+        const found = await waitForStream(data.flvUrl, 150000, () => cancelledRef.current);
         if (!found) {
           if (!cancelledRef.current) {
             setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
