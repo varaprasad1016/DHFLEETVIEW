@@ -260,6 +260,7 @@ public class Cmsv9Manager {
             if (!wsPlay(terminal, channel)) {
                 return false;
             }
+            mediacontrol(terminal, channel, 0);
             return waitForStreamLive(liveStreamName(terminal, channel), timeoutMillis);
         }
     }

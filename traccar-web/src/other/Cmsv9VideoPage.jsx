@@ -457,8 +457,9 @@ const Cmsv9VideoPage = () => {
           setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
           return;
         }
-        let found = await waitForStream(data.flvUrl, 120000, () => cancelledRef.current);
-        if (!found && !cancelledRef.current) {
+        let found = await waitForStream(
+          data.flvUrl, data.errCode === 0 ? 15000 : 60000, () => cancelledRef.current);
+        if (!found && !cancelledRef.current && data.errCode === 0) {
           data = await cmsv9StartLive(deviceId, ch);
           found = data.flvUrl ? await waitForStream(data.flvUrl, 90000, () => cancelledRef.current) : false;
         }

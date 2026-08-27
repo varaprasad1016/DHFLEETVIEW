@@ -74,11 +74,11 @@ public class Cmsv9Resource extends BaseResource {
         String terminal = getCmsDeviceId(deviceId);
         int cnmsChannel = channel + 1;
 
-        cmsv9Manager.playLiveAsync(terminal, cnmsChannel);
+        boolean ready = cmsv9Manager.playLiveAndWait(terminal, cnmsChannel, 40000);
         String flvUrl = cmsv9Manager.buildLiveFlvUrl(terminal, cnmsChannel);
 
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("errCode", 0);
+        result.put("errCode", ready ? 0 : -1);
         result.put("flvUrl", flvUrl);
         result.put("terminal", terminal);
         result.put("channel", channel);
