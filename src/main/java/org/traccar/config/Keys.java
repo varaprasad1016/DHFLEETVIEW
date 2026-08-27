@@ -2393,4 +2393,66 @@ public final class Keys {
             "cmsv9.mediaSecret",
             List.of(KeyType.CONFIG));
 
+    /**
+     * Tachograph module enabled.
+     */
+    public static final ConfigKey<Boolean> TACHO_ENABLED = new BooleanConfigKey(
+            "tacho.enabled",
+            List.of(KeyType.CONFIG),
+            false);
+
+    /**
+     * Root directory for tachograph DDD file storage (local filesystem).
+     */
+    public static final ConfigKey<String> TACHO_STORAGE_PATH = new StringConfigKey(
+            "tacho.storagePath",
+            List.of(KeyType.CONFIG));
+
+    /**
+     * Enables the built-in FMC650 tachograph simulator. TEST ONLY.
+     */
+    public static final ConfigKey<Boolean> TACHO_SIMULATOR = new BooleanConfigKey(
+            "tacho.simulator",
+            List.of(KeyType.CONFIG),
+            false);
+
+    /**
+     * Retry backoff delays in seconds (comma separated), e.g. 30,120,600.
+     */
+    public static final ConfigKey<String> TACHO_RETRY_DELAYS = new StringConfigKey(
+            "tacho.retryDelays",
+            List.of(KeyType.CONFIG));
+
+    /**
+     * Default driver-card download interval in days.
+     */
+    public static final ConfigKey<Integer> TACHO_DRIVER_INTERVAL = new IntegerConfigKey(
+            "tacho.driverIntervalDays",
+            List.of(KeyType.CONFIG),
+            28);
+
+    /**
+     * Default vehicle-unit download interval in days.
+     */
+    public static final ConfigKey<Integer> TACHO_VEHICLE_INTERVAL = new IntegerConfigKey(
+            "tacho.vehicleIntervalDays",
+            List.of(KeyType.CONFIG),
+            90);
+
+    /**
+     * Timeout in seconds for a single device download attempt.
+     */
+    public static final ConfigKey<Integer> TACHO_DOWNLOAD_TIMEOUT = new IntegerConfigKey(
+            "tacho.downloadTimeoutSeconds",
+            List.of(KeyType.CONFIG),
+            600);
+
+    /**
+     * Timeout in seconds for a bridge authentication operation.
+     */
+    public static final ConfigKey<Integer> TACHO_AUTH_TIMEOUT = new IntegerConfigKey(
+            "tacho.authTimeoutSeconds",
+            List.of(KeyType.CONFIG),
+            120);
+
 }

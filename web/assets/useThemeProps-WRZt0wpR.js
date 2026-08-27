@@ -1,0 +1,1 @@
+import{bo as a,bm as p,bp as h}from"./index-CTxeUp6X.js";const u=a();function c(t){const{props:m,name:o,defaultTheme:r,themeId:s}=t;let e=p(r);return s&&(e=e[s]||e),h({theme:e,name:o,props:m})}export{u as s,c as u};

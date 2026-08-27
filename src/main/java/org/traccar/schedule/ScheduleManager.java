@@ -52,7 +52,9 @@ public class ScheduleManager implements LifecycleObject {
                 TaskDeviceInactivityCheck.class,
                 TaskSessionTimeout.class,
                 TaskWebSocketKeepalive.class,
-                TaskCnmsSync.class)
+                TaskCnmsSync.class,
+                TaskTachographScheduler.class,
+                TaskTachographRecovery.class)
                 .forEachOrdered(taskClass -> {
                     var task = injector.getInstance(taskClass);
                     if (task.multipleInstances() || !secondary) {

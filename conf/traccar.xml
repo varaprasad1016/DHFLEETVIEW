@@ -19,5 +19,9 @@
     <entry key="cmsv9.wsPort">9006</entry>
     <entry key="cmsv9.wsKey">J04Tb9pcLF7y6QrFmgTJLeVv33YbMhqW</entry>
     <entry key="cmsv9.mediaSecret">kAYUY7AEzk7mlB8XzZQ9qSixAGJGHggZ</entry>
+    <entry key="tacho.enabled">true</entry>
+    <entry key="tacho.storagePath">data/tachograph</entry>
+    <entry key="tacho.simulator">true</entry>
+    <entry key="tacho.retryDelays">30,120,600</entry>
 
 </properties>

@@ -62,6 +62,7 @@ const AnnouncementPage = lazy(() => import('./settings/AnnouncementPage'));
 const EmulatorPage = lazy(() => import('./other/EmulatorPage'));
 const StreamPage = lazy(() => import('./other/StreamPage'));
 const Cmsv9VideoPage = lazy(() => import('./other/Cmsv9VideoPage'));
+const TachographPage = lazy(() => import('./other/TachographPage'));
 const AuditPage = lazy(() => import('./reports/AuditPage'));
 
 const Navigation = () => {
@@ -138,8 +139,10 @@ const Navigation = () => {
           <Route path="emulator" element={<EmulatorPage />} />
           <Route path="stream" element={<StreamPage />} />
           <Route path="cmsv9-video" element={<Cmsv9VideoPage />} />
+          <Route path="tachograph" element={<TachographPage />} />
 
           <Route path="settings">
+            <Route path="tachograph" element={<TachographPage />} />
             <Route path=":type/:id/share" element={<SharePage />} />
             <Route path="accumulators/:deviceId" element={<AccumulatorsPage />} />
             <Route path="announcement" element={<AnnouncementPage />} />

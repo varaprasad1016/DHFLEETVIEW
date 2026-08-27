@@ -1,0 +1,183 @@
+<?xml version="1.1" encoding="UTF-8"?>
+<databaseChangeLog
+  xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                      http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.6.xsd"
+  logicalFilePath="changelog-6.16">
+
+  <changeSet author="dhfleetview" id="changelog-6.16-tachograph">
+
+    <createTable tableName="tc_tachograph_configurations">
+      <column autoIncrement="true" name="id" type="INT">
+        <constraints primaryKey="true" />
+      </column>
+      <column name="deviceid" type="INT">
+        <constraints nullable="false" unique="true" />
+      </column>
+      <column name="enabled" type="BOOLEAN" defaultValueBoolean="false">
+        <constraints nullable="false" />
+      </column>
+      <column name="driverdownloadenabled" type="BOOLEAN" defaultValueBoolean="false">
+        <constraints nullable="false" />
+      </column>
+      <column name="vehicledownloadenabled" type="BOOLEAN" defaultValueBoolean="false">
+        <constraints nullable="false" />
+      </column>
+      <column name="driverdownloadintervaldays" type="INT" defaultValueNumeric="28">
+        <constraints nullable="false" />
+      </column>
+      <column name="vehicledownloadintervaldays" type="INT" defaultValueNumeric="90">
+        <constraints nullable="false" />
+      </column>
+      <column name="lastdriverdownload" type="TIMESTAMP" />
+      <column name="lastvehicledownload" type="TIMESTAMP" />
+      <column name="nextdriverdownload" type="TIMESTAMP" />
+      <column name="nextvehicledownload" type="TIMESTAMP" />
+      <column name="createdat" type="TIMESTAMP" />
+      <column name="updatedat" type="TIMESTAMP" />
+    </createTable>
+
+    <createTable tableName="tc_tachograph_download_jobs">
+      <column autoIncrement="true" name="id" type="INT">
+        <constraints primaryKey="true" />
+      </column>
+      <column name="deviceid" type="INT">
+        <constraints nullable="false" />
+      </column>
+      <column name="requestedby" type="INT">
+        <constraints nullable="false" />
+      </column>
+      <column name="downloadtype" type="VARCHAR(16)">
+        <constraints nullable="false" />
+      </column>
+      <column name="requestedfrom" type="TIMESTAMP" />
+      <column name="requestedto" type="TIMESTAMP" />
+      <column name="status" type="VARCHAR(32)">
+        <constraints nullable="false" />
+      </column>
+      <column name="progress" type="INT" defaultValueNumeric="0">
+        <constraints nullable="false" />
+      </column>
+      <column name="retrycount" type="INT" defaultValueNumeric="0">
+        <constraints nullable="false" />
+      </column>
+      <column name="queuedat" type="TIMESTAMP" />
+      <column name="startedat" type="TIMESTAMP" />
+      <column name="completedat" type="TIMESTAMP" />
+      <column name="failedat" type="TIMESTAMP" />
+      <column name="nextretryat" type="TIMESTAMP" />
+      <column name="errorcode" type="VARCHAR(64)" />
+      <column name="errormessage" type="VARCHAR(1024)" />
+      <column name="fileid" type="INT" />
+      <column name="createdat" type="TIMESTAMP" />
+      <column name="updatedat" type="TIMESTAMP" />
+    </createTable>
+
+    <createIndex tableName="tc_tachograph_download_jobs" indexName="ix_tacho_jobs_device">
+      <column name="deviceid" />
+    </createIndex>
+
+    <createIndex tableName="tc_tachograph_download_jobs" indexName="ix_tacho_jobs_status">
+      <column name="status" />
+    </createIndex>
+
+    <createIndex tableName="tc_tachograph_download_jobs" indexName="ix_tacho_jobs_nextretry">
+      <column name="nextretryat" />
+    </createIndex>
+
+    <createTable tableName="tc_tachograph_files">
+      <column autoIncrement="true" name="id" type="INT">
+        <constraints primaryKey="true" />
+      </column>
+      <column name="downloadjobid" type="INT" />
+      <column name="deviceid" type="INT">
+        <constraints nullable="false" />
+      </column>
+      <column name="filename" type="VARCHAR(512)">
+        <constraints nullable="false" />
+      </column>
+      <column name="filetype" type="VARCHAR(16)">
+        <constraints nullable="false" />
+      </column>
+      <column name="filesize" type="BIGINT" defaultValueNumeric="0">
+        <constraints nullable="false" />
+      </column>
+      <column name="sha256" type="VARCHAR(64)" />
+      <column name="storagepath" type="VARCHAR(1024)">
+        <constraints nullable="false" />
+      </column>
+      <column name="validationstatus" type="VARCHAR(16)">
+        <constraints nullable="false" />
+      </column>
+      <column name="downloadedat" type="TIMESTAMP" />
+      <column name="processedat" type="TIMESTAMP" />
+      <column name="createdat" type="TIMESTAMP" />
+    </createTable>
+
+    <createIndex tableName="tc_tachograph_files" indexName="ix_tacho_files_device">
+      <column name="deviceid" />
+    </createIndex>
+
+    <createIndex tableName="tc_tachograph_files" indexName="ix_tacho_files_job">
+      <column name="downloadjobid" />
+    </createIndex>
+
+    <createTable tableName="tc_tachograph_bridges">
+      <column autoIncrement="true" name="id" type="INT">
+        <constraints primaryKey="true" />
+      </column>
+      <column name="bridgeid" type="VARCHAR(64)">
+        <constraints nullable="false" unique="true" />
+      </column>
+      <column name="groupid" type="INT">
+        <constraints nullable="false" />
+      </column>
+      <column name="name" type="VARCHAR(128)">
+        <constraints nullable="false" />
+      </column>
+      <column name="status" type="VARCHAR(16)">
+        <constraints nullable="false" />
+      </column>
+      <column name="tokenhash" type="VARCHAR(64)" />
+      <column name="readerstatus" type="VARCHAR(32)" />
+      <column name="cardstatus" type="VARCHAR(32)" />
+      <column name="cardidentifier" type="VARCHAR(128)" />
+      <column name="cardtype" type="VARCHAR(64)" />
+      <column name="cardvalidityto" type="TIMESTAMP" />
+      <column name="softwareversion" type="VARCHAR(64)" />
+      <column name="lastheartbeat" type="TIMESTAMP" />
+      <column name="registeredat" type="TIMESTAMP" />
+      <column name="lastseenat" type="TIMESTAMP" />
+      <column name="pairingcodehash" type="VARCHAR(64)" />
+      <column name="pairingcodeexpiresat" type="TIMESTAMP" />
+    </createTable>
+
+    <createTable tableName="tc_tachograph_auth_sessions">
+      <column autoIncrement="true" name="id" type="INT">
+        <constraints primaryKey="true" />
+      </column>
+      <column name="downloadjobid" type="INT">
+        <constraints nullable="false" />
+      </column>
+      <column name="bridgeid" type="INT">
+        <constraints nullable="false" />
+      </column>
+      <column name="status" type="VARCHAR(32)">
+        <constraints nullable="false" />
+      </column>
+      <column name="resultcode" type="VARCHAR(64)" />
+      <column name="resultmessage" type="VARCHAR(1024)" />
+      <column name="requestedat" type="TIMESTAMP" />
+      <column name="startedat" type="TIMESTAMP" />
+      <column name="completedat" type="TIMESTAMP" />
+      <column name="expiresat" type="TIMESTAMP" />
+    </createTable>
+
+    <createIndex tableName="tc_tachograph_auth_sessions" indexName="ix_tacho_auth_bridge_status">
+      <column name="bridgeid" />
+      <column name="status" />
+    </createIndex>
+
+  </changeSet>
+</databaseChangeLog>

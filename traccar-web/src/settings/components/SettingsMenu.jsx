@@ -10,6 +10,7 @@ import PeopleIcon from '@mui/icons-material/People';
 import TodayIcon from '@mui/icons-material/Today';
 import SendIcon from '@mui/icons-material/Send';
 import DnsIcon from '@mui/icons-material/Dns';
+import StorageIcon from '@mui/icons-material/Storage';
 import HelpIcon from '@mui/icons-material/Help';
 import PaymentIcon from '@mui/icons-material/Payment';
 import CampaignIcon from '@mui/icons-material/Campaign';
@@ -130,6 +131,12 @@ const SettingsMenu = () => {
         <>
           <Divider />
           <List>
+            <MenuItem
+              title="Tachograph"
+              link="/settings/tachograph"
+              icon={<StorageIcon />}
+              selected={location.pathname === '/settings/tachograph'}
+            />
             <MenuItem
               title={t('serverAnnouncement')}
               link="/settings/announcement"
