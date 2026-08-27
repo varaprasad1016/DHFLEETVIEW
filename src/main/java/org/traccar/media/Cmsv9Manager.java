@@ -275,19 +275,23 @@ public class Cmsv9Manager {
     });
 
     /**
-     * Queues a channel play in the background: stops the channel first (to
-     * reset stuck device sessions), then sends the WS order AND the internal
-     * mediacontrol command, then waits for the stream to register.
-     * Returns immediately so the API response is never blocked.
+     * Queues a channel play in the background. If the stream is already live
+     * it is left untouched (a duplicate play request must never kill an
+     * active push). Otherwise the channel is reset (stop first, to clear
+     * stuck device sessions), played via WS order + internal mediacontrol,
+     * and confirmed on the local media server.
      */
     public void playLiveAsync(String terminal, int channel) {
         playExecutor.submit(() -> {
             try {
                 synchronized (wsOrderLock) {
-                    resetChannel(terminal, channel);
-                    wsPlay(terminal, channel);
-                    mediacontrol(terminal, channel, 0);
-                    waitForStreamLive(liveStreamName(terminal, channel), 45000);
+                    String streamName = liveStreamName(terminal, channel);
+                    if (!isStreamLive(streamName)) {
+                        resetChannel(terminal, channel);
+                        wsPlay(terminal, channel);
+                        mediacontrol(terminal, channel, 0);
+                        waitForStreamLive(streamName, 45000);
+                    }
                 }
             } catch (Exception e) {
                 LOG.warn("Live play failed for {}/{}: {}", terminal, channel, e.getMessage());
