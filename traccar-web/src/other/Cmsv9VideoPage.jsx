@@ -398,14 +398,6 @@ const Cmsv9VideoPage = () => {
 
   const [pendingMaximize, setPendingMaximize] = useState(null);
 
-  const autoPlayedRef = useRef(false);
-  useEffect(() => {
-    if (config && cmsv9DeviceId && !autoPlayedRef.current && tab === 0 && !playing) {
-      autoPlayedRef.current = true;
-      startLive();
-    }
-  }, [config, cmsv9DeviceId, tab, playing, startLive]);
-
   const stopGrid = useCallback(() => {
     cancelledRef.current = true;
     channels.forEach((ch) => {
