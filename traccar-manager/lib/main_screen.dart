@@ -27,6 +27,7 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   static const _urlKey = 'url';
+  static const kDefaultUrl = 'https://dhfleetview.co.uk';
 
   final _initialized = Completer<void>();
   final _authenticated = Completer<void>();
@@ -98,11 +99,10 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   String _getUrl() {
-    // On first launch, try the local dev addresses, then fall back to LAN.
-    // A saved server URL (from the first-run screen) always takes precedence.
+    // Saved server URL always takes precedence. First launch (or a saved
+    // dev/emulator address) falls back to the production server.
     final saved = _preferences.getString(_urlKey);
-    final fallback = Platform.isAndroid ? 'http://10.0.2.2:8082' : 'http://localhost:8082';
-    final url = saved ?? fallback;
+    final url = saved ?? kDefaultUrl;
     return url.endsWith('/') ? url.substring(0, url.length - 1) : url;
   }
 
@@ -150,6 +150,14 @@ class _MainScreenState extends State<MainScreen> {
         : SharedPreferencesOptions(),
       cacheOptions: SharedPreferencesWithCacheOptions(allowList: {'url'}),
     );
+
+    final savedUrl = _preferences.getString(_urlKey);
+    if (savedUrl != null
+        && (savedUrl.startsWith('http://10.0.2.2')
+            || savedUrl.startsWith('http://localhost')
+            || savedUrl.startsWith('http://127.0.0.1'))) {
+      await _preferences.setString(_urlKey, kDefaultUrl);
+    }
 
     var url = _getUrl();
 

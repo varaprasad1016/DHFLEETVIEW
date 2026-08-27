@@ -212,14 +212,14 @@ async function waitForStream(url, timeoutMs = 45000) {
   while (Date.now() < deadline) {
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 2500);
+      const timer = setTimeout(() => controller.abort(), 2000);
       const res = await fetch(url, { signal: controller.signal, cache: 'no-store' });
       clearTimeout(timer);
       if (res.ok) return true;
     } catch (e) {
       // keep polling while device starts pushing
     }
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 750));
   }
   return false;
 }
@@ -365,6 +365,14 @@ const Cmsv9VideoPage = () => {
   useEffect(() => () => stopPlayback(), [stopPlayback]);
 
   const [pendingMaximize, setPendingMaximize] = useState(null);
+
+  const autoPlayedRef = useRef(false);
+  useEffect(() => {
+    if (config && cmsv9DeviceId && !autoPlayedRef.current && tab === 0 && !playing) {
+      autoPlayedRef.current = true;
+      startLive();
+    }
+  }, [config, cmsv9DeviceId, tab, playing, startLive]);
 
   const stopGrid = useCallback(() => {
     channels.forEach((ch) => {

@@ -263,15 +263,22 @@ public class Cmsv9Manager {
 
     private boolean wsSendOrderOnce(String terminal, String order, String content) {
         synchronized (wsOrderLock) {
-            try {
-                if (loginToken.isEmpty()) {
-                    login();
+            for (int attempt = 0; attempt < 2; attempt++) {
+                try {
+                    if (loginToken.isEmpty()) {
+                        login();
+                    }
+                    if (wsConnectLoginAndSend(terminal, order, content)) {
+                        return true;
+                    }
+                    LOG.warn("WS order not acknowledged ({} {}), refreshing CNMS session...", order, terminal);
+                    loginToken = "";
+                } catch (Exception e) {
+                    LOG.error("WS order failed: {} {} - {}", order, terminal, e.getMessage());
+                    loginToken = "";
                 }
-                return wsConnectLoginAndSend(terminal, order, content);
-            } catch (Exception e) {
-                LOG.error("WS order failed: {} {} - {}", order, terminal, e.getMessage());
-                return false;
             }
+            return false;
         }
     }
 
@@ -334,8 +341,8 @@ public class Cmsv9Manager {
                             Thread.sleep(300);
                             sendWsOrderMsg(webSocket, id, terminal, order, content);
                             success.set(true);
-                            LOG.info("WS order sent 3 times, waiting 2s for relay...");
-                            Thread.sleep(2000);
+                            LOG.info("WS order sent 3 times, waiting 1s for relay...");
+                            Thread.sleep(1000);
                             doneLatch.countDown();
                         } else {
                             LOG.info("WS answer result={}, waiting...", result);
