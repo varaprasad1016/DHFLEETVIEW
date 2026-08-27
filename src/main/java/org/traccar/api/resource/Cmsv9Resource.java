@@ -82,7 +82,7 @@ public class Cmsv9Resource extends BaseResource {
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("errCode", 0);
-        result.put("flvUrl", "/api/cmsv9/stream/" + deviceId + "/" + channel);
+        result.put("flvUrl", cmsv9Manager.buildLiveFlvUrl(terminal, cnmsChannel));
         result.put("terminal", terminal);
         result.put("channel", channel);
         return result;
