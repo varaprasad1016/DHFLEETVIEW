@@ -344,11 +344,7 @@ const Cmsv9VideoPage = () => {
       const { flvUrl } = data;
       if (!flvUrl) throw new Error('No stream URL returned');
       setPlaying(true);
-      let found = await waitForStreamReady(deviceId, channel, 45000, () => cancelledRef.current);
-      if (!found && !cancelledRef.current) {
-        await cmsv9StartLive(deviceId, channel);
-        found = await waitForStreamReady(deviceId, channel, 45000, () => cancelledRef.current);
-      }
+      const found = await waitForStream(flvUrl, 90000, () => cancelledRef.current);
       if (!found) {
         if (!cancelledRef.current) {
           setLiveError(true);
@@ -477,7 +473,7 @@ const Cmsv9VideoPage = () => {
           setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
           return;
         }
-        const found = await waitForStreamReady(deviceId, ch, 150000, () => cancelledRef.current);
+        const found = await waitForStream(data.flvUrl, 150000, () => cancelledRef.current);
         if (!found) {
           if (!cancelledRef.current) {
             setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
