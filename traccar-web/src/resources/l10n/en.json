@@ -295,6 +295,7 @@
     "sharedChannel": "Channel",
     "sharedFile": "File",
     "cmsv9Multi": "Multi",
+    "cmsv9NoVideo": "No video for this channel",
     "cmsv9PlayAll": "Play all cameras",
     "cmsv9CameraDevice": "Camera device",
     "cmsv9DeviceId": "CMSV9 Device ID",

@@ -45,7 +45,7 @@ const useStyles = makeStyles()((theme) => ({
     position: 'relative',
   },
   sidebar: {
-    width: SIDEBAR_WIDTH,
+    width: `min(${SIDEBAR_WIDTH}px, 100vw)`,
     height: '100%',
     display: 'flex',
     flexDirection: 'column',
@@ -64,8 +64,8 @@ const useStyles = makeStyles()((theme) => ({
     display: 'flex',
     flexDirection: 'column',
     height: '100%',
-    width: SIDEBAR_WIDTH,
-    minWidth: SIDEBAR_WIDTH,
+    width: `min(${SIDEBAR_WIDTH}px, 100vw)`,
+    minWidth: `min(${SIDEBAR_WIDTH}px, 100vw)`,
     overflow: 'hidden',
   },
   mapArea: {
@@ -86,6 +86,42 @@ const useStyles = makeStyles()((theme) => ({
     flexShrink: 0,
     borderTop: `1px solid ${theme.palette.divider}`,
     padding: theme.spacing(0.5, 0),
+  },
+  navSectionCompact: {
+    flexShrink: 0,
+    borderTop: `1px solid ${theme.palette.divider}`,
+    display: 'flex',
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    flexWrap: 'wrap',
+    gap: theme.spacing(0.5),
+    padding: theme.spacing(0.5),
+  },
+  navItemCompact: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 44,
+    height: 40,
+    borderRadius: 10,
+    cursor: 'pointer',
+    color: theme.palette.text.secondary,
+    border: 'none',
+    background: 'none',
+    '&:hover': {
+      backgroundColor: alpha(theme.palette.primary.main, 0.06),
+      color: theme.palette.text.primary,
+    },
+  },
+  navItemCompactActive: {
+    backgroundColor: alpha(theme.palette.primary.main, 0.08),
+    color: theme.palette.primary.main,
+  },
+  navItemCompactDanger: {
+    color: theme.palette.error.main,
+    '&:hover': {
+      backgroundColor: alpha(theme.palette.error.main, 0.06),
+    },
   },
   navItem: {
     display: 'flex',
@@ -128,6 +164,8 @@ const MainPage = () => {
   const t = useTranslation();
 
   const desktop = useMediaQuery(theme.breakpoints.up('md'));
+  const compactNav = useMediaQuery(theme.breakpoints.down('sm'))
+    || useMediaQuery('(max-height: 600px)');
 
   const readonly = useRestriction('readonly');
   const disableReports = useRestriction('disableReports');
@@ -282,25 +320,49 @@ const MainPage = () => {
             </div>
 
             {/* Navigation */}
-            <div className={classes.navSection}>
-              {navItems.map((item) => (
+            {compactNav ? (
+              <div className={classes.navSectionCompact}>
+                {navItems.map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    title={item.label}
+                    className={`${classes.navItemCompact} ${nav === item.key ? classes.navItemCompactActive : ''}`}
+                    onClick={() => handleNav(item.key)}
+                  >
+                    {item.icon}
+                  </button>
+                ))}
                 <button
-                  key={item.key}
-                  className={`${classes.navItem} ${nav === item.key ? classes.navItemActive : ''}`}
-                  onClick={() => handleNav(item.key)}
+                  type="button"
+                  title={t('loginLogout')}
+                  className={`${classes.navItemCompact} ${classes.navItemCompactDanger}`}
+                  onClick={handleLogout}
                 >
-                  {item.icon}
-                  {item.label}
+                  <LogoutIcon fontSize="small" />
                 </button>
-              ))}
-              <button
-                className={`${classes.navItem} ${classes.navItemDanger}`}
-                onClick={handleLogout}
-              >
-                <LogoutIcon fontSize="small" />
-                {t('loginLogout')}
-              </button>
-            </div>
+              </div>
+            ) : (
+              <div className={classes.navSection}>
+                {navItems.map((item) => (
+                  <button
+                    key={item.key}
+                    className={`${classes.navItem} ${nav === item.key ? classes.navItemActive : ''}`}
+                    onClick={() => handleNav(item.key)}
+                  >
+                    {item.icon}
+                    {item.label}
+                  </button>
+                ))}
+                <button
+                  className={`${classes.navItem} ${classes.navItemDanger}`}
+                  onClick={handleLogout}
+                >
+                  <LogoutIcon fontSize="small" />
+                  {t('loginLogout')}
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

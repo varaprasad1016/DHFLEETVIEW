@@ -409,11 +409,11 @@ const Cmsv9VideoPage = () => {
       try {
         let data = await cmsv9StartLive(deviceId, ch);
         if (data.errCode !== 0 && data.errCode !== -1) {
-          setGridErrors((prev) => ({ ...prev, [ch]: true }));
+          setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
           return;
         }
         if (!data.flvUrl) {
-          setGridErrors((prev) => ({ ...prev, [ch]: true }));
+          setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
           return;
         }
         let found = await waitForStream(data.flvUrl, 120000);
@@ -422,7 +422,7 @@ const Cmsv9VideoPage = () => {
           found = data.flvUrl ? await waitForStream(data.flvUrl, 90000) : false;
         }
         if (!found) {
-          setGridErrors((prev) => ({ ...prev, [ch]: true }));
+          setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
           return;
         }
         if (cancelled.has(ch)) return;
@@ -431,7 +431,7 @@ const Cmsv9VideoPage = () => {
         videoEl.dataset.attached = '1';
         if (player) {
           const timer = setTimeout(() => {
-            setGridErrors((prev) => ({ ...prev, [ch]: true }));
+            setGridErrors((prev) => ({ ...prev, [ch]: 'error' }));
             destroyFlvPlayer(player);
             delete gridPlayers.current[ch];
           }, 120000);
@@ -441,13 +441,13 @@ const Cmsv9VideoPage = () => {
           });
           player.on('error', () => {
             clearTimeout(timer);
-            setGridErrors((prev) => ({ ...prev, [ch]: true }));
+            setGridErrors((prev) => ({ ...prev, [ch]: 'error' }));
           });
         } else {
-          setGridErrors((prev) => ({ ...prev, [ch]: true }));
+          setGridErrors((prev) => ({ ...prev, [ch]: 'error' }));
         }
       } catch (e) {
-        setGridErrors((prev) => ({ ...prev, [ch]: true }));
+        setGridErrors((prev) => ({ ...prev, [ch]: 'error' }));
       }
     });
     return () => {
@@ -686,7 +686,9 @@ const Cmsv9VideoPage = () => {
                   )}
                   {(!gridActive || gridErrors[ch]) && (
                     <Typography className={classes.cellPlaceholder}>
-                      {gridErrors[ch] ? t('errorConnection') : t('sharedPlay')}
+                      {gridErrors[ch] === 'novideo' && t('cmsv9NoVideo')}
+                      {gridErrors[ch] === 'error' && t('errorConnection')}
+                      {!gridErrors[ch] && t('sharedPlay')}
                     </Typography>
                   )}
                   <div className={classes.cellActions}>
