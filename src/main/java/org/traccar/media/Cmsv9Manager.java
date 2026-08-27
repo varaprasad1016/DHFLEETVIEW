@@ -253,11 +253,13 @@ public class Cmsv9Manager {
     /**
      * Plays one live channel and waits until its stream is registered on the
      * local ZLMediaKit. The whole sequence is serialized so that concurrent
-     * multiview requests start channels one at a time (the device drops
-     * channels when commands arrive in quick succession).
+     * multiview requests start channels one at a time. A stop is sent first to
+     * reset the channel: the device ignores play commands while a previous
+     * push session is stuck.
      */
     public boolean playLiveAndWait(String terminal, int channel, long timeoutMillis) {
         synchronized (wsOrderLock) {
+            resetChannel(terminal, channel);
             if (!wsPlay(terminal, channel)) {
                 return false;
             }
@@ -273,14 +275,16 @@ public class Cmsv9Manager {
     });
 
     /**
-     * Queues a channel play in the background: sends the WS order AND the
-     * internal mediacontrol command, then waits for the stream to register.
+     * Queues a channel play in the background: stops the channel first (to
+     * reset stuck device sessions), then sends the WS order AND the internal
+     * mediacontrol command, then waits for the stream to register.
      * Returns immediately so the API response is never blocked.
      */
     public void playLiveAsync(String terminal, int channel) {
         playExecutor.submit(() -> {
             try {
                 synchronized (wsOrderLock) {
+                    resetChannel(terminal, channel);
                     wsPlay(terminal, channel);
                     mediacontrol(terminal, channel, 0);
                     waitForStreamLive(liveStreamName(terminal, channel), 45000);
@@ -289,6 +293,16 @@ public class Cmsv9Manager {
                 LOG.warn("Live play failed for {}/{}: {}", terminal, channel, e.getMessage());
             }
         });
+    }
+
+    private void resetChannel(String terminal, int channel) {
+        wsStop(terminal, channel);
+        mediacontrol(terminal, channel, 1);
+        try {
+            Thread.sleep(1500);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     public void stopLiveAsync(String terminal, int channel) {
