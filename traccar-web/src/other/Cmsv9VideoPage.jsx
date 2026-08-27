@@ -207,9 +207,10 @@ function destroyFlvPlayer(player) {
   }
 }
 
-async function waitForStream(url, timeoutMs = 45000) {
+async function waitForStream(url, timeoutMs = 45000, cancelFn) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    if (cancelFn && cancelFn()) return false;
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 2000);
@@ -298,6 +299,9 @@ const Cmsv9VideoPage = () => {
     setPlaying(false);
   }, []);
 
+  const cancelledRef = useRef(false);
+  const activeChannelRef = useRef(null);
+
   const startLive = useCallback(async () => {
     setLiveError(false);
     setPlayerMsg('');
@@ -305,6 +309,8 @@ const Cmsv9VideoPage = () => {
     await ensureConfig();
     if (!cmsv9DeviceId) return;
 
+    cancelledRef.current = false;
+    activeChannelRef.current = channel;
     setLoading(true);
     try {
       const data = await cmsv9StartLive(deviceId, channel);
@@ -314,13 +320,15 @@ const Cmsv9VideoPage = () => {
       const { flvUrl } = data;
       if (!flvUrl) throw new Error('No stream URL returned');
       setPlaying(true);
-      const found = await waitForStream(flvUrl);
+      const found = await waitForStream(flvUrl, 45000, () => cancelledRef.current);
       if (!found) {
-        setLiveError(true);
-        setPlaying(false);
+        if (!cancelledRef.current) {
+          setLiveError(true);
+          setPlaying(false);
+        }
         return;
       }
-      if (!videoRef.current) return;
+      if (!videoRef.current || cancelledRef.current) return;
       const player = await createFlvPlayer(videoRef.current, flvUrl);
       if (!player) {
         setLiveError(true);
@@ -349,9 +357,11 @@ const Cmsv9VideoPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [ensureConfig, cmsv9DeviceId, channel, stopPlayback]);
+  }, [ensureConfig, cmsv9DeviceId, deviceId, channel, stopPlayback]);
 
   const doStopLive = useCallback(async () => {
+    cancelledRef.current = true;
+    activeChannelRef.current = null;
     stopPlayback();
     if (cmsv9DeviceId) {
       try {
@@ -362,7 +372,21 @@ const Cmsv9VideoPage = () => {
     }
   }, [cmsv9DeviceId, channel, stopPlayback]);
 
-  useEffect(() => () => stopPlayback(), [stopPlayback]);
+  const unmountStateRef = useRef({ deviceId, cmsv9DeviceId });
+  unmountStateRef.current = { deviceId, cmsv9DeviceId };
+  useEffect(() => () => {
+    cancelledRef.current = true;
+    stopPlayback();
+    const state = unmountStateRef.current;
+    const channelId = activeChannelRef.current;
+    if (state.cmsv9DeviceId && channelId != null) {
+      try {
+        cmsv9StopLive(state.deviceId, channelId).catch(() => {});
+      } catch (e) {
+        // ignore
+      }
+    }
+  }, [stopPlayback]);
 
   const [pendingMaximize, setPendingMaximize] = useState(null);
 
@@ -375,13 +399,21 @@ const Cmsv9VideoPage = () => {
   }, [config, cmsv9DeviceId, tab, playing, startLive]);
 
   const stopGrid = useCallback(() => {
+    cancelledRef.current = true;
     channels.forEach((ch) => {
       destroyFlvPlayer(gridPlayers.current[ch]?.player);
       delete gridPlayers.current[ch];
+      if (cmsv9DeviceId) {
+        try {
+          cmsv9StopLive(deviceId, ch).catch(() => {});
+        } catch (e) {
+          // ignore
+        }
+      }
     });
     setGridActive(false);
     setGridErrors({});
-  }, [channels]);
+  }, [channels, cmsv9DeviceId, deviceId]);
 
   useEffect(() => {
     if (pendingMaximize !== null && tab === 0) {
@@ -403,6 +435,7 @@ const Cmsv9VideoPage = () => {
   const startGrid = useCallback(async () => {
     await ensureConfig();
     if (!cmsv9DeviceId) return;
+    cancelledRef.current = false;
     setGridErrors({});
     setGridActive(true);
   }, [ensureConfig, cmsv9DeviceId]);
@@ -424,16 +457,18 @@ const Cmsv9VideoPage = () => {
           setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
           return;
         }
-        let found = await waitForStream(data.flvUrl, 120000);
-        if (!found) {
+        let found = await waitForStream(data.flvUrl, 120000, () => cancelledRef.current);
+        if (!found && !cancelledRef.current) {
           data = await cmsv9StartLive(deviceId, ch);
-          found = data.flvUrl ? await waitForStream(data.flvUrl, 90000) : false;
+          found = data.flvUrl ? await waitForStream(data.flvUrl, 90000, () => cancelledRef.current) : false;
         }
         if (!found) {
-          setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
+          if (!cancelledRef.current) {
+            setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
+          }
           return;
         }
-        if (cancelled.has(ch)) return;
+        if (cancelled.has(ch) || cancelledRef.current) return;
         const player = await createFlvPlayer(videoEl, data.flvUrl);
         gridPlayers.current[ch] = { player, videoEl };
         videoEl.dataset.attached = '1';
@@ -455,10 +490,13 @@ const Cmsv9VideoPage = () => {
           setGridErrors((prev) => ({ ...prev, [ch]: 'error' }));
         }
       } catch (e) {
-        setGridErrors((prev) => ({ ...prev, [ch]: 'error' }));
+        if (!cancelledRef.current) {
+          setGridErrors((prev) => ({ ...prev, [ch]: 'error' }));
+        }
       }
     });
     return () => {
+      cancelledRef.current = true;
       channels.forEach((ch) => cancelled.add(ch));
       timers.forEach(clearTimeout);
       channels.forEach((ch) => {
@@ -467,9 +505,16 @@ const Cmsv9VideoPage = () => {
           delete gridPlayers.current[ch].videoEl.dataset.attached;
         }
         delete gridPlayers.current[ch];
+        if (cmsv9DeviceId) {
+          try {
+            cmsv9StopLive(deviceId, ch).catch(() => {});
+          } catch (e) {
+            // ignore
+          }
+        }
       });
     };
-  }, [gridActive, config, cmsv9DeviceId, channels]);
+  }, [gridActive, config, cmsv9DeviceId, deviceId, channels]);
 
   const takeSnapshot = useCatch(
     async (player) => {
@@ -522,10 +567,12 @@ const Cmsv9VideoPage = () => {
         const { flvUrl } = data;
         if (!flvUrl) throw new Error('No playback URL returned');
         setPlaying(true);
-        const found = await waitForStream(flvUrl);
+        const found = await waitForStream(flvUrl, 45000, () => cancelledRef.current);
         if (!found) {
-          setLiveError(true);
-          setPlaying(false);
+          if (!cancelledRef.current) {
+            setLiveError(true);
+            setPlaying(false);
+          }
           return;
         }
         if (!videoRef.current) return;
