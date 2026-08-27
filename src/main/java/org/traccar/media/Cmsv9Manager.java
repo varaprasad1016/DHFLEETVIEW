@@ -247,6 +247,72 @@ public class Cmsv9Manager {
                 videoServerHost() + "," + videoServerPort() + ",0," + (channel) + ",0,1");
     }
 
+    /**
+     * Plays one live channel and waits until its stream is registered on the
+     * local ZLMediaKit. The whole sequence is serialized so that concurrent
+     * multiview requests start channels one at a time (the device drops
+     * channels when commands arrive in quick succession).
+     */
+    public boolean playLiveAndWait(String terminal, int channel, long timeoutMillis) {
+        synchronized (wsOrderLock) {
+            if (!wsPlay(terminal, channel)) {
+                return false;
+            }
+            return waitForStreamLive(liveStreamName(terminal, channel), timeoutMillis);
+        }
+    }
+
+    public String liveStreamName(String terminal, int channel) {
+        return "0" + terminal + "_channel_" + channel;
+    }
+
+    /**
+     * Polls the local ZLMediaKit API until the named stream appears.
+     * Avoids HTTP requests to the stream URL (which would trigger the
+     * CNMS on-demand hooks and overload the video backend).
+     */
+    public boolean waitForStreamLive(String streamName, long timeoutMillis) {
+        String secret = value(Keys.CMSV9_MEDIA_SECRET);
+        if (secret == null) {
+            LOG.warn("cmsv9.mediaSecret not configured, skipping stream wait");
+            return true;
+        }
+        long deadline = System.currentTimeMillis() + timeoutMillis;
+        while (System.currentTimeMillis() < deadline) {
+            try {
+                URI uri = URI.create("https://127.0.0.1:" + getMediaPort()
+                        + "/index/api/getMediaList?secret=" + secret);
+                HttpRequest request = HttpRequest.newBuilder(uri)
+                        .timeout(Duration.ofSeconds(5))
+                        .GET()
+                        .build();
+                HttpResponse<String> response = client.send(
+                        request, HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() / 100 == 2) {
+                    JsonNode root = objectMapper.readTree(response.body());
+                    JsonNode data = root.path("data");
+                    if (data.isArray()) {
+                        for (JsonNode item : data) {
+                            if (streamName.equals(item.path("stream").asText(""))) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                // keep polling
+            }
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        LOG.warn("Stream {} did not appear within {}s", streamName, timeoutMillis / 1000);
+        return false;
+    }
+
     public boolean wsStop(String terminal, int channel) {
         return wsSendOrderOnce(terminal, "9102", channel + ",0,0,0");
     }

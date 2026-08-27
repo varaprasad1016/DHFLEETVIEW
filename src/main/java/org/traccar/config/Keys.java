@@ -2386,4 +2386,11 @@ public final class Keys {
             "cmsv9.wsKey",
             List.of(KeyType.CONFIG));
 
+    /**
+     * CMSV9 ZLMediaKit API secret. Used to check live streams via the local media API.
+     */
+    public static final ConfigKey<String> CMSV9_MEDIA_SECRET = new StringConfigKey(
+            "cmsv9.mediaSecret",
+            List.of(KeyType.CONFIG));
+
 }

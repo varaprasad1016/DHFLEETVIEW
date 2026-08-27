@@ -18,5 +18,6 @@
     <entry key="cmsv9.clientPort">10077</entry>
     <entry key="cmsv9.wsPort">9006</entry>
     <entry key="cmsv9.wsKey">J04Tb9pcLF7y6QrFmgTJLeVv33YbMhqW</entry>
+    <entry key="cmsv9.mediaSecret">kAYUY7AEzk7mlB8XzZQ9qSixAGJGHggZ</entry>
 
 </properties>
