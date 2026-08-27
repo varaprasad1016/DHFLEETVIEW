@@ -26,6 +26,12 @@ export const cmsv9StartLive = async (deviceId, channel) => {
   return response.json();
 };
 
+export const cmsv9StreamStatus = async (deviceId, channel) => {
+  const response = await fetch(`api/cmsv9/stream-status/${deviceId}/${channel}`);
+  if (!response.ok) throw new Error('Stream status check failed');
+  return response.json();
+};
+
 export const cmsv9StopLive = async (deviceId, channel) => {
   const response = await fetch(`api/cmsv9/stop/${deviceId}/${channel}`, {
     method: 'POST',

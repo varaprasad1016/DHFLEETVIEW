@@ -37,6 +37,7 @@ import {
   cmsv9StopLive,
   cmsv9StartPlayback,
   cmsv9Search,
+  cmsv9StreamStatus,
 } from '../common/util/cmsv9';
 import { useCatch, useCatchCallback } from '../reactHelper';
 
@@ -206,6 +207,21 @@ function destroyFlvPlayer(player) {
   }
 }
 
+async function waitForStreamReady(deviceId, channel, timeoutMs, cancelFn) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (cancelFn && cancelFn()) return false;
+    try {
+      const data = await cmsv9StreamStatus(deviceId, channel);
+      if (data.ready) return true;
+    } catch (e) {
+      // keep polling while device starts pushing
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  return false;
+}
+
 function resolveUrl(url) {
   try {
     return new URL(url, window.location.origin).href;
@@ -328,7 +344,11 @@ const Cmsv9VideoPage = () => {
       const { flvUrl } = data;
       if (!flvUrl) throw new Error('No stream URL returned');
       setPlaying(true);
-      const found = await waitForStream(flvUrl, 90000, () => cancelledRef.current);
+      let found = await waitForStreamReady(deviceId, channel, 45000, () => cancelledRef.current);
+      if (!found && !cancelledRef.current) {
+        await cmsv9StartLive(deviceId, channel);
+        found = await waitForStreamReady(deviceId, channel, 45000, () => cancelledRef.current);
+      }
       if (!found) {
         if (!cancelledRef.current) {
           setLiveError(true);
@@ -457,7 +477,7 @@ const Cmsv9VideoPage = () => {
           setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
           return;
         }
-        const found = await waitForStream(data.flvUrl, 150000, () => cancelledRef.current);
+        const found = await waitForStreamReady(deviceId, ch, 150000, () => cancelledRef.current);
         if (!found) {
           if (!cancelledRef.current) {
             setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));

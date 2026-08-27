@@ -88,6 +88,17 @@ public class Cmsv9Resource extends BaseResource {
         return result;
     }
 
+    @GET
+    @Path("stream-status/{deviceId}/{channel}")
+    public Map<String, Object> streamStatus(
+            @PathParam("deviceId") long deviceId,
+            @PathParam("channel") int channel) throws Exception {
+        String terminal = getCmsDeviceId(deviceId);
+        int cnmsChannel = channel + 1;
+        String streamName = cmsv9Manager.liveStreamName(terminal, cnmsChannel);
+        return Map.of("ready", cmsv9Manager.isStreamLive(streamName));
+    }
+
     /**
      * Proxies the live FLV stream from the local ZLMediaKit. Returns 404
      * when the stream is not live yet (checked via the media API, so no
