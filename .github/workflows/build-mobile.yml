@@ -100,11 +100,27 @@ jobs:
           STORE_FILE: ${{ github.workspace }}/environment/dhfleetview.keystore
         run: flutter build appbundle --release
 
+      - name: Build APK (release, sideload)
+        working-directory: traccar-manager
+        env:
+          KEY_ALIAS: dhfleetview
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          STORE_FILE: ${{ github.workspace }}/environment/dhfleetview.keystore
+        run: flutter build apk --release
+
       - name: Upload AAB
         uses: actions/upload-artifact@v4
         with:
           name: DH-FleetView-Android
           path: traccar-manager/build/app/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DH-FleetView-Android-APK
+          path: traccar-manager/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
 
   publish-play:
