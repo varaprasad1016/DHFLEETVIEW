@@ -125,7 +125,7 @@ export default async () => {
   await Promise.all(
     Object.keys(mapIcons).map(async (key) => {
       const results = [];
-      ['info', 'success', 'error', 'neutral'].forEach((color) => {
+      ['info', 'success', 'error', 'neutral', 'warning'].forEach((color) => {
         results.push(
           loadImage(mapIcons[key]).then((icon) => {
             mapImages[`${key}-${color}`] = prepareIcon(background, icon, theme.palette[color].main);

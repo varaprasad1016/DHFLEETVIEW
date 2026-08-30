@@ -13,6 +13,10 @@ import Badge from '@mui/material/Badge';
 import Divider from '@mui/material/Divider';
 import Typography from '@mui/material/Typography';
 import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
+import Stack from '@mui/material/Stack';
+import ViewListIcon from '@mui/icons-material/ViewList';
+import MapIconMui from '@mui/icons-material/Map';
 import DeviceList from './DeviceList';
 import StatusCard from '../common/components/StatusCard';
 import FleetDashboard from './FleetDashboard';
@@ -81,6 +85,62 @@ const useStyles = makeStyles()((theme) => ({
     color: theme.palette.text.secondary,
     padding: theme.spacing(1, 2, 0.5),
     flexShrink: 0,
+  },
+  filterChips: {
+    display: 'flex',
+    gap: theme.spacing(0.75),
+    padding: theme.spacing(1, 1.5),
+    overflowX: 'auto',
+    flexShrink: 0,
+    scrollbarWidth: 'none',
+    '&::-webkit-scrollbar': { display: 'none' },
+  },
+  viewToggle: {
+    display: 'flex',
+    gap: theme.spacing(0.5),
+    padding: theme.spacing(0.75, 1.5),
+    borderBottom: `1px solid ${theme.palette.divider}`,
+    flexShrink: 0,
+  },
+  viewToggleButton: {
+    flex: 1,
+    textTransform: 'none',
+    fontWeight: 600,
+    fontSize: '0.8rem',
+    borderRadius: 10,
+    padding: theme.spacing(0.6, 1),
+    border: `1px solid ${theme.palette.divider}`,
+    background: 'none',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: theme.spacing(0.75),
+    color: theme.palette.text.secondary,
+    transition: 'all 0.15s',
+  },
+  viewToggleActive: {
+    backgroundColor: theme.palette.primary.main,
+    color: theme.palette.common.white,
+    borderColor: theme.palette.primary.main,
+  },
+  fleetContainer: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    minHeight: 0,
+    overflow: 'hidden',
+  },
+  mapHiddenMobile: {
+    display: 'none',
+    [theme.breakpoints.up('md')]: {
+      display: 'block',
+    },
+  },
+  sidebarMobileHidden: {
+    [theme.breakpoints.down('md')]: {
+      display: 'none',
+    },
   },
   navSection: {
     flexShrink: 0,
@@ -186,22 +246,40 @@ const MainPage = () => {
   const [keyword, setKeyword] = useState('');
   const [filter, setFilter] = usePersistedState('deviceFilter', {
     statuses: [],
+    vehicleStatuses: [],
     groups: [],
     geofences: [],
   });
   const [filterSort, setFilterSort] = usePersistedState('filterSort', '');
   const [filterMap, setFilterMap] = usePersistedState('filterMap', false);
 
+  // Migrate old persisted filter without vehicleStatuses
+  useEffect(() => {
+    if (filter && !Array.isArray(filter.vehicleStatuses)) {
+      setFilter({ ...filter, vehicleStatuses: [] });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [devicesOpen, setDevicesOpen] = useState(desktop);
   const [eventsOpen, setEventsOpen] = useState(false);
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  const [fleetView, setFleetView] = usePersistedState('fleetView', isMobile ? 'list' : 'split');
 
   const onEventsClick = useCallback(() => setEventsOpen(true), [setEventsOpen]);
 
   useEffect(() => {
-    if (!desktop && mapOnSelect && selectedDeviceId) {
+    if (!desktop && mapOnSelect && selectedDeviceId && fleetView !== 'list') {
       setDevicesOpen(false);
     }
-  }, [desktop, mapOnSelect, selectedDeviceId]);
+  }, [desktop, mapOnSelect, selectedDeviceId, fleetView]);
+
+  // APK/iOS default: show fleet LIST on login, not map. On mobile initial load, enforce list view.
+  useEffect(() => {
+    if (isMobile && fleetView === 'split' && !window.localStorage.getItem('fleetView')) {
+      setFleetView('list');
+    }
+  }, [isMobile, fleetView, setFleetView]);
 
   useFilter(
     keyword,
@@ -287,6 +365,21 @@ const MainPage = () => {
     !readonly && { key: 'account', label: t('settingsUser'), icon: <PersonIcon fontSize="small" /> },
   ].filter(Boolean);
 
+  const vehicleFilterActive = (key) => (filter.vehicleStatuses || []).includes(key) || (key === 'parked' && (filter.vehicleStatuses || []).includes('stopped')) || (key === 'stopped' && (filter.vehicleStatuses || []).includes('parked'));
+  const toggleVehicleFilter = (key) => {
+    const current = filter.vehicleStatuses || [];
+    const aliases = key === 'parked' || key === 'stopped' ? ['parked', 'stopped'] : [key];
+    const has = aliases.some((k) => current.includes(k));
+    const next = has ? current.filter((s) => !aliases.includes(s)) : [...current, key === 'stopped' ? 'parked' : key];
+    setFilter({ ...filter, vehicleStatuses: next });
+  };
+
+  const clearVehicleFilters = () => setFilter({ ...filter, vehicleStatuses: [] });
+
+  // On APK/iOS (mobile) we surface fleet list as primary view
+  const showSidebar = isMobile ? fleetView !== 'map' : devicesOpen;
+  const showMap = isMobile ? fleetView !== 'list' : true;
+
   return (
     <div className={classes.root}>
       <MainToolbar
@@ -302,18 +395,56 @@ const MainPage = () => {
         filterMap={filterMap}
         setFilterMap={setFilterMap}
       />
+      {isMobile && (
+        <div className={classes.viewToggle}>
+          <button
+            type="button"
+            className={`${classes.viewToggleButton} ${fleetView === 'list' ? classes.viewToggleActive : ''}`}
+            onClick={() => setFleetView('list')}
+          >
+            <ViewListIcon fontSize="small" /> Fleet List
+          </button>
+          <button
+            type="button"
+            className={`${classes.viewToggleButton} ${fleetView === 'map' ? classes.viewToggleActive : ''}`}
+            onClick={() => setFleetView('map')}
+          >
+            <MapIconMui fontSize="small" /> Map
+          </button>
+          <button
+            type="button"
+            className={`${classes.viewToggleButton} ${fleetView === 'split' ? classes.viewToggleActive : ''}`}
+            onClick={() => setFleetView('split')}
+          >
+            <ViewListIcon fontSize="small" /> + <MapIconMui fontSize="small" />
+          </button>
+        </div>
+      )}
       <div className={classes.body}>
-        {/* Sidebar */}
-        <div className={`${classes.sidebar} ${devicesOpen ? '' : classes.sidebarClosed}`}>
+        {/* Sidebar – Fleet List (primary on APK/iOS) */}
+        <div className={`${classes.sidebar} ${showSidebar ? '' : classes.sidebarClosed} ${!showSidebar && isMobile ? classes.sidebarMobileHidden : ''}`}>
           <div className={classes.sidebarInner}>
-            {/* Fleet Dashboard */}
-            <FleetDashboard />
+            {/* Fleet Dashboard – ignition-based stats, clickable */}
+            <FleetDashboard filter={filter} setFilter={setFilter} />
 
             <Divider />
 
-            {/* Vehicle List */}
+            {/* Quick filter chips – running / stopped / idling / parked (ignition) */}
+            <Stack direction="row" className={classes.filterChips} sx={{ flexWrap: 'wrap' }}>
+              <Chip label={`All (${Object.keys(devices).length})`} size="small" variant={(filter.vehicleStatuses || []).length === 0 ? 'filled' : 'outlined'} color={(filter.vehicleStatuses || []).length === 0 ? 'primary' : 'default'} onClick={clearVehicleFilters} />
+              <Chip label="Running" size="small" color="success" variant={vehicleFilterActive('running') ? 'filled' : 'outlined'} onClick={() => toggleVehicleFilter('running')} />
+              <Chip label="Idling" size="small" color="warning" variant={vehicleFilterActive('idling') ? 'filled' : 'outlined'} onClick={() => toggleVehicleFilter('idling')} />
+              <Chip label="Parked" size="small" variant={vehicleFilterActive('parked') ? 'filled' : 'outlined'} onClick={() => toggleVehicleFilter('parked')} />
+              <Chip label="Stopped" size="small" variant={vehicleFilterActive('stopped') ? 'filled' : 'outlined'} onClick={() => toggleVehicleFilter('stopped')} />
+              <Chip label="Offline" size="small" color="error" variant={vehicleFilterActive('offline') ? 'filled' : 'outlined'} onClick={() => toggleVehicleFilter('offline')} />
+            </Stack>
+            <Typography variant="caption" color="textSecondary" sx={{ px: 1.5, pb: 0.5 }}>
+              Filter by ignition status – DVR/CNMS unchanged, Teltonika via ignition parameter (io239 fallback).
+            </Typography>
+
+            {/* Vehicle List – uses ignition-colored icons (gray=off, green=running) */}
             <div className={classes.sectionTitle}>
-              Vehicles ({filteredDevices.length})
+              Vehicles ({filteredDevices.length} / {Object.keys(devices).length})
             </div>
             <div style={{ flex: 1, minHeight: 0 }}>
               <DeviceList devices={filteredDevices} />
@@ -366,16 +497,18 @@ const MainPage = () => {
           </div>
         </div>
 
-        {/* Map */}
-        <div className={classes.mapArea}>
-          <Suspense fallback={null}>
-            <MainMap
-              filteredPositions={filteredPositions}
-              selectedPosition={selectedPosition}
-              onEventsClick={onEventsClick}
-            />
-          </Suspense>
-        </div>
+        {/* Map – hidden on mobile when fleet list is primary (APK/iOS shows list on login) */}
+        {showMap && (
+          <div className={`${classes.mapArea} ${!showMap ? classes.mapHiddenMobile : ''}`}>
+            <Suspense fallback={null}>
+              <MainMap
+                filteredPositions={filteredPositions}
+                selectedPosition={selectedPosition}
+                onEventsClick={onEventsClick}
+              />
+            </Suspense>
+          </div>
+        )}
       </div>
       <EventsDrawer open={eventsOpen} onClose={() => setEventsOpen(false)} />
       {selectedDeviceId && (

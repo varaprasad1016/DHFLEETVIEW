@@ -31,6 +31,7 @@ import SearchIcon from '@mui/icons-material/Search';
 import NotificationsNoneIcon from '@mui/icons-material/NotificationsNone';
 import { useTranslation } from '../common/components/LocalizationProvider';
 import { useDeviceReadonly } from '../common/util/permissions';
+import { computeFleetStats } from '../common/util/vehicleStatus';
 import DeviceRow from './DeviceRow';
 
 const useStyles = makeStyles()((theme) => ({
@@ -142,6 +143,13 @@ const MainToolbar = ({
   const deviceStatusCount = (status) =>
     Object.values(devices).filter((d) => d.status === status).length;
 
+  const positions = useSelector((state) => state.session.positions);
+  const fleetStats = computeFleetStats(devices, positions);
+  const hasActiveFilters = filter.statuses.length
+    || (filter.vehicleStatuses && filter.vehicleStatuses.length)
+    || filter.groups.length
+    || filter.geofences.length;
+
   return (
     <Toolbar ref={toolbarRef} className={classes.toolbar}>
       {/* Brand */}
@@ -182,9 +190,7 @@ const MainToolbar = ({
               <Badge
                 color="info"
                 variant="dot"
-                invisible={
-                  !filter.statuses.length && !filter.groups.length && !filter.geofences.length
-                }
+                invisible={!hasActiveFilters}
               >
                 <TuneIcon fontSize="small" />
               </Badge>
@@ -231,6 +237,24 @@ const MainToolbar = ({
         }}
       >
         <div className={classes.filterPanel}>
+          <FormControl>
+            <InputLabel>Vehicle Status (ignition)</InputLabel>
+            <Select
+              label="Vehicle Status (ignition)"
+              value={filter.vehicleStatuses || []}
+              onChange={(e) => setFilter({ ...filter, vehicleStatuses: e.target.value })}
+              multiple
+            >
+              <MenuItem value="running">{`Running (ignition ON + moving) (${fleetStats.running})`}</MenuItem>
+              <MenuItem value="idling">{`Idling (ignition ON, stopped) (${fleetStats.idling})`}</MenuItem>
+              <MenuItem value="parked">{`Parked (ignition OFF) (${fleetStats.parked})`}</MenuItem>
+              <MenuItem value="stopped">{`Stopped (ignition OFF) (${fleetStats.stopped})`}</MenuItem>
+              <MenuItem value="offline">{`Offline (${fleetStats.offline})`}</MenuItem>
+            </Select>
+          </FormControl>
+          <Typography variant="caption" color="textSecondary">
+            Status is determined strictly by ignition parameter. DVR/CNMS unchanged; Teltonika resolves ignition via io239 / fallback.
+          </Typography>
           <FormControl>
             <InputLabel>{t('deviceStatus')}</InputLabel>
             <Select

@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useSelector } from 'react-redux';
 import dayjs from 'dayjs';
+import { getVehicleStatus, normalizeStatus } from '../common/util/vehicleStatus';
 
 export default (
   keyword,
@@ -27,6 +28,15 @@ export default (
 
     const filtered = Object.values(devices)
       .filter((device) => !filter.statuses.length || filter.statuses.includes(device.status))
+      .filter((device) => {
+        if (!filter.vehicleStatuses || filter.vehicleStatuses.length === 0) return true;
+        const statuses = filter.vehicleStatuses.map((s) => normalizeStatus(s));
+        const vehicleStatus = getVehicleStatus(device, positions[device.id]);
+        if (statuses.includes(vehicleStatus)) return true;
+        // stopped is alias of parked
+        if (vehicleStatus === 'parked' && statuses.includes('stopped')) return true;
+        return false;
+      })
       .filter(
         (device) =>
           !filter.groups.length || deviceGroups(device).some((id) => filter.groups.includes(id)),

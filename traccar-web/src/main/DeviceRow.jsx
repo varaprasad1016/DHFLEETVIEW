@@ -35,6 +35,7 @@ import { useAttributePreference } from '../common/util/preferences';
 import GeofencesValue from '../common/components/GeofencesValue';
 import DriverValue from '../common/components/DriverValue';
 import MotionBar from './components/MotionBar';
+import { getIgnition, getVehicleStatus, getStatusColor as getVehicleStatusColor } from '../common/util/vehicleStatus';
 
 dayjs.extend(relativeTime);
 
@@ -45,9 +46,25 @@ const useStyles = makeStyles()((theme) => ({
     filter: 'brightness(0) invert(1)',
   },
   avatar: {
-    backgroundColor:
-      theme.palette.mode === 'light' ? theme.palette.primary.main : '#4338ca',
     borderRadius: 10,
+  },
+  avatarRunning: {
+    backgroundColor: theme.palette.success.main,
+  },
+  avatarIdling: {
+    backgroundColor: theme.palette.warning.main,
+  },
+  avatarParked: {
+    backgroundColor: theme.palette.neutral.main,
+  },
+  avatarStopped: {
+    backgroundColor: theme.palette.neutral.main,
+  },
+  avatarOffline: {
+    backgroundColor: alpha(theme.palette.neutral.main, 0.7),
+  },
+  avatarDefault: {
+    backgroundColor: theme.palette.mode === 'light' ? theme.palette.primary.main : '#4338ca',
   },
   batteryText: {
     fontSize: '0.75rem',
@@ -106,6 +123,20 @@ const DeviceRow = ({ devices, index, style }) => {
   const primaryValue = resolveFieldValue(devicePrimary);
   const secondaryValue = resolveFieldValue(deviceSecondary);
 
+  // Ignition-based vehicle status (DVR unchanged, Teltonika via fallback)
+  const ignition = getIgnition(position, item);
+  const vehicleStatus = getVehicleStatus(item, position);
+  const avatarClass = (() => {
+    if (vehicleStatus === 'running') return classes.avatarRunning;
+    if (vehicleStatus === 'idling') return classes.avatarIdling;
+    if (vehicleStatus === 'parked') return classes.avatarParked;
+    if (vehicleStatus === 'offline') return classes.avatarOffline;
+    return classes.avatarDefault;
+  })();
+  // Icon library: selectable category icons (mapIcons) are shown in avatar; color by ignition
+  // Gray when ignition off (parked/stopped/offline), green when running (spec)
+  const vehicleStatusLabel = vehicleStatus.charAt(0).toUpperCase() + vehicleStatus.slice(1);
+
   const secondaryText = () => {
     let status;
     if (item.status === 'online' || !item.lastUpdate) {
@@ -122,6 +153,12 @@ const DeviceRow = ({ devices, index, style }) => {
           </>
         )}
         <span className={classes[getStatusColor(item.status)]}>{status}</span>
+        {' • '}
+        <Tooltip title={`Ignition: ${ignition === true ? 'ON' : ignition === false ? 'OFF' : 'unknown'} – ${vehicleStatusLabel} (Teltonika io239 fallback)`}>
+          <span className={classes[getVehicleStatusColor(vehicleStatus)]} style={{ fontWeight: 600, fontSize: '0.7rem', textTransform: 'uppercase' }}>
+            {vehicleStatusLabel}
+          </span>
+        </Tooltip>
       </>
     );
   };
@@ -136,9 +173,11 @@ const DeviceRow = ({ devices, index, style }) => {
         className={selectedDeviceId === item.id ? classes.selected : null}
       >
         <ListItemAvatar>
-          <Avatar className={classes.avatar}>
-            <img className={classes.icon} src={mapIcons[mapIconKey(item.category)]} alt="" />
-          </Avatar>
+          <Tooltip title={`${vehicleStatusLabel} — ${item.category || 'default'} icon (${ignition === true ? 'ignition ON → green' : ignition === false ? 'ignition OFF → gray' : 'unknown'})`}>
+            <Avatar className={`${classes.avatar} ${avatarClass}`}>
+              <img className={classes.icon} src={mapIcons[mapIconKey(item.category)]} alt="" />
+            </Avatar>
+          </Tooltip>
         </ListItemAvatar>
         <ListItemText
           primary={primaryValue}
@@ -161,12 +200,12 @@ const DeviceRow = ({ devices, index, style }) => {
                 </IconButton>
               </Tooltip>
             )}
-            {position.attributes.hasOwnProperty('ignition') && (
+            {(ignition !== null) && (
               <Tooltip
-                title={`${t('positionIgnition')}: ${formatBoolean(position.attributes.ignition, t)}`}
+                title={`${t('positionIgnition')}: ${formatBoolean(ignition, t)} (${vehicleStatusLabel})`}
               >
                 <IconButton size="small">
-                  {position.attributes.ignition ? (
+                  {ignition ? (
                     <EngineIcon width={20} height={20} className={classes.success} />
                   ) : (
                     <EngineIcon width={20} height={20} className={classes.neutral} />

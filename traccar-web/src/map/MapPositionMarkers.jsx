@@ -2,8 +2,9 @@ import { useCallback, useEffect } from 'react';
 import { useSelector } from 'react-redux';
 import { map } from './core/MapView';
 import MapMarkers from './MapMarkers';
-import { formatTime, getStatusColor } from '../common/util/formatter';
+import { formatTime } from '../common/util/formatter';
 import { mapIconKey } from './core/preloadImages';
+import { getVehicleStatus, getStatusColor as getVehicleStatusColor } from '../common/util/vehicleStatus';
 import { useAttributePreference } from '../common/util/preferences';
 import { fromMapCoordinates } from './core/mapUtil';
 
@@ -51,9 +52,20 @@ const MapPositionMarkers = ({
         showDirection = selectedPosition?.id === position.id && position.course > 0;
         break;
     }
-    const color = showStatus
-      ? position.attributes.color || getStatusColor(device.status)
-      : 'neutral';
+    // Ignition-based coloring: gray when ignition OFF / parked, green when running (spec)
+    // DVR/CNMS unchanged (ignition), Teltonika via fallback (io239 etc). Preserve custom color if set.
+    let color;
+    if (showStatus) {
+      if (position.attributes.color) {
+        color = position.attributes.color;
+      } else {
+        const vehicleStatus = getVehicleStatus(device, position);
+        color = getVehicleStatusColor(vehicleStatus);
+        // Map offline error case to neutral if you prefer gray for offline? Keep error for visibility.
+      }
+    } else {
+      color = 'neutral';
+    }
     const titles = { name: device.name, fixTime: formatTime(position.fixTime, 'seconds') };
     return {
       id: position.id,

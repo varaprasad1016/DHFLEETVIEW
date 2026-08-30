@@ -14,6 +14,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import FileInput from '../common/components/FileInput';
 import EditItemView from './components/EditItemView';
 import EditAttributesAccordion from './components/EditAttributesAccordion';
+import { Box, Avatar, Tooltip } from '@mui/material';
 import SelectField from '../common/components/SelectField';
 import deviceCategories from '../common/util/deviceCategories';
 import { useTranslation } from '../common/components/LocalizationProvider';
@@ -25,6 +26,7 @@ import { useCatch } from '../reactHelper';
 import useSettingsStyles from './common/useSettingsStyles';
 import QrCodeDialog from '../common/components/QrCodeDialog';
 import fetchOrThrow from '../common/util/fetchOrThrow';
+import { mapIcons, mapIconKey } from '../map/core/preloadImages';
 
 const DevicePage = () => {
   const { classes } = useSettingsStyles();
@@ -126,6 +128,70 @@ const DevicePage = () => {
                   .sort((a, b) => a.name.localeCompare(b.name))}
                 label={t('deviceCategory')}
               />
+              {/* Icon library – selectable gallery, preview gray (ignition OFF) vs green (running) */}
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, width: '100%' }}>
+                <Typography variant="caption" color="textSecondary">
+                  Icon library – tap to select. Preview: gray = ignition OFF (parked/stopped), green = running (ignition ON).
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <Tooltip title="Selected icon – ignition OFF (gray)">
+                    <Avatar sx={{ bgcolor: 'neutral.main', width: 44, height: 44, borderRadius: 2 }}>
+                      <img src={mapIcons[mapIconKey(item.category || 'default')]} alt={item.category} style={{ width: 24, height: 24, filter: 'brightness(0) invert(1)' }} />
+                    </Avatar>
+                  </Tooltip>
+                  <Tooltip title="Selected icon – ignition ON / running (green)">
+                    <Avatar sx={{ bgcolor: 'success.main', width: 44, height: 44, borderRadius: 2 }}>
+                      <img src={mapIcons[mapIconKey(item.category || 'default')]} alt={item.category} style={{ width: 24, height: 24, filter: 'brightness(0) invert(1)' }} />
+                    </Avatar>
+                  </Tooltip>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{t(`category${(item.category || 'default').replace(/^\w/, (c) => c.toUpperCase())}`)}</Typography>
+                </Box>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(64px, 1fr))',
+                    gap: 1,
+                    maxHeight: 220,
+                    overflowY: 'auto',
+                    p: 1,
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    borderRadius: 2,
+                    bgcolor: 'background.paper',
+                  }}
+                >
+                  {deviceCategories.map((category) => {
+                    const selected = (item.category || 'default') === category;
+                    return (
+                      <Tooltip key={category} title={t(`category${category.replace(/^\w/, (c) => c.toUpperCase())}`)}>
+                        <Box
+                          onClick={() => setItem({ ...item, category })}
+                          sx={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: 0.5,
+                            p: 1,
+                            borderRadius: 1.5,
+                            cursor: 'pointer',
+                            border: '2px solid',
+                            borderColor: selected ? 'primary.main' : 'transparent',
+                            bgcolor: selected ? 'action.selected' : 'transparent',
+                            '&:hover': { bgcolor: 'action.hover' },
+                          }}
+                        >
+                          <Avatar sx={{ bgcolor: selected ? 'success.main' : 'neutral.main', width: 36, height: 36, borderRadius: 1.5 }}>
+                            <img src={mapIcons[category]} alt={category} style={{ width: 20, height: 20, filter: 'brightness(0) invert(1)' }} />
+                          </Avatar>
+                          <Typography variant="caption" noWrap sx={{ maxWidth: 64, fontSize: '0.65rem' }}>
+                            {t(`category${category.replace(/^\w/, (c) => c.toUpperCase())}`)}
+                          </Typography>
+                        </Box>
+                      </Tooltip>
+                    );
+                  })}
+                </Box>
+              </Box>
               <SelectField
                 value={item.calendarId}
                 onChange={(event) => setItem({ ...item, calendarId: Number(event.target.value) })}
