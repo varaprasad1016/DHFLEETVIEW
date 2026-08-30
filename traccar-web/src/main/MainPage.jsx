@@ -365,16 +365,17 @@ const MainPage = () => {
     !readonly && { key: 'account', label: t('settingsUser'), icon: <PersonIcon fontSize="small" /> },
   ].filter(Boolean);
 
-  const vehicleFilterActive = (key) => (filter.vehicleStatuses || []).includes(key) || (key === 'parked' && (filter.vehicleStatuses || []).includes('stopped')) || (key === 'stopped' && (filter.vehicleStatuses || []).includes('parked'));
+  const safeFilter = filter || { statuses: [], vehicleStatuses: [], groups: [], geofences: [] };
+  const vehicleFilterActive = (key) => (safeFilter.vehicleStatuses || []).includes(key) || (key === 'parked' && (safeFilter.vehicleStatuses || []).includes('stopped')) || (key === 'stopped' && (safeFilter.vehicleStatuses || []).includes('parked'));
   const toggleVehicleFilter = (key) => {
-    const current = filter.vehicleStatuses || [];
+    const current = safeFilter.vehicleStatuses || [];
     const aliases = key === 'parked' || key === 'stopped' ? ['parked', 'stopped'] : [key];
     const has = aliases.some((k) => current.includes(k));
     const next = has ? current.filter((s) => !aliases.includes(s)) : [...current, key === 'stopped' ? 'parked' : key];
-    setFilter({ ...filter, vehicleStatuses: next });
+    setFilter({ ...safeFilter, vehicleStatuses: next });
   };
 
-  const clearVehicleFilters = () => setFilter({ ...filter, vehicleStatuses: [] });
+  const clearVehicleFilters = () => setFilter({ ...safeFilter, vehicleStatuses: [] });
 
   // On APK/iOS (mobile) we surface fleet list as primary view
   const showSidebar = isMobile ? fleetView !== 'map' : devicesOpen;
@@ -431,7 +432,7 @@ const MainPage = () => {
 
             {/* Quick filter chips – running / stopped / idling / parked (ignition) */}
             <Stack direction="row" className={classes.filterChips} sx={{ flexWrap: 'wrap' }}>
-              <Chip label={`All (${Object.keys(devices).length})`} size="small" variant={(filter.vehicleStatuses || []).length === 0 ? 'filled' : 'outlined'} color={(filter.vehicleStatuses || []).length === 0 ? 'primary' : 'default'} onClick={clearVehicleFilters} />
+              <Chip label={`All (${Object.keys(devices).length})`} size="small" variant={(safeFilter.vehicleStatuses || []).length === 0 ? 'filled' : 'outlined'} color={(safeFilter.vehicleStatuses || []).length === 0 ? 'primary' : 'default'} onClick={clearVehicleFilters} />
               <Chip label="Running" size="small" color="success" variant={vehicleFilterActive('running') ? 'filled' : 'outlined'} onClick={() => toggleVehicleFilter('running')} />
               <Chip label="Idling" size="small" color="warning" variant={vehicleFilterActive('idling') ? 'filled' : 'outlined'} onClick={() => toggleVehicleFilter('idling')} />
               <Chip label="Parked" size="small" variant={vehicleFilterActive('parked') ? 'filled' : 'outlined'} onClick={() => toggleVehicleFilter('parked')} />

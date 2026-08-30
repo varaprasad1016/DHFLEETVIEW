@@ -145,10 +145,11 @@ const MainToolbar = ({
 
   const positions = useSelector((state) => state.session.positions);
   const fleetStats = computeFleetStats(devices, positions);
-  const hasActiveFilters = filter.statuses.length
-    || (filter.vehicleStatuses && filter.vehicleStatuses.length)
-    || filter.groups.length
-    || filter.geofences.length;
+  const safeFilter = filter || { statuses: [], vehicleStatuses: [], groups: [], geofences: [] };
+  const hasActiveFilters = safeFilter.statuses?.length
+    || (safeFilter.vehicleStatuses && safeFilter.vehicleStatuses.length)
+    || safeFilter.groups?.length
+    || safeFilter.geofences?.length;
 
   return (
     <Toolbar ref={toolbarRef} className={classes.toolbar}>
@@ -241,7 +242,7 @@ const MainToolbar = ({
             <InputLabel>Vehicle Status (ignition)</InputLabel>
             <Select
               label="Vehicle Status (ignition)"
-              value={filter.vehicleStatuses || []}
+              value={safeFilter.vehicleStatuses || []}
               onChange={(e) => setFilter({ ...filter, vehicleStatuses: e.target.value })}
               multiple
             >
@@ -259,7 +260,7 @@ const MainToolbar = ({
             <InputLabel>{t('deviceStatus')}</InputLabel>
             <Select
               label={t('deviceStatus')}
-              value={filter.statuses}
+              value={safeFilter.statuses || []}
               onChange={(e) => setFilter({ ...filter, statuses: e.target.value })}
               multiple
             >
@@ -272,7 +273,7 @@ const MainToolbar = ({
             <InputLabel>{t('settingsGroups')}</InputLabel>
             <Select
               label={t('settingsGroups')}
-              value={filter.groups}
+              value={safeFilter.groups || []}
               onChange={(e) => setFilter({ ...filter, groups: e.target.value })}
               multiple
             >
@@ -289,7 +290,7 @@ const MainToolbar = ({
             <InputLabel>{t('sharedGeofences')}</InputLabel>
             <Select
               label={t('sharedGeofences')}
-              value={filter.geofences}
+              value={safeFilter.geofences || []}
               onChange={(e) => setFilter({ ...filter, geofences: e.target.value })}
               multiple
             >

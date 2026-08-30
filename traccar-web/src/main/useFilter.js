@@ -26,10 +26,11 @@ export default (
       return groupIds;
     };
 
+    const safeFilter = filter || { statuses: [], vehicleStatuses: [], groups: [], geofences: [] };
     const filtered = Object.values(devices)
-      .filter((device) => !filter.statuses.length || filter.statuses.includes(device.status))
+      .filter((device) => !safeFilter.statuses?.length || safeFilter.statuses.includes(device.status))
       .filter((device) => {
-        if (!filter.vehicleStatuses || filter.vehicleStatuses.length === 0) return true;
+        if (!safeFilter.vehicleStatuses || safeFilter.vehicleStatuses.length === 0) return true;
         const statuses = filter.vehicleStatuses.map((s) => normalizeStatus(s));
         const vehicleStatus = getVehicleStatus(device, positions[device.id]);
         if (statuses.includes(vehicleStatus)) return true;
@@ -39,12 +40,12 @@ export default (
       })
       .filter(
         (device) =>
-          !filter.groups.length || deviceGroups(device).some((id) => filter.groups.includes(id)),
+          !safeFilter.groups?.length || deviceGroups(device).some((id) => safeFilter.groups.includes(id)),
       )
       .filter(
         (device) =>
-          !filter.geofences.length ||
-          (positions[device.id]?.geofenceIds || []).some((id) => filter.geofences.includes(id)),
+          !safeFilter.geofences?.length ||
+          (positions[device.id]?.geofenceIds || []).some((id) => safeFilter.geofences.includes(id)),
       )
       .filter((device) => {
         const lowerCaseKeyword = keyword.toLowerCase();
