@@ -1,0 +1,200 @@
+<?xml version="1.1" encoding="UTF-8"?>
+<databaseChangeLog
+  xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                      http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.6.xsd"
+  logicalFilePath="changelog-6.17">
+
+  <!--
+    Tachograph release 2: file metadata read out of the DDD, richer job progress, company card
+    identity on the bridge, delivery to analysis bureaux such as Convey Reporting, and an audit
+    trail of who asked for what.
+  -->
+
+  <changeSet author="dhfleetview" id="changelog-6.17-tachograph-file-metadata">
+
+    <addColumn tableName="tc_tachograph_files">
+      <column name="groupid" type="INT" />
+      <column name="vehicleregistration" type="VARCHAR(32)" />
+      <column name="vehicleidentification" type="VARCHAR(32)" />
+      <column name="vehicleunitserial" type="VARCHAR(64)" />
+      <column name="cardnumber" type="VARCHAR(32)" />
+      <column name="periodfrom" type="TIMESTAMP" />
+      <column name="periodto" type="TIMESTAMP" />
+      <column name="generation" type="INT" defaultValueNumeric="1" />
+      <column name="blocks" type="VARCHAR(512)" />
+      <column name="clienttype" type="VARCHAR(32)" />
+      <column name="validationmessage" type="VARCHAR(1024)" />
+    </addColumn>
+
+    <createIndex tableName="tc_tachograph_files" indexName="ix_tacho_files_sha256">
+      <column name="sha256" />
+    </createIndex>
+
+  </changeSet>
+
+  <changeSet author="dhfleetview" id="changelog-6.17-tachograph-job-progress">
+
+    <addColumn tableName="tc_tachograph_download_jobs">
+      <column name="progressdetail" type="VARCHAR(256)" />
+      <column name="clienttype" type="VARCHAR(32)" />
+      <column name="cancelrequested" type="BOOLEAN" defaultValueBoolean="false" />
+      <column name="bridgeid" type="INT" />
+      <column name="attemptstartedat" type="TIMESTAMP" />
+    </addColumn>
+
+  </changeSet>
+
+  <changeSet author="dhfleetview" id="changelog-6.17-tachograph-bridge-groupid-nullable">
+
+    <!--
+      A bridge with group zero serves every vehicle on the server, which is the normal setup for
+      a single-company installation. The storage layer writes a zero identifier as SQL NULL, so
+      the original not-null constraint made exactly that configuration impossible to save.
+    -->
+    <dropNotNullConstraint
+      tableName="tc_tachograph_bridges" columnName="groupid" columnDataType="INT" />
+
+  </changeSet>
+
+  <changeSet author="dhfleetview" id="changelog-6.17-tachograph-bridge-card">
+
+    <addColumn tableName="tc_tachograph_bridges">
+      <column name="cardholder" type="VARCHAR(128)" />
+      <column name="cardissuer" type="VARCHAR(128)" />
+      <column name="cardvalidityfrom" type="TIMESTAMP" />
+      <column name="cardcheckedat" type="TIMESTAMP" />
+      <column name="cardcheckerror" type="VARCHAR(512)" />
+      <column name="hostname" type="VARCHAR(128)" />
+    </addColumn>
+
+  </changeSet>
+
+  <changeSet author="dhfleetview" id="changelog-6.17-tachograph-forward-targets">
+
+    <createTable tableName="tc_tachograph_forward_targets">
+      <column autoIncrement="true" name="id" type="INT">
+        <constraints primaryKey="true" />
+      </column>
+      <!--
+        Nullable on purpose. The storage layer writes a zero identifier as SQL NULL for any
+        column whose name ends in "Id", and zero is a meaningful value here: it means the target
+        serves every vehicle on the server rather than one company.
+      -->
+      <column name="groupid" type="INT" />
+      <column name="name" type="VARCHAR(128)">
+        <constraints nullable="false" />
+      </column>
+      <column name="provider" type="VARCHAR(32)">
+        <constraints nullable="false" />
+      </column>
+      <column name="transport" type="VARCHAR(16)">
+        <constraints nullable="false" />
+      </column>
+      <column name="enabled" type="BOOLEAN" defaultValueBoolean="true">
+        <constraints nullable="false" />
+      </column>
+      <column name="host" type="VARCHAR(255)" />
+      <column name="port" type="INT" defaultValueNumeric="0" />
+      <column name="username" type="VARCHAR(128)" />
+      <column name="secret" type="VARCHAR(2048)" />
+      <column name="remotepath" type="VARCHAR(512)" />
+      <column name="url" type="VARCHAR(512)" />
+      <column name="hostkey" type="VARCHAR(512)" />
+      <column name="filenamepattern" type="VARCHAR(256)" />
+      <column name="forwarddriver" type="BOOLEAN" defaultValueBoolean="true">
+        <constraints nullable="false" />
+      </column>
+      <column name="forwardvehicle" type="BOOLEAN" defaultValueBoolean="true">
+        <constraints nullable="false" />
+      </column>
+      <column name="laststatus" type="VARCHAR(32)" />
+      <column name="lastmessage" type="VARCHAR(1024)" />
+      <column name="lastattemptat" type="TIMESTAMP" />
+      <column name="lastsuccessat" type="TIMESTAMP" />
+      <column name="createdat" type="TIMESTAMP" />
+      <column name="updatedat" type="TIMESTAMP" />
+    </createTable>
+
+    <createIndex tableName="tc_tachograph_forward_targets" indexName="ix_tacho_targets_group">
+      <column name="groupid" />
+    </createIndex>
+
+  </changeSet>
+
+  <changeSet author="dhfleetview" id="changelog-6.17-tachograph-forwards">
+
+    <createTable tableName="tc_tachograph_forwards">
+      <column autoIncrement="true" name="id" type="INT">
+        <constraints primaryKey="true" />
+      </column>
+      <column name="fileid" type="INT">
+        <constraints nullable="false" />
+      </column>
+      <column name="targetid" type="INT">
+        <constraints nullable="false" />
+      </column>
+      <column name="deviceid" type="INT">
+        <constraints nullable="false" />
+      </column>
+      <column name="status" type="VARCHAR(16)">
+        <constraints nullable="false" />
+      </column>
+      <column name="attempts" type="INT" defaultValueNumeric="0">
+        <constraints nullable="false" />
+      </column>
+      <column name="remotename" type="VARCHAR(512)" />
+      <column name="errorcode" type="VARCHAR(64)" />
+      <column name="errormessage" type="VARCHAR(1024)" />
+      <column name="queuedat" type="TIMESTAMP" />
+      <column name="nextattemptat" type="TIMESTAMP" />
+      <column name="lastattemptat" type="TIMESTAMP" />
+      <column name="completedat" type="TIMESTAMP" />
+      <column name="createdat" type="TIMESTAMP" />
+      <column name="updatedat" type="TIMESTAMP" />
+    </createTable>
+
+    <createIndex tableName="tc_tachograph_forwards" indexName="ix_tacho_forwards_status">
+      <column name="status" />
+      <column name="nextattemptat" />
+    </createIndex>
+
+    <createIndex tableName="tc_tachograph_forwards" indexName="ix_tacho_forwards_file">
+      <column name="fileid" />
+    </createIndex>
+
+  </changeSet>
+
+  <changeSet author="dhfleetview" id="changelog-6.17-tachograph-audit">
+
+    <createTable tableName="tc_tachograph_audit">
+      <column autoIncrement="true" name="id" type="INT">
+        <constraints primaryKey="true" />
+      </column>
+      <!--
+        Both nullable. The storage layer writes a zero identifier as SQL NULL for any column
+        ending in "Id", and both are legitimately absent here: an action the scheduler took has
+        no user, and a configuration change has no device.
+      -->
+      <column name="userid" type="INT" />
+      <column name="deviceid" type="INT" />
+      <column name="action" type="VARCHAR(64)">
+        <constraints nullable="false" />
+      </column>
+      <column name="detail" type="VARCHAR(1024)" />
+      <column name="actor" type="VARCHAR(128)" />
+      <column name="createdat" type="TIMESTAMP" />
+    </createTable>
+
+    <createIndex tableName="tc_tachograph_audit" indexName="ix_tacho_audit_created">
+      <column name="createdat" />
+    </createIndex>
+
+    <createIndex tableName="tc_tachograph_audit" indexName="ix_tacho_audit_device">
+      <column name="deviceid" />
+    </createIndex>
+
+  </changeSet>
+
+</databaseChangeLog>

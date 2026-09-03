@@ -28,3 +28,6 @@ logs/
 data/
 web.backup-*/
 
+
+# Graphify AST cache - rebuilt by "graphify update .", not source
+graphify-out/cache/

@@ -2455,4 +2455,174 @@ public final class Keys {
             List.of(KeyType.CONFIG),
             120);
 
+    /**
+     * Port on which the server listens for the tachograph data tunnel that FMC650 units open
+     * during a remote download. Zero or unset disables the listener.
+     */
+    public static final ConfigKey<Integer> TACHO_TUNNEL_PORT = new IntegerConfigKey(
+            "tacho.tunnel.port",
+            List.of(KeyType.CONFIG),
+            0);
+
+    /**
+     * Optional comma separated bind addresses for the tachograph tunnel. Unset binds all
+     * interfaces.
+     */
+    public static final ConfigKey<String> TACHO_TUNNEL_ADDRESS = new StringConfigKey(
+            "tacho.tunnel.address",
+            List.of(KeyType.CONFIG));
+
+    /**
+     * Seconds of complete inactivity after which an idle tachograph tunnel socket is dropped.
+     */
+    public static final ConfigKey<Integer> TACHO_TUNNEL_IDLE_TIMEOUT = new IntegerConfigKey(
+            "tacho.tunnel.idleTimeoutSeconds",
+            List.of(KeyType.CONFIG),
+            300);
+
+    /**
+     * Seconds to wait for a device to open its tachograph tunnel after being told to start a
+     * download. Devices on a congested mobile network can take well over a minute.
+     */
+    public static final ConfigKey<Integer> TACHO_TUNNEL_WAIT = new IntegerConfigKey(
+            "tacho.tunnel.waitSeconds",
+            List.of(KeyType.CONFIG),
+            180);
+
+    /**
+     * Command text sent to an FMC650 over its tracking connection to make it open the tachograph
+     * tunnel. The exact syntax depends on the device firmware, so it is configurable rather than
+     * hard coded. Unset means the device is expected to connect on its own schedule.
+     */
+    public static final ConfigKey<String> TACHO_TRIGGER_COMMAND = new StringConfigKey(
+            "tacho.triggerCommand",
+            List.of(KeyType.CONFIG));
+
+    /**
+     * Whether vehicle downloads request the detailed speed block. It is large, rarely analysed,
+     * and slow over a mobile link, so it is off by default.
+     */
+    public static final ConfigKey<Boolean> TACHO_INCLUDE_SPEED = new BooleanConfigKey(
+            "tacho.includeDetailedSpeed",
+            List.of(KeyType.CONFIG),
+            false);
+
+    /**
+     * How many days of driver activity to request when a job does not specify a range. The
+     * regulation requires vehicle unit data at least every 90 days; 92 covers that with margin.
+     */
+    public static final ConfigKey<Integer> TACHO_ACTIVITY_DAYS = new IntegerConfigKey(
+            "tacho.activityDays",
+            List.of(KeyType.CONFIG),
+            92);
+
+    /**
+     * Milliseconds to wait for the first response frame from a vehicle unit.
+     */
+    public static final ConfigKey<Integer> TACHO_VU_RESPONSE_TIMEOUT = new IntegerConfigKey(
+            "tacho.vu.responseTimeoutMillis",
+            List.of(KeyType.CONFIG),
+            20000);
+
+    /**
+     * Milliseconds of silence after which a multi-frame data block is considered complete.
+     * Raise this if large blocks arrive truncated on real hardware.
+     */
+    public static final ConfigKey<Integer> TACHO_VU_BLOCK_IDLE = new IntegerConfigKey(
+            "tacho.vu.blockIdleMillis",
+            List.of(KeyType.CONFIG),
+            5000);
+
+    /**
+     * Milliseconds a "response pending" answer from the vehicle unit extends the deadline by.
+     */
+    public static final ConfigKey<Integer> TACHO_VU_PENDING_EXTENSION = new IntegerConfigKey(
+            "tacho.vu.pendingExtensionMillis",
+            List.of(KeyType.CONFIG),
+            30000);
+
+    /**
+     * Hard ceiling in milliseconds on the time spent collecting one data block.
+     */
+    public static final ConfigKey<Integer> TACHO_VU_BLOCK_TIMEOUT = new IntegerConfigKey(
+            "tacho.vu.blockTimeoutMillis",
+            List.of(KeyType.CONFIG),
+            900000);
+
+    /**
+     * How many times a request is repeated when the vehicle unit answers "busy, repeat request".
+     */
+    public static final ConfigKey<Integer> TACHO_VU_MAX_ATTEMPTS = new IntegerConfigKey(
+            "tacho.vu.maxRequestAttempts",
+            List.of(KeyType.CONFIG),
+            3);
+
+    /**
+     * How a vehicle unit continues a data block spanning several messages, either
+     * {@code REPEAT_HEADER} or {@code RAW_CONTINUATION}. Change this only if an analysis bureau
+     * rejects the produced files; see the tachograph protocol documentation.
+     */
+    public static final ConfigKey<String> TACHO_VU_CONTINUATION_MODE = new StringConfigKey(
+            "tacho.vu.continuationMode",
+            List.of(KeyType.CONFIG),
+            "REPEAT_HEADER");
+
+    /**
+     * Seconds a bridge long-poll waits for card work before returning empty.
+     */
+    public static final ConfigKey<Integer> TACHO_CARD_POLL_TIMEOUT = new IntegerConfigKey(
+            "tacho.card.pollTimeoutSeconds",
+            List.of(KeyType.CONFIG),
+            25);
+
+    /**
+     * Seconds to wait for a bridge to return the answer to one card command before the
+     * authentication is abandoned.
+     */
+    public static final ConfigKey<Integer> TACHO_CARD_APDU_TIMEOUT = new IntegerConfigKey(
+            "tacho.card.commandTimeoutSeconds",
+            List.of(KeyType.CONFIG),
+            30);
+
+    /**
+     * Seconds after which a bridge that has stopped sending heartbeats is treated as offline.
+     */
+    public static final ConfigKey<Integer> TACHO_BRIDGE_OFFLINE_AFTER = new IntegerConfigKey(
+            "tacho.bridge.offlineAfterSeconds",
+            List.of(KeyType.CONFIG),
+            120);
+
+    /**
+     * Whether completed downloads are automatically queued for delivery to configured
+     * analysis-bureau targets such as Convey Reporting.
+     */
+    public static final ConfigKey<Boolean> TACHO_FORWARD_ENABLED = new BooleanConfigKey(
+            "tacho.forward.enabled",
+            List.of(KeyType.CONFIG),
+            true);
+
+    /**
+     * Retry backoff in seconds for failed deliveries to an analysis bureau, comma separated.
+     */
+    public static final ConfigKey<String> TACHO_FORWARD_RETRY_DELAYS = new StringConfigKey(
+            "tacho.forward.retryDelays",
+            List.of(KeyType.CONFIG),
+            "60,300,1800,7200,21600");
+
+    /**
+     * How many delivery attempts are made before a forward is marked permanently failed.
+     */
+    public static final ConfigKey<Integer> TACHO_FORWARD_MAX_ATTEMPTS = new IntegerConfigKey(
+            "tacho.forward.maxAttempts",
+            List.of(KeyType.CONFIG),
+            6);
+
+    /**
+     * Passphrase used to encrypt stored analysis-bureau credentials. Must be set before any
+     * forwarding target is configured, and must not change afterwards.
+     */
+    public static final ConfigKey<String> TACHO_FORWARD_SECRET = new StringConfigKey(
+            "tacho.forward.secret",
+            List.of(KeyType.CONFIG));
+
 }
