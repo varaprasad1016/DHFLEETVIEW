@@ -3,7 +3,8 @@ name: Build Mobile Apps
 # Builds the DH FleetView Android AAB and iOS app on GitHub-hosted runners.
 # iOS requires a macOS runner (Xcode) - no local Mac needed.
 # Android AAB is signed with the upload keystore from repo secrets and,
-# on tag pushes or manual dispatch, published to Google Play (production, draft).
+# auto-published to Google Play (production, draft) on every push to main,
+# tag, or manual dispatch.
 
 on:
   workflow_dispatch:        # manual trigger from the Actions tab
@@ -127,7 +128,7 @@ jobs:
     name: Publish to Google Play
     runs-on: ubuntu-latest
     needs: android
-    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/main' || github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     steps:
       - name: Check publishing configured
         id: check
