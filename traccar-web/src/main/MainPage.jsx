@@ -264,7 +264,10 @@ const MainPage = () => {
   const [devicesOpen, setDevicesOpen] = useState(desktop);
   const [eventsOpen, setEventsOpen] = useState(false);
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const [fleetView, setFleetView] = usePersistedState('fleetView', isMobile ? 'list' : 'split');
+  const isWebView = typeof window !== 'undefined'
+    && (!!window.flutter_inappwebview || (typeof navigator !== 'undefined' && /wv|WebView/i.test(navigator.userAgent)));
+  const defaultFleetView = isWebView ? 'list' : (isMobile ? 'list' : 'split');
+  const [fleetView, setFleetView] = usePersistedState('fleetView', defaultFleetView);
 
   const onEventsClick = useCallback(() => setEventsOpen(true), [setEventsOpen]);
 
@@ -274,12 +277,14 @@ const MainPage = () => {
     }
   }, [desktop, mapOnSelect, selectedDeviceId, fleetView]);
 
-  // APK/iOS default: show fleet LIST on login, not map. On mobile initial load, enforce list view.
+  // APK/iOS: always show dashboard+list on login, never map (WebView detection)
   useEffect(() => {
-    if (isMobile && fleetView === 'split' && !window.localStorage.getItem('fleetView')) {
+    if (isWebView && fleetView !== 'list') {
+      setFleetView('list');
+    } else if (isMobile && fleetView === 'split' && !window.localStorage.getItem('fleetView')) {
       setFleetView('list');
     }
-  }, [isMobile, fleetView, setFleetView]);
+  }, [isWebView, isMobile, fleetView, setFleetView]);
 
   useFilter(
     keyword,
@@ -377,9 +382,10 @@ const MainPage = () => {
 
   const clearVehicleFilters = () => setFilter({ ...safeFilter, vehicleStatuses: [] });
 
-  // On APK/iOS (mobile) we surface fleet list as primary view
-  const showSidebar = isMobile ? fleetView !== 'map' : devicesOpen;
-  const showMap = isMobile ? fleetView !== 'list' : true;
+  // On APK/iOS (mobile/WebView) we surface dashboard+list as primary view (not map)
+  const isAppMobile = isMobile || isWebView;
+  const showSidebar = isAppMobile ? fleetView !== 'map' : devicesOpen;
+  const showMap = isAppMobile ? fleetView !== 'list' : true;
 
   return (
     <div className={classes.root}>
@@ -396,7 +402,7 @@ const MainPage = () => {
         filterMap={filterMap}
         setFilterMap={setFilterMap}
       />
-      {isMobile && (
+      {isAppMobile && (
         <div className={classes.viewToggle}>
           <button
             type="button"
@@ -423,25 +429,21 @@ const MainPage = () => {
       )}
       <div className={classes.body}>
         {/* Sidebar – Fleet List (primary on APK/iOS) */}
-        <div className={`${classes.sidebar} ${showSidebar ? '' : classes.sidebarClosed} ${!showSidebar && isMobile ? classes.sidebarMobileHidden : ''}`}>
+        <div className={`${classes.sidebar} ${showSidebar ? '' : classes.sidebarClosed} ${!showSidebar && isAppMobile ? classes.sidebarMobileHidden : ''}`}>
           <div className={classes.sidebarInner}>
             {/* Fleet Dashboard – ignition-based stats, clickable */}
             <FleetDashboard filter={filter} setFilter={setFilter} />
 
             <Divider />
 
-            {/* Quick filter chips – running / stopped / idling / parked (ignition) */}
+            {/* Quick filter chips – running / idling / parked / offline */}
             <Stack direction="row" className={classes.filterChips} sx={{ flexWrap: 'wrap' }}>
               <Chip label={`All (${Object.keys(devices).length})`} size="small" variant={(safeFilter.vehicleStatuses || []).length === 0 ? 'filled' : 'outlined'} color={(safeFilter.vehicleStatuses || []).length === 0 ? 'primary' : 'default'} onClick={clearVehicleFilters} />
               <Chip label="Running" size="small" color="success" variant={vehicleFilterActive('running') ? 'filled' : 'outlined'} onClick={() => toggleVehicleFilter('running')} />
               <Chip label="Idling" size="small" color="warning" variant={vehicleFilterActive('idling') ? 'filled' : 'outlined'} onClick={() => toggleVehicleFilter('idling')} />
               <Chip label="Parked" size="small" variant={vehicleFilterActive('parked') ? 'filled' : 'outlined'} onClick={() => toggleVehicleFilter('parked')} />
-              <Chip label="Stopped" size="small" variant={vehicleFilterActive('stopped') ? 'filled' : 'outlined'} onClick={() => toggleVehicleFilter('stopped')} />
               <Chip label="Offline" size="small" color="error" variant={vehicleFilterActive('offline') ? 'filled' : 'outlined'} onClick={() => toggleVehicleFilter('offline')} />
             </Stack>
-            <Typography variant="caption" color="textSecondary" sx={{ px: 1.5, pb: 0.5 }}>
-              Filter by ignition status – DVR/CNMS unchanged, Teltonika via ignition parameter (io239 fallback).
-            </Typography>
 
             {/* Vehicle List – uses ignition-colored icons (gray=off, green=running) */}
             <div className={classes.sectionTitle}>

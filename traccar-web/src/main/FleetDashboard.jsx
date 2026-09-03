@@ -5,7 +5,6 @@ import { alpha } from '@mui/material/styles';
 import DirectionsCarIcon from '@mui/icons-material/DirectionsCar';
 import PauseCircleIcon from '@mui/icons-material/PauseCircle';
 import LocalParkingIcon from '@mui/icons-material/LocalParking';
-import StopCircleIcon from '@mui/icons-material/StopCircle';
 import CloudOffIcon from '@mui/icons-material/CloudOff';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { Typography, Box, Tooltip } from '@mui/material';
@@ -58,9 +57,6 @@ const useStyles = makeStyles()((theme) => ({
   parkedBg: {
     backgroundColor: alpha(theme.palette.neutral.main, 0.14),
   },
-  stoppedBg: {
-    backgroundColor: alpha(theme.palette.neutral.main, 0.12),
-  },
   offlineBg: {
     backgroundColor: alpha(theme.palette.error.main, 0.1),
   },
@@ -91,7 +87,7 @@ const useStyles = makeStyles()((theme) => ({
  * FleetDashboard – ignition-based stats.
  * - DVR/CNMS unchanged: uses standard `ignition` attribute.
  * - Teltonika: resolves ignition via io239 / fallback keys + per-device override (see vehicleStatus.js).
- * Cards are clickable filters (running / idling / parked / stopped / offline).
+ * Cards are clickable filters (running / idling / parked / offline).
  */
 const FleetDashboard = ({ filter, setFilter }) => {
   const { classes } = useStyles();
@@ -111,24 +107,18 @@ const FleetDashboard = ({ filter, setFilter }) => {
 
   const isActive = (key) => {
     const v = filter?.vehicleStatuses || filter?.statuses || [];
-    // parked & stopped are aliases – highlight both if either active
-    if (key === 'parked' || key === 'stopped') return v.includes('parked') || v.includes('stopped');
     return v.includes(key);
   };
 
   const toggleStatus = (key) => {
     if (!setFilter || !filter) return;
-    // Support both new filter.vehicleStatuses and legacy filter.statuses
     const current = filter.vehicleStatuses ?? filter.statuses ?? [];
-    const alias = key === 'parked' ? ['parked', 'stopped'] : [key];
-    const has = alias.some((k) => current.includes(k));
+    const has = current.includes(key);
     let next;
     if (has) {
-      next = current.filter((s) => !alias.includes(s));
+      next = current.filter((s) => s !== key);
     } else {
       next = [...current, key];
-      // keep parked/stopped in sync – store as parked
-      if (key === 'stopped') next = next.filter((s) => s !== 'stopped').concat('parked');
     }
     // Prefer new field vehicleStatuses; keep statuses for device online/offline if needed
     if (filter.vehicleStatuses !== undefined) {
@@ -164,7 +154,6 @@ const FleetDashboard = ({ filter, setFilter }) => {
       <Card statusKey="running" label="Running" count={stats.running} icon={<DirectionsCarIcon fontSize="inherit" />} bgClass="runningBg" color="success" />
       <Card statusKey="idling" label="Idling" count={stats.idling} icon={<PauseCircleIcon fontSize="inherit" />} bgClass="idlingBg" color="warning" />
       <Card statusKey="parked" label="Parked" count={stats.parked} icon={<LocalParkingIcon fontSize="inherit" />} bgClass="parkedBg" color="neutral" />
-      <Card statusKey="stopped" label="Stopped" count={stats.stopped} icon={<StopCircleIcon fontSize="inherit" />} bgClass="stoppedBg" color="neutral" />
       <Card statusKey="offline" label="Offline" count={stats.offline} icon={<CloudOffIcon fontSize="inherit" />} bgClass="offlineBg" color="error" />
       {stats.alarms > 0 && (
         <Box sx={{ gridColumn: '1 / -1' }}>

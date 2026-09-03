@@ -249,13 +249,9 @@ const MainToolbar = ({
               <MenuItem value="running">{`Running (ignition ON + moving) (${fleetStats.running})`}</MenuItem>
               <MenuItem value="idling">{`Idling (ignition ON, stopped) (${fleetStats.idling})`}</MenuItem>
               <MenuItem value="parked">{`Parked (ignition OFF) (${fleetStats.parked})`}</MenuItem>
-              <MenuItem value="stopped">{`Stopped (ignition OFF) (${fleetStats.stopped})`}</MenuItem>
               <MenuItem value="offline">{`Offline (${fleetStats.offline})`}</MenuItem>
             </Select>
           </FormControl>
-          <Typography variant="caption" color="textSecondary">
-            Status is determined strictly by ignition parameter. DVR/CNMS unchanged; Teltonika resolves ignition via io239 / fallback.
-          </Typography>
           <FormControl>
             <InputLabel>{t('deviceStatus')}</InputLabel>
             <Select
