@@ -15,6 +15,8 @@
  */
 package org.traccar.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import java.util.Date;
 
 import org.traccar.storage.QueryIgnore;
@@ -52,7 +54,16 @@ public class TachographBridge extends BaseModel {
     private String pairingCodeHash;
     private Date pairingCodeExpiresAt;
 
+    private String cardHolder;
+    private String cardIssuer;
+    private Date cardValidityFrom;
+    private Date cardCheckedAt;
+    private String cardCheckError;
+    private String hostname;
+
     private String groupName;
+    private String pairingCode;
+    private String bridgeToken;
 
     public String getBridgeId() {
         return bridgeId;
@@ -86,6 +97,11 @@ public class TachographBridge extends BaseModel {
         this.status = status;
     }
 
+    /**
+     * SHA-256 of the bridge's authentication token. Never serialised: this object is returned by
+     * the bridge listing API, and a token hash has no business leaving the server.
+     */
+    @JsonIgnore
     public String getTokenHash() {
         return tokenHash;
     }
@@ -166,6 +182,8 @@ public class TachographBridge extends BaseModel {
         this.lastSeenAt = lastSeenAt;
     }
 
+    /** SHA-256 of the one-time pairing code. Never serialised, for the same reason as the token. */
+    @JsonIgnore
     public String getPairingCodeHash() {
         return pairingCodeHash;
     }
@@ -189,5 +207,87 @@ public class TachographBridge extends BaseModel {
 
     public void setGroupName(String groupName) {
         this.groupName = groupName;
+    }
+
+    /** Name on the company card, read from the card itself. */
+    public String getCardHolder() {
+        return cardHolder;
+    }
+
+    public void setCardHolder(String cardHolder) {
+        this.cardHolder = cardHolder;
+    }
+
+    public String getCardIssuer() {
+        return cardIssuer;
+    }
+
+    public void setCardIssuer(String cardIssuer) {
+        this.cardIssuer = cardIssuer;
+    }
+
+    public Date getCardValidityFrom() {
+        return cardValidityFrom;
+    }
+
+    public void setCardValidityFrom(Date cardValidityFrom) {
+        this.cardValidityFrom = cardValidityFrom;
+    }
+
+    /** When the card's identity was last read successfully. */
+    public Date getCardCheckedAt() {
+        return cardCheckedAt;
+    }
+
+    public void setCardCheckedAt(Date cardCheckedAt) {
+        this.cardCheckedAt = cardCheckedAt;
+    }
+
+    public String getCardCheckError() {
+        return cardCheckError;
+    }
+
+    public void setCardCheckError(String cardCheckError) {
+        this.cardCheckError = cardCheckError;
+    }
+
+    /** Machine the bridge runs on, so an operator can find it in the office. */
+    public String getHostname() {
+        return hostname;
+    }
+
+    public void setHostname(String hostname) {
+        this.hostname = hostname;
+    }
+
+    /**
+     * The freshly generated pairing code, returned once at generation time and never stored.
+     */
+    @QueryIgnore
+    public String getPairingCode() {
+        return pairingCode;
+    }
+
+    public void setPairingCode(String pairingCode) {
+        this.pairingCode = pairingCode;
+    }
+
+    /**
+     * The freshly issued bridge token, returned once at registration time and never stored.
+     */
+    @QueryIgnore
+    public String getBridgeToken() {
+        return bridgeToken;
+    }
+
+    public void setBridgeToken(String bridgeToken) {
+        this.bridgeToken = bridgeToken;
+    }
+
+    /** Whether the company card is usable right now. */
+    @QueryIgnore
+    public boolean getCardReady() {
+        return STATUS_ONLINE.equals(status)
+                && (READER_CARD_READY.equals(cardStatus) || READER_CARD_INSERTED.equals(cardStatus));
     }
 }

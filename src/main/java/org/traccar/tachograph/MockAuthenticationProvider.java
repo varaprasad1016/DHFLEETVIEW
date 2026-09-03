@@ -45,17 +45,18 @@ public class MockAuthenticationProvider implements TachographAuthenticationProvi
             return null;
         }
         BridgeStatusInfo info = new BridgeStatusInfo();
-        info.bridgeId = "mock-bridge-" + groupId;
-        info.bridgeStatus = BridgeStatus.ONLINE;
-        info.readerStatus = "READER_CONNECTED";
-        info.cardStatus = CardStatus.CARD_READY.name();
-        info.softwareVersion = "mock-1.0";
-        info.lastHeartbeat = new java.util.Date();
-        CardMetadata meta = new CardMetadata();
-        meta.cardIdentifier = "MOCK_CARD_" + groupId;
-        meta.cardType = "COMPANY_CARD";
-        meta.status = "VALID";
-        info.cardMetadata = meta;
+        info.setBridgeId("mock-bridge-" + groupId);
+        info.setBridgeStatus(BridgeStatus.ONLINE);
+        info.setReaderStatus("READER_CONNECTED");
+        info.setCardStatus(CardStatus.CARD_READY.name());
+        info.setSoftwareVersion("mock-1.0");
+        info.setLastHeartbeat(new java.util.Date());
+
+        CardMetadata metadata = new CardMetadata();
+        metadata.setCardIdentifier("MOCK_CARD_" + groupId);
+        metadata.setCardType("COMPANY_CARD");
+        metadata.setStatus("VALID");
+        info.setCardMetadata(metadata);
         return info;
     }
 
