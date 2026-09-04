@@ -127,6 +127,33 @@ jobs:
           echo "PROFILE_NAME=$NAME" >> "$GITHUB_ENV"
           echo "Installed provisioning profile: $NAME ($UUID)"
 
+      - name: Force manual signing for the archive
+        if: steps.signing.outputs.signed == 'true'
+        shell: bash
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # The Xcode project leaves CODE_SIGN_STYLE unset, so it defaults to
+          # automatic, and sets CODE_SIGN_IDENTITY to "iPhone Developer". Both
+          # are right for someone building in Xcode on their own Mac and wrong
+          # here: automatic signing needs a signed-in Xcode account this runner
+          # does not have, and a development identity cannot sign an App Store
+          # archive.
+          #
+          # Overriding through Flutter's Release xcconfig rather than editing
+          # the project keeps local development on automatic signing, which is
+          # what anyone opening the project in Xcode will want.
+          cat >> traccar-manager/ios/Flutter/Release.xcconfig <<XCCONFIG
+
+          // Added by CI for App Store signing; not committed.
+          CODE_SIGN_STYLE = Manual
+          DEVELOPMENT_TEAM = ${TEAM_ID}
+          PROVISIONING_PROFILE_SPECIFIER = ${PROFILE_NAME}
+          CODE_SIGN_IDENTITY = Apple Distribution
+          CODE_SIGN_IDENTITY[sdk=iphoneos*] = Apple Distribution
+          XCCONFIG
+          tail -8 traccar-manager/ios/Flutter/Release.xcconfig
+
       - name: Write export options
         if: steps.signing.outputs.signed == 'true'
         shell: bash

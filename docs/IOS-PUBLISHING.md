@@ -35,16 +35,22 @@ but a bad idea: a bad build then reaches customers with nobody having looked.
 - Capabilities: tick only what the app actually uses. Push notifications are
   already in the project, so tick **Push Notifications**.
 
-## Step 2 — Confirm the Team ID
+## Step 2 — Team ID (already done)
 
-The Xcode project already has `DEVELOPMENT_TEAM = YW49KTJKFW`
-(`traccar-manager/ios/Runner.xcodeproj/project.pbxproj`).
+The Team ID for the paid account is **`ZAWG6D59DU`**, and
+`traccar-manager/ios/Runner.xcodeproj/project.pbxproj` has been updated to
+match. It previously held `YW49KTJKFW`, from an earlier free or personal team.
 
-Check it matches the paid account you just enrolled: **Membership details** at
-<https://developer.apple.com/account>. If you enrolled as an organisation, or
-under a different Apple ID than the one used before, the Team ID **will differ**
-and that line must be updated. A stale Team ID fails the build with a signing
-error that does not name the cause.
+Nothing to do here unless the membership changes. If it ever does, update that
+file **and** the `APPLE_TEAM_ID` secret together.
+
+Both, because Xcode resolves build settings by precedence and a value set on
+the target wins over one supplied by the CI configuration. Setting only the
+secret would leave the archive signed with whatever `project.pbxproj` says, and
+the failure is a signing error that never names the team as the cause.
+
+Confirm at any time under **Membership details** at
+<https://developer.apple.com/account>.
 
 ## Step 3 — Create the App Store Connect record
 
@@ -126,7 +132,7 @@ base64 -w0 DH_FleetView_App_Store.mobileprovision > profile.txt
 
 | Secret | Value |
 |---|---|
-| `APPLE_TEAM_ID` | `YW49KTJKFW`, or your actual Team ID from step 2 |
+| `APPLE_TEAM_ID` | `ZAWG6D59DU` |
 | `IOS_DIST_CERT_P12` | contents of `p12.txt` |
 | `IOS_DIST_CERT_PASSWORD` | the export password from step 4 |
 | `IOS_PROVISIONING_PROFILE` | contents of `profile.txt` |
