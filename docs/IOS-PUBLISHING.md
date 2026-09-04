@@ -35,16 +35,22 @@ but a bad idea: a bad build then reaches customers with nobody having looked.
 - Capabilities: tick only what the app actually uses. Push notifications are
   already in the project, so tick **Push Notifications**.
 
-## Step 2 — Confirm the Team ID
+## Step 2 — Team ID (already done)
 
-The Xcode project already has `DEVELOPMENT_TEAM = YW49KTJKFW`
-(`traccar-manager/ios/Runner.xcodeproj/project.pbxproj`).
+The Team ID for the paid account is **`ZAWG6D59DU`**, and
+`traccar-manager/ios/Runner.xcodeproj/project.pbxproj` has been updated to
+match. It previously held `YW49KTJKFW`, from an earlier free or personal team.
 
-Check it matches the paid account you just enrolled: **Membership details** at
-<https://developer.apple.com/account>. If you enrolled as an organisation, or
-under a different Apple ID than the one used before, the Team ID **will differ**
-and that line must be updated. A stale Team ID fails the build with a signing
-error that does not name the cause.
+Nothing to do here unless the membership changes. If it ever does, update that
+file **and** the `APPLE_TEAM_ID` secret together.
+
+Both, because Xcode resolves build settings by precedence and a value set on
+the target wins over one supplied by the CI configuration. Setting only the
+secret would leave the archive signed with whatever `project.pbxproj` says, and
+the failure is a signing error that never names the team as the cause.
+
+Confirm at any time under **Membership details** at
+<https://developer.apple.com/account>.
 
 ## Step 3 — Create the App Store Connect record
 
@@ -54,7 +60,19 @@ error that does not name the cause.
 - Name: `DH FleetView` (must be unique across the whole App Store)
 - Primary language: English (UK)
 - Bundle ID: pick `com.dhgroup.fleetview`
-- SKU: anything internal and stable, e.g. `dhfleetview-ios`
+- SKU: `dhfleetview-ios`
+
+Two of those are permanent. **Bundle ID** cannot change once a build is
+uploaded, and **SKU** can never change at all. The SKU is internal — customers
+never see it — but it identifies the app in your sales and financial reports,
+so make it readable in a spreadsheet. Reusing the bundle ID is an equally
+common convention if you prefer.
+
+The app name can be changed between versions, though it must be unique across
+the whole App Store and is reserved for 90 days once taken. If `DH FleetView`
+is unavailable, any variant works: the name shown under the icon on the phone
+comes from `CFBundleDisplayName` in `Info.plist`, which is already
+`DH FleetView` and is unaffected by the App Store listing name.
 
 **Do this before the first upload.** Uploads to an app record that does not
 exist are rejected.
@@ -70,8 +88,14 @@ In Git Bash, in a directory you will delete afterwards:
 # 1. Private key and certificate signing request
 openssl genrsa -out ios_distribution.key 2048
 openssl req -new -key ios_distribution.key -out ios_distribution.csr \
-  -subj "/emailAddress=you@dhgroup.co.uk/CN=DH FleetView Distribution/C=GB"
+  -subj "//emailAddress=you@dhgroup.co.uk\CN=DH FleetView Distribution\C=GB"
 ```
+
+The doubled slash and backslashes are not a typo. Git Bash rewrites anything
+that looks like a Unix path into a Windows one, so the ordinary
+`-subj "/emailAddress=...`" silently becomes a filename and openssl rejects it.
+This form survives that. In PowerShell or on Linux, use the normal
+`"/emailAddress=.../CN=.../C=GB"`.
 
 Upload `ios_distribution.csr` at
 <https://developer.apple.com/account/resources/certificates/add> →
@@ -86,6 +110,13 @@ openssl pkcs12 -export -inkey ios_distribution.key -in distribution.pem \
 
 It asks for an export password. Choose a strong one and keep it — it becomes
 the `IOS_DIST_CERT_PASSWORD` secret.
+
+Verify the key and the request belong together before uploading anything:
+
+```bash
+diff <(openssl req -in ios_distribution.csr -noout -pubkey) \
+     <(openssl rsa -in ios_distribution.key -pubout) && echo "matched"
+```
 
 **Back up `ios_distribution.p12` and its password somewhere safe**, such as a
 password manager. Losing it is recoverable (revoke and reissue) but you get
@@ -126,7 +157,7 @@ base64 -w0 DH_FleetView_App_Store.mobileprovision > profile.txt
 
 | Secret | Value |
 |---|---|
-| `APPLE_TEAM_ID` | `YW49KTJKFW`, or your actual Team ID from step 2 |
+| `APPLE_TEAM_ID` | `ZAWG6D59DU` |
 | `IOS_DIST_CERT_P12` | contents of `p12.txt` |
 | `IOS_DIST_CERT_PASSWORD` | the export password from step 4 |
 | `IOS_PROVISIONING_PROFILE` | contents of `profile.txt` |
