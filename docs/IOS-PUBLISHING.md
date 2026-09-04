@@ -60,7 +60,19 @@ Confirm at any time under **Membership details** at
 - Name: `DH FleetView` (must be unique across the whole App Store)
 - Primary language: English (UK)
 - Bundle ID: pick `com.dhgroup.fleetview`
-- SKU: anything internal and stable, e.g. `dhfleetview-ios`
+- SKU: `dhfleetview-ios`
+
+Two of those are permanent. **Bundle ID** cannot change once a build is
+uploaded, and **SKU** can never change at all. The SKU is internal — customers
+never see it — but it identifies the app in your sales and financial reports,
+so make it readable in a spreadsheet. Reusing the bundle ID is an equally
+common convention if you prefer.
+
+The app name can be changed between versions, though it must be unique across
+the whole App Store and is reserved for 90 days once taken. If `DH FleetView`
+is unavailable, any variant works: the name shown under the icon on the phone
+comes from `CFBundleDisplayName` in `Info.plist`, which is already
+`DH FleetView` and is unaffected by the App Store listing name.
 
 **Do this before the first upload.** Uploads to an app record that does not
 exist are rejected.
