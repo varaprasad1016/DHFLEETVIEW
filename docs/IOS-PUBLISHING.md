@@ -76,8 +76,14 @@ In Git Bash, in a directory you will delete afterwards:
 # 1. Private key and certificate signing request
 openssl genrsa -out ios_distribution.key 2048
 openssl req -new -key ios_distribution.key -out ios_distribution.csr \
-  -subj "/emailAddress=you@dhgroup.co.uk/CN=DH FleetView Distribution/C=GB"
+  -subj "//emailAddress=you@dhgroup.co.uk\CN=DH FleetView Distribution\C=GB"
 ```
+
+The doubled slash and backslashes are not a typo. Git Bash rewrites anything
+that looks like a Unix path into a Windows one, so the ordinary
+`-subj "/emailAddress=...`" silently becomes a filename and openssl rejects it.
+This form survives that. In PowerShell or on Linux, use the normal
+`"/emailAddress=.../CN=.../C=GB"`.
 
 Upload `ios_distribution.csr` at
 <https://developer.apple.com/account/resources/certificates/add> →
@@ -92,6 +98,13 @@ openssl pkcs12 -export -inkey ios_distribution.key -in distribution.pem \
 
 It asks for an export password. Choose a strong one and keep it — it becomes
 the `IOS_DIST_CERT_PASSWORD` secret.
+
+Verify the key and the request belong together before uploading anything:
+
+```bash
+diff <(openssl req -in ios_distribution.csr -noout -pubkey) \
+     <(openssl rsa -in ios_distribution.key -pubout) && echo "matched"
+```
 
 **Back up `ios_distribution.p12` and its password somewhere safe**, such as a
 password manager. Losing it is recoverable (revoke and reissue) but you get
