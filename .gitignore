@@ -23,6 +23,12 @@ traccar-client/
 environment/dhfleetview.keystore
 environment/key.properties
 
+# Apple signing and App Store Connect credentials
+appconnect.txt
+*.p8
+*.p12
+*.mobileprovision
+
 # DH FleetView runtime/local
 logs/
 data/
