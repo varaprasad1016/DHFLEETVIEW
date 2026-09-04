@@ -20,7 +20,7 @@ name: Build Mobile Apps
 on:
   workflow_dispatch:        # manual trigger from the Actions tab
   push:
-    branches: [main]
+    branches: [main, ios-app-store-publishing]
     tags: ['v*']
 
 env:
@@ -340,7 +340,10 @@ jobs:
     needs: ios
     if: >-
       needs.ios.outputs.signed == 'true' &&
-      (github.ref == 'refs/heads/main' || github.ref_type == 'tag' || github.event_name == 'workflow_dispatch')
+      (github.ref == 'refs/heads/main' ||
+       github.ref == 'refs/heads/ios-app-store-publishing' ||
+       github.ref_type == 'tag' ||
+       github.event_name == 'workflow_dispatch')
     steps:
       - name: Check publishing configured
         shell: bash
