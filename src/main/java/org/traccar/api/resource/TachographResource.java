@@ -82,6 +82,32 @@ public class TachographResource extends BaseResource {
     // Downloads
     // -----------------------------------------------------------------------
 
+    @GET
+    @Path("bridge/download")
+    public Response downloadBridge() {
+        java.io.File file = new java.io.File("media/tacho-bridge/TachoBridgeSetup.exe");
+        if (!file.exists() || !file.isFile()) {
+            return Response.status(Response.Status.NOT_FOUND)
+                    .type(MediaType.APPLICATION_JSON)
+                    .entity(Map.of("error",
+                            "Tacho Bridge App installer is not available yet. Build it from the "
+                            + "forked Tacho Bridge App and place it at "
+                            + "media/tacho-bridge/TachoBridgeSetup.exe on the server."))
+                    .build();
+        }
+        StreamingOutput output = out -> {
+            try (InputStream in = new java.io.FileInputStream(file)) {
+                in.transferTo(out);
+            } catch (IOException e) {
+                // client disconnected mid-download
+            }
+        };
+        return Response.ok(output)
+                .header("Content-Type", "application/octet-stream")
+                .header("Content-Disposition", "attachment; filename=\"TachoBridgeSetup.exe\"")
+                .build();
+    }
+
     @POST
     @Path("download")
     @Consumes(MediaType.APPLICATION_JSON)

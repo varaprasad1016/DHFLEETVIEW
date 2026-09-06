@@ -8,6 +8,7 @@ import { useSelector } from 'react-redux';
 import { t } from '../common/components/LocalizationProvider';
 import PageLayout from '../common/components/PageLayout';
 import SettingsMenu from '../settings/components/SettingsMenu';
+import DownloadIcon from '@mui/icons-material/Download';
 import { useCatch, useCatchCallback } from '../reactHelper';
 import {
   tachoGetConfiguration, tachoSaveConfiguration, tachoRequestDownload,
@@ -231,10 +232,23 @@ const TachographPage = () => {
             <Typography variant="h6">Tacho Bridges</Typography>
             <Button size="small" onClick={loadBridges}>Refresh</Button>
           </Box>
-          <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+          <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Button
+              variant="contained"
+              startIcon={<DownloadIcon />}
+              href="/api/tachograph/bridge/download"
+            >
+              Download Tacho Bridge App (Windows)
+            </Button>
             <Button variant="outlined" onClick={handlePairingCode}>Generate Pairing Code</Button>
             {pairingCode && <Chip label={`Pairing code: ${pairingCode}`} color="primary" />}
           </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Install the Tacho Bridge App on the PC that has the company-card reader (card rack),
+            generate a pairing code above, and enter it in the app to link the reader to this
+            server. The app reads the company cards and relays authentication automatically
+            during remote downloads.
+          </Typography>
           <TableContainer>
             <Table size="small">
               <TableHead>

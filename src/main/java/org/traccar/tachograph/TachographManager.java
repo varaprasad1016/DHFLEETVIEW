@@ -105,7 +105,9 @@ public class TachographManager {
             storage.addObject(configuration, new Request(new Columns.Exclude("id")));
         } else {
             configuration.setId(existing.getId());
-            storage.updateObject(configuration, new Request(new Condition.Equals("id", existing.getId())));
+            storage.updateObject(configuration, new Request(
+                    new Columns.Exclude("id"),
+                    new Condition.Equals("id", existing.getId())));
         }
     }
 
@@ -220,7 +222,7 @@ public class TachographManager {
         }
         job.setStatus(TachographDownloadJob.STATUS_CANCELLED);
         job.setUpdatedAt(new Date());
-        storage.updateObject(job, new Request(new Condition.Equals("id", jobId)));
+        storage.updateObject(job, new Request(new Columns.Exclude("id"), new Condition.Equals("id", jobId)));
         LOGGER.info("Tachograph job {} cancelled by user {}", jobId, userId);
     }
 
@@ -253,7 +255,7 @@ public class TachographManager {
         job.setStatus(TachographDownloadJob.STATUS_REQUESTING);
         job.setStartedAt(new Date());
         job.setUpdatedAt(new Date());
-        storage.updateObject(job, new Request(new Condition.Equals("id", jobId)));
+        storage.updateObject(job, new Request(new Columns.Exclude("id"), new Condition.Equals("id", jobId)));
 
         String authToken = null;
         try {
@@ -279,14 +281,14 @@ public class TachographManager {
                 job.setStatus(TachographDownloadJob.STATUS_DOWNLOADING);
                 job.setProgress(10);
                 job.setUpdatedAt(new Date());
-                storage.updateObject(job, new Request(new Condition.Equals("id", jobId)));
+                storage.updateObject(job, new Request(new Columns.Exclude("id"), new Condition.Equals("id", jobId)));
 
                 authProvider.authenticate(authToken, jobId);
             } else {
                 job.setStatus(TachographDownloadJob.STATUS_DOWNLOADING);
                 job.setProgress(10);
                 job.setUpdatedAt(new Date());
-                storage.updateObject(job, new Request(new Condition.Equals("id", jobId)));
+                storage.updateObject(job, new Request(new Columns.Exclude("id"), new Condition.Equals("id", jobId)));
             }
 
             // device download
@@ -296,7 +298,7 @@ public class TachographManager {
             job.setStatus(TachographDownloadJob.STATUS_PROCESSING);
             job.setProgress(70);
             job.setUpdatedAt(new Date());
-            storage.updateObject(job, new Request(new Condition.Equals("id", jobId)));
+            storage.updateObject(job, new Request(new Columns.Exclude("id"), new Condition.Equals("id", jobId)));
 
             // storage
             storeResult(job, result);
@@ -305,7 +307,7 @@ public class TachographManager {
             job.setProgress(100);
             job.setCompletedAt(new Date());
             job.setUpdatedAt(new Date());
-            storage.updateObject(job, new Request(new Condition.Equals("id", jobId)));
+            storage.updateObject(job, new Request(new Columns.Exclude("id"), new Condition.Equals("id", jobId)));
 
             // update configuration next-download
             updateNextDownload(job);
@@ -375,7 +377,7 @@ public class TachographManager {
             file.setId(fileId);
 
             job.setFileId(fileId);
-            storage.updateObject(job, new Request(new Condition.Equals("id", job.getId())));
+            storage.updateObject(job, new Request(new Columns.Exclude("id"), new Condition.Equals("id", job.getId())));
 
             LOGGER.info("Tachograph file {} stored for job {} at {} ({} bytes, sha256 {})",
                     fileName, job.getId(), finalPath, data.length, sha256);
@@ -417,7 +419,7 @@ public class TachographManager {
             job.setErrorMessage(message);
             job.setFailedAt(new Date());
             job.setUpdatedAt(new Date());
-            storage.updateObject(job, new Request(new Condition.Equals("id", job.getId())));
+            storage.updateObject(job, new Request(new Columns.Exclude("id"), new Condition.Equals("id", job.getId())));
             LOGGER.warn("Tachograph job {} failed permanently: {} - {}", job.getId(), errorCode, message);
             return;
         }
@@ -432,7 +434,7 @@ public class TachographManager {
             job.setErrorMessage(message);
             job.setFailedAt(new Date());
             job.setUpdatedAt(new Date());
-            storage.updateObject(job, new Request(new Condition.Equals("id", job.getId())));
+            storage.updateObject(job, new Request(new Columns.Exclude("id"), new Condition.Equals("id", job.getId())));
             LOGGER.warn("Tachograph job {} failed after {} retries: {} - {}",
                     job.getId(), job.getRetryCount(), errorCode, message);
             return;
@@ -445,7 +447,7 @@ public class TachographManager {
         job.setErrorMessage(message);
         job.setNextRetryAt(new Date(System.currentTimeMillis() + (long) delaySeconds * 1000));
         job.setUpdatedAt(new Date());
-        storage.updateObject(job, new Request(new Condition.Equals("id", job.getId())));
+        storage.updateObject(job, new Request(new Columns.Exclude("id"), new Condition.Equals("id", job.getId())));
         LOGGER.info("Tachograph job {} scheduled for retry #{} in {}s: {} - {}",
                 job.getId(), job.getRetryCount(), delaySeconds, errorCode, message);
     }
@@ -512,7 +514,8 @@ public class TachographManager {
                 job.setErrorCode(null);
                 job.setErrorMessage("Recovered after server restart");
                 job.setUpdatedAt(new Date());
-                storage.updateObject(job, new Request(new Condition.Equals("id", job.getId())));
+                storage.updateObject(job, new Request(
+                        new Columns.Exclude("id"), new Condition.Equals("id", job.getId())));
                 LOGGER.info("Recovered stale tachograph job {}", job.getId());
                 executeAsync(job.getId());
             } else if (TachographDownloadJob.STATUS_QUEUED.equals(s)
@@ -618,7 +621,8 @@ public class TachographManager {
         matched.setLastHeartbeat(new Date());
         matched.setPairingCodeHash(null);
         matched.setPairingCodeExpiresAt(null);
-        storage.updateObject(matched, new Request(new Condition.Equals("id", matched.getId())));
+        storage.updateObject(matched, new Request(
+                new Columns.Exclude("id"), new Condition.Equals("id", matched.getId())));
         // Return with token in a transient field (reuse tokenHash field for response only if needed)
         // The caller receives the raw token via the bridge's tokenHash? For MVP we set tokenHash to the
         // hash and return the raw token in the bridge name? Instead, put token in softwareVersion transient?
@@ -666,7 +670,8 @@ public class TachographManager {
                 bridge.setSoftwareVersion(body.get("softwareVersion").toString());
             }
         }
-        storage.updateObject(bridge, new Request(new Condition.Equals("id", bridge.getId())));
+        storage.updateObject(bridge, new Request(
+                new Columns.Exclude("id"), new Condition.Equals("id", bridge.getId())));
 
         Map<String, Object> response = new java.util.HashMap<>();
         response.put("status", "ok");
