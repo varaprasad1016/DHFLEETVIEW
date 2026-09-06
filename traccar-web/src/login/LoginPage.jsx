@@ -168,12 +168,7 @@ const LoginPage = () => {
   return (
     <LoginLayout>
       <div className={classes.options}>
-        {/* Server change button hidden for end users */}
-        {!nativeEnvironment && (
-          <IconButton color="primary" onClick={() => setShowQr(true)}>
-            <QrCode2Icon />
-          </IconButton>
-        )}
+        {/* Server change + QR (server onboarding) hidden for end users */}
         {languageEnabled && (
           <FormControl>
             <Select value={language} onChange={(e) => setLocalLanguage(e.target.value)}>
