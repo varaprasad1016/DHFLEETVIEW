@@ -26,7 +26,6 @@ import usePersistedState from '../common/util/usePersistedState';
 import EventsDrawer from './EventsDrawer';
 import useFilter from './useFilter';
 import MainToolbar from './MainToolbar';
-import { useAttributePreference } from '../common/util/preferences';
 import { useTranslation } from '../common/components/LocalizationProvider';
 import { useRestriction } from '../common/util/permissions';
 
@@ -230,8 +229,6 @@ const MainPage = () => {
   const readonly = useRestriction('readonly');
   const disableReports = useRestriction('disableReports');
 
-  const mapOnSelect = useAttributePreference('mapOnSelect', true);
-
   const selectedDeviceId = useSelector((state) => state.devices.selectedId);
   const positions = useSelector((state) => state.session.positions);
   const user = useSelector((state) => state.session.user);
@@ -266,25 +263,29 @@ const MainPage = () => {
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const isWebView = typeof window !== 'undefined'
     && (!!window.flutter_inappwebview || (typeof navigator !== 'undefined' && /wv|WebView/i.test(navigator.userAgent)));
-  const defaultFleetView = isWebView ? 'list' : (isMobile ? 'list' : 'split');
-  const [fleetView, setFleetView] = usePersistedState('fleetView', defaultFleetView);
+  const isAppMobile = isMobile || isWebView;
+  // Mobile/WebView has two mutually exclusive full-screen views: the fleet
+  // dashboard and the live map. The old combined 'split'/'list' modes are gone
+  // because a full-width sidebar left no room for the map on a phone.
+  const [fleetView, setFleetView] = usePersistedState('fleetView', 'dashboard');
 
   const onEventsClick = useCallback(() => setEventsOpen(true), [setEventsOpen]);
 
+  // Migrate any legacy persisted view to the surviving two.
   useEffect(() => {
-    if (!desktop && mapOnSelect && selectedDeviceId && fleetView !== 'list') {
-      setDevicesOpen(false);
+    if (fleetView === 'split' || fleetView === 'list') {
+      setFleetView('dashboard');
     }
-  }, [desktop, mapOnSelect, selectedDeviceId, fleetView]);
+  }, [fleetView, setFleetView]);
 
-  // APK/iOS: always show dashboard+list on login, never map (WebView detection)
+  // Selecting a vehicle jumps straight to the full-screen map. Fires only when
+  // the selected id changes, so tapping "Dashboard" afterwards does not bounce
+  // back to the map.
   useEffect(() => {
-    if (isWebView && fleetView !== 'list') {
-      setFleetView('list');
-    } else if (isMobile && fleetView === 'split' && !window.localStorage.getItem('fleetView')) {
-      setFleetView('list');
+    if (isAppMobile && selectedDeviceId) {
+      setFleetView('map');
     }
-  }, [isWebView, isMobile, fleetView, setFleetView]);
+  }, [isAppMobile, selectedDeviceId, setFleetView]);
 
   useFilter(
     keyword,
@@ -382,10 +383,9 @@ const MainPage = () => {
 
   const clearVehicleFilters = () => setFilter({ ...safeFilter, vehicleStatuses: [] });
 
-  // On APK/iOS (mobile/WebView) we surface dashboard+list as primary view (not map)
-  const isAppMobile = isMobile || isWebView;
-  const showSidebar = isAppMobile ? fleetView !== 'map' : devicesOpen;
-  const showMap = isAppMobile ? fleetView !== 'list' : true;
+  // Mobile/WebView shows exactly one full-screen surface at a time.
+  const showSidebar = isAppMobile ? fleetView === 'dashboard' : devicesOpen;
+  const showMap = isAppMobile ? fleetView === 'map' : true;
 
   return (
     <div className={classes.root}>
@@ -406,10 +406,10 @@ const MainPage = () => {
         <div className={classes.viewToggle}>
           <button
             type="button"
-            className={`${classes.viewToggleButton} ${fleetView === 'list' ? classes.viewToggleActive : ''}`}
-            onClick={() => setFleetView('list')}
+            className={`${classes.viewToggleButton} ${fleetView === 'dashboard' ? classes.viewToggleActive : ''}`}
+            onClick={() => setFleetView('dashboard')}
           >
-            <ViewListIcon fontSize="small" /> Fleet List
+            <ViewListIcon fontSize="small" /> Dashboard
           </button>
           <button
             type="button"
@@ -417,13 +417,6 @@ const MainPage = () => {
             onClick={() => setFleetView('map')}
           >
             <MapIconMui fontSize="small" /> Map
-          </button>
-          <button
-            type="button"
-            className={`${classes.viewToggleButton} ${fleetView === 'split' ? classes.viewToggleActive : ''}`}
-            onClick={() => setFleetView('split')}
-          >
-            <ViewListIcon fontSize="small" /> + <MapIconMui fontSize="small" />
           </button>
         </div>
       )}
