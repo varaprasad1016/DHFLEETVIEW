@@ -9,6 +9,10 @@
     <entry key='registration.enable'>true</entry>
     <entry key="web.port">8090</entry>
 
+    <!-- Only bind protocols actually in use. Traccar otherwise opens a listener
+         for every supported protocol it knows (~250 ports on 0.0.0.0). -->
+    <entry key="protocols.enable">osmand,teltonika</entry>
+
     <!-- CNMS video platform integration -->
     <entry key="cmsv9.url">https://portal.dhfleetview.co.uk</entry>
     <entry key="cmsv9.account">admin</entry>

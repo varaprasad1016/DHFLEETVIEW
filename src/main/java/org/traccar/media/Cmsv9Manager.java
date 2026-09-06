@@ -410,6 +410,50 @@ public class Cmsv9Manager {
     }
 
     /**
+     * Starts a recorded-footage playback via the CNMS playbackAppoint API and
+     * opens the FLV stream from the URL the platform returns. The device takes
+     * a moment to begin pushing, so the URL is retried briefly.
+     */
+    public InputStream openPlaybackStream(
+            String terminal, int channel, String startTime, String endTime) throws Exception {
+        JsonNode resp = playbackAppoint(terminal, String.valueOf(channel), startTime, endTime);
+        if (resp.path("errCode").asInt(-1) != 0) {
+            return null;
+        }
+        String httpUrl = resp.path("resultData").path("httpurl").asText("");
+        if (httpUrl.isEmpty()) {
+            return null;
+        }
+        long deadline = System.currentTimeMillis() + 45000;
+        while (System.currentTimeMillis() < deadline) {
+            InputStream in = openUrl(httpUrl);
+            if (in != null) {
+                return in;
+            }
+            try {
+                Thread.sleep(2000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private InputStream openUrl(String url) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+                .timeout(Duration.ofSeconds(15))
+                .GET()
+                .build();
+        HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        if (response.statusCode() / 100 != 2) {
+            response.body().close();
+            return null;
+        }
+        return response.body();
+    }
+
+    /**
      * Polls the local ZLMediaKit API until the named stream appears.
      * Avoids HTTP requests to the stream URL (which would trigger the
      * CNMS on-demand hooks and overload the video backend).

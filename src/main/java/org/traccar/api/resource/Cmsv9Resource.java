@@ -139,6 +139,50 @@ public class Cmsv9Resource extends BaseResource {
                 .build();
     }
 
+    /**
+     * On-demand footage download. Triggers a playback of the requested time
+     * range on the device, then streams the resulting FLV straight through to
+     * the client as a file attachment. The bytes are piped, never written to
+     * disk, so there is no server-side storage cost. Requires the device to be
+     * online (it plays the clip back from its SD card in real time).
+     */
+    @GET
+    @Path("download/{deviceId}/{channel}")
+    public Response download(
+            @PathParam("deviceId") long deviceId,
+            @PathParam("channel") int channel,
+            @QueryParam("startTime") String startTime,
+            @QueryParam("endTime") String endTime) throws Exception {
+        String terminal = getCmsDeviceId(deviceId);
+        int cnmsChannel = channel + 1;
+        InputStream input = cmsv9Manager.openPlaybackStream(
+                terminal, cnmsChannel, startTime, endTime);
+        if (input == null) {
+            return Response.status(Response.Status.NOT_FOUND).build();
+        }
+
+        String stamp = startTime != null ? startTime.replaceAll("[^0-9]", "") : "clip";
+        String filename = terminal + "_ch" + cnmsChannel + "_" + stamp + ".flv";
+
+        StreamingOutput output = out -> {
+            try (InputStream in = input) {
+                byte[] buffer = new byte[8192];
+                int length;
+                while ((length = in.read(buffer)) != -1) {
+                    out.write(buffer, 0, length);
+                    out.flush();
+                }
+            } catch (IOException e) {
+                // client disconnected or playback stream ended
+            }
+        };
+        return Response.ok(output)
+                .header("Content-Type", "video/x-flv")
+                .header("Content-Disposition", "attachment; filename=\"" + filename + "\"")
+                .header("Cache-Control", "no-cache")
+                .build();
+    }
+
     @POST
     @Path("stop/{deviceId}/{channel}")
     public Map<String, Object> stop(
@@ -166,7 +210,7 @@ public class Cmsv9Resource extends BaseResource {
         String startTime = params.get("startTime");
         String endTime = params.get("endTime");
 
-        cmsv9Manager.wsPlayback(terminal, cnmsChannel, startTime, endTime);
+        cmsv9Manager.playbackAppoint(terminal, String.valueOf(cnmsChannel), startTime, endTime);
         String flvUrl = cmsv9Manager.buildPlaybackFlvUrl(terminal, cnmsChannel);
 
         Map<String, Object> result = new LinkedHashMap<>();

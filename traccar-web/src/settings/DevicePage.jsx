@@ -19,7 +19,7 @@ import SelectField from '../common/components/SelectField';
 import deviceCategories from '../common/util/deviceCategories';
 import { useTranslation } from '../common/components/LocalizationProvider';
 import useDeviceAttributes from '../common/attributes/useDeviceAttributes';
-import { useManager } from '../common/util/permissions';
+import { useManager, useAdministrator } from '../common/util/permissions';
 import SettingsMenu from './components/SettingsMenu';
 import useCommonDeviceAttributes from '../common/attributes/useCommonDeviceAttributes';
 import { useCatch } from '../reactHelper';
@@ -33,6 +33,7 @@ const DevicePage = () => {
   const t = useTranslation();
 
   const manager = useManager();
+  const administrator = useAdministrator();
 
   const commonDeviceAttributes = useCommonDeviceAttributes(t);
   const deviceAttributes = useDeviceAttributes(t);
@@ -250,6 +251,33 @@ const DevicePage = () => {
               </Button>
             </AccordionDetails>
           </Accordion>
+          {administrator && item.attributes?.cmsv9DeviceId && (
+            <Accordion>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Typography variant="subtitle1">Parameter Config</Typography>
+              </AccordionSummary>
+              <AccordionDetails className={classes.details}>
+                <Typography variant="body2" color="textSecondary">
+                  Opens the device parameter configuration interface
+                  (encoder, sub-stream codec/resolution, recording). Admin only.
+                </Typography>
+                <Button
+                  variant="outlined"
+                  color="primary"
+                  onClick={() => window.open(
+                    `http://${item.attributes.cmsv9DeviceId}.dhfleetview.co.uk:9966/index.html?lang=en`,
+                    '_blank',
+                    'noopener',
+                  )}
+                >
+                  Open Parameter Config
+                </Button>
+                <Typography variant="caption" color="textSecondary">
+                  Config PIN: 111111
+                </Typography>
+              </AccordionDetails>
+            </Accordion>
+          )}
           {item.id && (
             <Accordion>
               <AccordionSummary expandIcon={<ExpandMoreIcon />}>
