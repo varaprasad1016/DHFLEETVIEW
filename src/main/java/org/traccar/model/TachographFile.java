@@ -17,6 +17,7 @@ package org.traccar.model;
 
 import java.util.Date;
 
+import org.traccar.storage.QueryIgnore;
 import org.traccar.storage.StorageName;
 
 @StorageName("tc_tachograph_files")
@@ -40,6 +41,21 @@ public class TachographFile extends BaseModel {
     private Date downloadedAt;
     private Date processedAt;
     private Date createdAt;
+
+    private long groupId;
+    private String vehicleRegistration;
+    private String vehicleIdentification;
+    private String vehicleUnitSerial;
+    private String cardNumber;
+    private Date periodFrom;
+    private Date periodTo;
+    private int generation;
+    private String blocks;
+    private String clientType;
+    private String validationMessage;
+
+    private String deviceName;
+    private String forwardStatus;
 
     public long getDownloadJobId() {
         return downloadJobId;
@@ -127,5 +143,115 @@ public class TachographFile extends BaseModel {
 
     public void setCreatedAt(Date createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public long getGroupId() {
+        return groupId;
+    }
+
+    public void setGroupId(long groupId) {
+        this.groupId = groupId;
+    }
+
+    public String getVehicleRegistration() {
+        return vehicleRegistration;
+    }
+
+    public void setVehicleRegistration(String vehicleRegistration) {
+        this.vehicleRegistration = vehicleRegistration;
+    }
+
+    public String getVehicleIdentification() {
+        return vehicleIdentification;
+    }
+
+    public void setVehicleIdentification(String vehicleIdentification) {
+        this.vehicleIdentification = vehicleIdentification;
+    }
+
+    public String getVehicleUnitSerial() {
+        return vehicleUnitSerial;
+    }
+
+    public void setVehicleUnitSerial(String vehicleUnitSerial) {
+        this.vehicleUnitSerial = vehicleUnitSerial;
+    }
+
+    public String getCardNumber() {
+        return cardNumber;
+    }
+
+    public void setCardNumber(String cardNumber) {
+        this.cardNumber = cardNumber;
+    }
+
+    /** Start of the period the file covers, as the vehicle unit reported it. */
+    public Date getPeriodFrom() {
+        return periodFrom;
+    }
+
+    public void setPeriodFrom(Date periodFrom) {
+        this.periodFrom = periodFrom;
+    }
+
+    public Date getPeriodTo() {
+        return periodTo;
+    }
+
+    public void setPeriodTo(Date periodTo) {
+        this.periodTo = periodTo;
+    }
+
+    /** Vehicle unit generation: 1 for Annex 1B, 2 or 3 for smart tachographs. */
+    public int getGeneration() {
+        return generation;
+    }
+
+    public void setGeneration(int generation) {
+        this.generation = generation;
+    }
+
+    /** Comma separated labels of the data blocks the file contains. */
+    public String getBlocks() {
+        return blocks;
+    }
+
+    public void setBlocks(String blocks) {
+        this.blocks = blocks;
+    }
+
+    public String getClientType() {
+        return clientType;
+    }
+
+    public void setClientType(String clientType) {
+        this.clientType = clientType;
+    }
+
+    public String getValidationMessage() {
+        return validationMessage;
+    }
+
+    public void setValidationMessage(String validationMessage) {
+        this.validationMessage = validationMessage;
+    }
+
+    @QueryIgnore
+    public String getDeviceName() {
+        return deviceName;
+    }
+
+    public void setDeviceName(String deviceName) {
+        this.deviceName = deviceName;
+    }
+
+    /** Summary of delivery to analysis bureaux, filled in when a file list is built. */
+    @QueryIgnore
+    public String getForwardStatus() {
+        return forwardStatus;
+    }
+
+    public void setForwardStatus(String forwardStatus) {
+        this.forwardStatus = forwardStatus;
     }
 }
