@@ -24,8 +24,6 @@ import {
   formatAlarm,
   formatBoolean,
   formatPercentage,
-  formatStatus,
-  getStatusColor,
 } from '../common/util/formatter';
 import { useTranslation } from '../common/components/LocalizationProvider';
 import { mapIconKey, mapIcons } from '../map/core/preloadImages';
@@ -160,12 +158,10 @@ const DeviceRow = ({ devices, index, style }) => {
   const vehicleStatusLabel = vehicleStatus.charAt(0).toUpperCase() + vehicleStatus.slice(1);
 
   const secondaryText = () => {
-    let status;
-    if (item.status === 'online' || !item.lastUpdate) {
-      status = formatStatus(item.status, t);
-    } else {
-      status = dayjs(item.lastUpdate).fromNow();
-    }
+    // Single source of truth for status: the operational vehicle status. The
+    // separate connection Online/Offline was removed because the two could
+    // disagree (e.g. "Online • OFFLINE") and flicker on first load.
+    const lastSeen = item.lastUpdate ? dayjs(item.lastUpdate).fromNow() : null;
     return (
       <>
         {secondaryValue && (
@@ -174,13 +170,17 @@ const DeviceRow = ({ devices, index, style }) => {
             {' • '}
           </>
         )}
-        <span className={classes[getStatusColor(item.status)]}>{status}</span>
-        {' • '}
-        <Tooltip title={`Ignition: ${ignition === true ? 'ON' : ignition === false ? 'OFF' : 'unknown'} – ${vehicleStatusLabel} (Teltonika io239 fallback)`}>
+        <Tooltip title={`Ignition: ${ignition === true ? 'ON' : ignition === false ? 'OFF' : 'unknown'} – ${vehicleStatusLabel}`}>
           <span className={classes[getVehicleStatusColor(vehicleStatus)]} style={{ fontWeight: 600, fontSize: '0.7rem', textTransform: 'uppercase' }}>
             {vehicleStatusLabel}
           </span>
         </Tooltip>
+        {vehicleStatus === 'offline' && lastSeen && (
+          <span className={classes.neutral}>
+            {' • '}
+            {lastSeen}
+          </span>
+        )}
       </>
     );
   };
