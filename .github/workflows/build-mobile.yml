@@ -258,6 +258,7 @@ jobs:
           name: DH-FleetView-iOS
           path: traccar-manager/build/ios/ipa/*.ipa
           if-no-files-found: error
+          retention-days: 5
 
       # -------------------------------------------------------------- unsigned
 
@@ -282,6 +283,7 @@ jobs:
           name: DH-FleetView-iOS-unsigned
           path: traccar-manager/DH-FleetView.ipa
           if-no-files-found: error
+          retention-days: 5
 
   android:
     name: Android (AAB)
@@ -351,6 +353,7 @@ jobs:
           name: DH-FleetView-Android
           path: traccar-manager/build/app/outputs/bundle/release/app-release.aab
           if-no-files-found: error
+          retention-days: 5
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -358,6 +361,7 @@ jobs:
           name: DH-FleetView-Android-APK
           path: traccar-manager/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
+          retention-days: 5
 
   publish-play:
     name: Publish to Google Play
