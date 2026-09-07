@@ -26,6 +26,7 @@ import StopIcon from '@mui/icons-material/Stop';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import VideocamIcon from '@mui/icons-material/Videocam';
 import SearchIcon from '@mui/icons-material/Search';
+import DownloadIcon from '@mui/icons-material/Download';
 import GridViewIcon from '@mui/icons-material/GridView';
 import OpenInFullIcon from '@mui/icons-material/OpenInFull';
 import BackIcon from '../common/components/BackIcon';
@@ -37,6 +38,7 @@ import {
   cmsv9StopLive,
   cmsv9StartPlayback,
   cmsv9Search,
+  cmsv9History,
   cmsv9StreamStatus,
 } from '../common/util/cmsv9';
 import { useCatch, useCatchCallback } from '../reactHelper';
@@ -166,13 +168,19 @@ function loadJessibuca() {
   return jessibucaPromise;
 }
 
-async function createFlvPlayer(container, url) {
+function parseCnmsFileTime(v) {
+  if (!v || String(v).length < 12) return null;
+  const s = String(v);
+  return dayjs(`20${s.slice(0, 2)}-${s.slice(2, 4)}-${s.slice(4, 6)}T${s.slice(6, 8)}:${s.slice(8, 10)}:${s.slice(10, 12)}`);
+}
+
+async function createFlvPlayer(container, url, options = {}) {
   const Jessibuca = await loadJessibuca();
   const player = new Jessibuca({
     container,
     videoBuffer: 0.6,
     decoder: '/decoder.js',
-    hasAudio: true,
+    hasAudio: options.hasAudio !== false,
     isFlv: true,
     useMSE: false,
     autoWasm: true,
@@ -180,8 +188,8 @@ async function createFlvPlayer(container, url) {
     showBandwidth: false,
     isResize: false,
     useWebFullScreen: false,
-    timeout: 20,
-    loadingTimeout: 30,
+    timeout: options.timeout || 20,
+    loadingTimeout: options.loadingTimeout || 30,
   });  player.on('error', (err) => console.log('[cmsv9] error:', err));
   player.on('videoInfo', (d) => console.log('[cmsv9] videoInfo:', d));
   player.on('audioInfo', (d) => console.log('[cmsv9] audioInfo:', d));
@@ -274,6 +282,7 @@ const Cmsv9VideoPage = () => {
   const [channel, setChannel] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [liveError, setLiveError] = useState(false);
+  const [playbackActive, setPlaybackActive] = useState(false);
   const [playerMsg, setPlayerMsg] = useState('');
 
   const [gridActive, setGridActive] = useState(false);
@@ -283,6 +292,11 @@ const Cmsv9VideoPage = () => {
   const [to, setTo] = useState(dayjs());
   const [searching, setSearching] = useState(false);
   const [recordings, setRecordings] = useState([]);
+  const [timelineDate, setTimelineDate] = useState(dayjs());
+  const [segments, setSegments] = useState([]);
+  const [loadingTimeline, setLoadingTimeline] = useState(false);
+  const [trimStart, setTrimStart] = useState(null);
+  const [trimEnd, setTrimEnd] = useState(null);
 
   const channels = useMemo(() => {
     const n = config?.channels || Number(defaultChannels) || 4;
@@ -460,9 +474,15 @@ const Cmsv9VideoPage = () => {
     if (!gridActive || !config) return;
     const timers = [];
     const cancelled = new Set();
-    channels.forEach(async (ch) => {
+    channels.forEach(async (ch, idx) => {
       const videoEl = gridPlayers.current[ch]?.videoEl;
       if (!videoEl || videoEl.dataset.attached) return;
+      // Stagger startup: N tiles firing play-orders and spinning up N WASM
+      // H.265 decoders at the same instant is what makes multi-channel struggle.
+      if (idx > 0) {
+        await new Promise((resolve) => setTimeout(resolve, idx * 800));
+        if (cancelledRef.current) return;
+      }
       try {
         const data = await cmsv9StartLive(deviceId, ch);
         if (data.errCode !== 0 && data.errCode !== -1) {
@@ -481,7 +501,7 @@ const Cmsv9VideoPage = () => {
           return;
         }
         if (cancelled.has(ch) || cancelledRef.current) return;
-        const player = await createFlvPlayer(videoEl, data.flvUrl);
+        const player = await createFlvPlayer(videoEl, data.flvUrl, { hasAudio: false });
         gridPlayers.current[ch] = { player, videoEl };
         videoEl.dataset.attached = '1';
         if (player) {
@@ -560,12 +580,51 @@ const Cmsv9VideoPage = () => {
     }
   }, [ensureConfig, cmsv9DeviceId, channel, from, to]);
 
+  const loadTimeline = useCatchCallback(async () => {
+    const cfg = await ensureConfig();
+    if (!cfg) return;
+    setLoadingTimeline(true);
+    try {
+      const data = await cmsv9History(
+        deviceId,
+        channel,
+        timelineDate.format('YYYY-MM-DD 00:00:00'),
+        timelineDate.format('YYYY-MM-DD 23:59:59'),
+      );
+      const list = data?.resultData || [];
+      setSegments(Array.isArray(list) ? list : []);
+    } finally {
+      setLoadingTimeline(false);
+    }
+  }, [ensureConfig, deviceId, channel, timelineDate]);
+
+  useEffect(() => {
+    if (tab === 2 && cmsv9DeviceId) {
+      loadTimeline();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, timelineDate, channel, cmsv9DeviceId]);
+
+  const downloadSegment = useCallback((startStr, endStr) => {
+    const url = `/api/cmsv9/download/${deviceId}/${channel}`
+      + `?startTime=${encodeURIComponent(startStr)}`
+      + `&endTime=${encodeURIComponent(endStr)}`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }, [deviceId, channel]);
+
   const playRecording = useCallback(
     async (item) => {
       setLiveError(false);
+      setPlaybackActive(false);
       stopPlayback();
       if (!cmsv9DeviceId) return;
       setLoading(true);
+      cancelledRef.current = false;
       try {
         const data = await cmsv9StartPlayback(
           deviceId,
@@ -573,13 +632,16 @@ const Cmsv9VideoPage = () => {
           item.startTime || from.format('YYYY-MM-DD HH:mm:ss'),
           item.endTime || to.format('YYYY-MM-DD HH:mm:ss'),
         );
-        if (data.errCode !== 0) {
+        if (data.errCode !== 0 && data.errCode !== -1) {
           throw new Error(data.resultMsg || 'Failed to start playback');
         }
         const { flvUrl } = data;
         if (!flvUrl) throw new Error('No playback URL returned');
         setPlaying(true);
-        const found = await waitForStream(flvUrl, 45000, () => cancelledRef.current);
+        // The platform pushes the recorded segment to the portal relay as a
+        // regular FLV stream, so it plays directly in the browser just like
+        // live does.
+        const found = await waitForStream(flvUrl, 90000, () => cancelledRef.current);
         if (!found) {
           if (!cancelledRef.current) {
             setLiveError(true);
@@ -587,7 +649,7 @@ const Cmsv9VideoPage = () => {
           }
           return;
         }
-        if (!videoRef.current) return;
+        if (!videoRef.current || cancelledRef.current) return;
         const player = await createFlvPlayer(videoRef.current, flvUrl);
         flvPlayerRef.current = player;
         if (!player) {
@@ -603,6 +665,7 @@ const Cmsv9VideoPage = () => {
         }, 30000);
         player.on('videoInfo', () => {
           clearTimeout(timeout);
+          setPlaybackActive(true);
         });
         player.on('error', () => {
           clearTimeout(timeout);
@@ -639,7 +702,7 @@ const Cmsv9VideoPage = () => {
           <Tabs value={tab} onChange={(_, value) => setTab(value)} className={classes.tab}>
             <Tab label={t('sharedLive')} icon={<VideocamIcon />} iconPosition="start" />
             <Tab label={t('cmsv9Multi')} icon={<GridViewIcon />} iconPosition="start" />
-            <Tab label={t('reportTitle')} icon={<SearchIcon />} iconPosition="start" />
+            <Tab label="Download" icon={<DownloadIcon />} iconPosition="start" />
           </Tabs>
         </Toolbar>
       </AppBar>
@@ -785,48 +848,191 @@ const Cmsv9VideoPage = () => {
           )}
           {tab === 2 && (
             <>
-              <div className={classes.search}>
-                <TextField
-                  size="small"
-                  type="datetime-local"
-                  label={t('reportFrom')}
-                  value={from.format('YYYY-MM-DDTHH:mm')}
-                  onChange={(e) => setFrom(dayjs(e.target.value))}
-                />
-                <TextField
-                  size="small"
-                  type="datetime-local"
-                  label={t('reportTo')}
-                  value={to.format('YYYY-MM-DDTHH:mm')}
-                  onChange={(e) => setTo(dayjs(e.target.value))}
-                />
-                <Button
-                  variant="contained"
-                  startIcon={<SearchIcon />}
-                  onClick={doSearch}
-                  disabled={searching || !config}
-                >
-                  {t('sharedSearch')}
-                </Button>
-                {searching && <CircularProgress size={20} />}
-              </div>
+              {(playing || liveError) && (
+                <Box sx={{ px: 2, pt: 2 }}>
+                  <Box sx={{ position: 'relative', width: '100%', height: 320, background: '#000', borderRadius: 2, overflow: 'hidden' }}>
+                    {!liveError && (
+                      <div ref={videoRef} style={{ width: '100%', height: '100%' }} />
+                    )}
+                    {!liveError && !playbackActive && (
+                      <Box sx={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1, color: '#fff' }}>
+                        <CircularProgress size={28} color="inherit" />
+                        <Typography variant="body2">Starting playback…</Typography>
+                      </Box>
+                    )}
+                    {liveError && (
+                      <Box sx={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 0.5, color: '#fff', textAlign: 'center', px: 2 }}>
+                        <Typography variant="subtitle2">Playback unavailable</Typography>
+                        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)' }}>
+                          The vehicle may not be streaming right now. Try again in a moment.
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
+                </Box>
+              )}
+              <Box sx={{ px: 2, pt: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+                  <TextField
+                    size="small"
+                    type="date"
+                    label="Date"
+                    value={timelineDate.format('YYYY-MM-DD')}
+                    onChange={(e) => setTimelineDate(dayjs(e.target.value))}
+                    InputLabelProps={{ shrink: true }}
+                  />
+                  <Button
+                    variant="outlined"
+                    startIcon={<SearchIcon />}
+                    onClick={loadTimeline}
+                    disabled={loadingTimeline || !config}
+                  >
+                    Load timeline
+                  </Button>
+                  {loadingTimeline && <CircularProgress size={18} />}
+                  <Typography variant="caption" color="textSecondary">
+                    Channel {channel + 1} · {segments.length} segment{segments.length === 1 ? '' : 's'}
+                  </Typography>
+                </Box>
+                <Box sx={{ position: 'relative', height: 44, borderRadius: 1, bgcolor: 'action.hover', overflow: 'hidden', border: '1px solid', borderColor: 'divider' }}>
+                  {segments.map((seg, i) => {
+                    const start = parseCnmsFileTime(seg.startTime);
+                    const end = parseCnmsFileTime(seg.endTime);
+                    if (!start || !end) return null;
+                    const dayStart = timelineDate.startOf('day');
+                    const leftPct = Math.min(100, Math.max(0, (start.diff(dayStart, 'second') / 86400) * 100));
+                    const widthPct = Math.max(0.3, (end.diff(start, 'second') / 86400) * 100);
+                    const alarm = Boolean(seg.alarmFlagUInt64) && seg.alarmFlagUInt64 !== '0';
+                    return (
+                      <Box
+                        key={i}
+                        title={`${start.format('HH:mm:ss')} - ${end.format('HH:mm:ss')}${alarm ? ' (alarm)' : ''}`}
+                        onClick={() => {
+                          setTrimStart(start);
+                          setTrimEnd(end);
+                        }}
+                        sx={{
+                          position: 'absolute',
+                          top: 4,
+                          bottom: 4,
+                          left: `${leftPct}%`,
+                          width: `${widthPct}%`,
+                          minWidth: '2px',
+                          bgcolor: alarm ? 'error.main' : 'primary.main',
+                          borderRadius: 0.5,
+                          cursor: 'pointer',
+                          '&:hover': { opacity: 0.75 },
+                        }}
+                      />
+                    );
+                  })}
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                  {['00:00', '06:00', '12:00', '18:00', '24:00'].map((h) => (
+                    <Typography key={h} variant="caption" color="textSecondary">{h}</Typography>
+                  ))}
+                </Box>
+                <Typography variant="caption" color="textSecondary">
+                  Select a segment to set the range, then press Preview to watch it or Download for the exact clip. The list below grabs whole segments.
+                </Typography>
+              </Box>
+              {trimStart && trimEnd && (
+                <Box sx={{ px: 2, pb: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  <Typography variant="subtitle2">Trim &amp; download</Typography>
+                  <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <TextField
+                      size="small"
+                      type="datetime-local"
+                      label="Start"
+                      value={trimStart.format('YYYY-MM-DDTHH:mm:ss')}
+                      onChange={(e) => setTrimStart(dayjs(e.target.value))}
+                      InputLabelProps={{ shrink: true }}
+                      inputProps={{ step: 1 }}
+                    />
+                    <TextField
+                      size="small"
+                      type="datetime-local"
+                      label="End"
+                      value={trimEnd.format('YYYY-MM-DDTHH:mm:ss')}
+                      onChange={(e) => setTrimEnd(dayjs(e.target.value))}
+                      InputLabelProps={{ shrink: true }}
+                      inputProps={{ step: 1 }}
+                    />
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<PlayArrowIcon />}
+                      onClick={() => playRecording({ startTime: trimStart.format('YYYY-MM-DD HH:mm:ss'), endTime: trimEnd.format('YYYY-MM-DD HH:mm:ss') })}
+                    >
+                      Preview
+                    </Button>
+                    {playing && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="inherit"
+                        startIcon={<StopIcon />}
+                        onClick={() => {
+                          cancelledRef.current = true;
+                          stopPlayback();
+                          setPlaybackActive(false);
+                          setLiveError(false);
+                        }}
+                      >
+                        Stop
+                      </Button>
+                    )}
+                    <Button
+                      size="small"
+                      variant="contained"
+                      startIcon={<DownloadIcon />}
+                      onClick={() => downloadSegment(trimStart.format('YYYY-MM-DD HH:mm:ss'), trimEnd.format('YYYY-MM-DD HH:mm:ss'))}
+                    >
+                      Download clip
+                    </Button>
+                  </Box>
+                </Box>
+              )}
               <List dense className={classes.list}>
-                {recordings.length === 0 && !searching && (
+                {segments.length === 0 && !loadingTimeline && (
                   <ListItem>
                     <ListItemText primary={t('sharedNoData')} />
                   </ListItem>
                 )}
-                {recordings.map((item, index) => {
-                  const label = item.dName
-                    ? `${item.dName} - ${t('sharedFile')} ${index + 1}`
-                    : `${t('sharedFile')} ${index + 1}`;
-                  const time = item.startTime
-                    ? `${item.startTime} - ${item.endTime}`
-                    : '';
+                {segments.map((seg, i) => {
+                  const start = parseCnmsFileTime(seg.startTime);
+                  const end = parseCnmsFileTime(seg.endTime);
+                  if (!start || !end) return null;
+                  const startStr = start.format('YYYY-MM-DD HH:mm:ss');
+                  const endStr = end.format('YYYY-MM-DD HH:mm:ss');
+                  const alarm = Boolean(seg.alarmFlagUInt64) && seg.alarmFlagUInt64 !== '0';
                   return (
-                    <ListItemButton key={`${index}`} onClick={() => playRecording(item)}>
-                      <ListItemText primary={label} secondary={time} />
-                    </ListItemButton>
+                    <ListItem
+                      key={`${i}`}
+                      disablePadding
+                      secondaryAction={(
+                        <IconButton
+                          edge="end"
+                          color="primary"
+                          title="Download this clip"
+                          onClick={() => downloadSegment(startStr, endStr)}
+                        >
+                          <DownloadIcon />
+                        </IconButton>
+                      )}
+                    >
+                      <ListItemButton
+                        onClick={() => {
+                          setTrimStart(start);
+                          setTrimEnd(end);
+                        }}
+                      >
+                        <ListItemText
+                          primary={`${start.format('HH:mm:ss')} - ${end.format('HH:mm:ss')}`}
+                          secondary={alarm ? 'Alarm' : undefined}
+                        />
+                      </ListItemButton>
+                    </ListItem>
                   );
                 })}
               </List>

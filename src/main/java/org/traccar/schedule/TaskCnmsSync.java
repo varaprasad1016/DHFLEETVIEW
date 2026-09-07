@@ -95,9 +95,20 @@ public class TaskCnmsSync extends SingleScheduleTask {
 
                 JsonNode data = dataList.get(0);
 
-                Position position = new Position("cnms");
-                position.setDeviceId(device.getId());
-                position.setValid(data.path("gpsflag").asInt(0) == 1);
+                boolean acc = data.path("acc").asInt(0) == 1;
+                int carstatus = data.path("carstatus").asInt(0);
+
+                // Status is updated before the position guard below, so a terminal
+                // that has no fix yet still gets a correct online/offline state.
+                // carstatus 2 is what the portal itself renders as offline; ignition
+                // is not a connectivity signal, so a parked vehicle stays online.
+                if (connectionManager.getDeviceSession(device.getId()) == null) {
+                    if (carstatus > 0 && carstatus != 2) {
+                        connectionManager.updateDevice(device.getId(), Device.STATUS_ONLINE, new Date());
+                    } else {
+                        connectionManager.updateDevice(device.getId(), Device.STATUS_OFFLINE, null);
+                    }
+                }
 
                 double lat = data.path("lat").asDouble(0);
                 double lng = data.path("lng").asDouble(0);
@@ -105,6 +116,17 @@ public class TaskCnmsSync extends SingleScheduleTask {
                     lat = data.path("blat").asDouble(0);
                     lng = data.path("blng").asDouble(0);
                 }
+
+                // A terminal that has never reported comes back as an all-null record
+                // with an epoch-zero gpstime. Storing it would write a 0,0 fix on every
+                // cycle, so skip until the device sends real coordinates.
+                if (lat == 0 && lng == 0) {
+                    continue;
+                }
+
+                Position position = new Position("cnms");
+                position.setDeviceId(device.getId());
+                position.setValid(data.path("gpsflag").asInt(0) == 1);
                 position.setLatitude(lat);
                 position.setLongitude(lng);
                 position.setAltitude(data.path("altitude").asDouble(0));
@@ -123,9 +145,9 @@ public class TaskCnmsSync extends SingleScheduleTask {
                     position.setFixTime(new Date());
                 }
 
-                position.set(Position.KEY_IGNITION, data.path("acc").asInt(0) == 1);
+                position.set(Position.KEY_IGNITION, acc);
                 position.set(Position.KEY_TOTAL_DISTANCE, data.path("summileage").asDouble(0));
-                position.set("cnmsOnline", data.path("carstatus").asInt(0) > 0);
+                position.set("cnmsOnline", carstatus > 0 && carstatus != 2);
                 position.set("cnmsAddress", data.path("baiduAddress").asText(""));
                 position.set("cnmsMileage", data.path("mileage").asDouble(0));
 
@@ -139,18 +161,6 @@ public class TaskCnmsSync extends SingleScheduleTask {
                 storage.updateObject(updatedDevice, new Request(
                         new Columns.Include("positionId"),
                         new Condition.Equals("id", device.getId())));
-
-                if (connectionManager.getDeviceSession(device.getId()) == null) {
-                    boolean acc = data.path("acc").asInt(0) == 1;
-                    int carstatus = data.path("carstatus").asInt(0);
-                    if (carstatus == 2) {
-                        connectionManager.updateDevice(device.getId(), Device.STATUS_OFFLINE, null);
-                    } else if (acc) {
-                        connectionManager.updateDevice(device.getId(), Device.STATUS_ONLINE, new Date());
-                    } else {
-                        connectionManager.updateDevice(device.getId(), Device.STATUS_OFFLINE, null);
-                    }
-                }
 
                 var key = new Object();
                 try {

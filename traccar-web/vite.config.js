@@ -23,7 +23,7 @@ export default defineConfig(() => ({
       includeAssets: ['favicon.ico', 'apple-touch-icon-180x180.png'],
       registerType: 'autoUpdate',
       workbox: {
-        navigateFallbackDenylist: [/^\/api/],
+        navigateFallbackDenylist: [/^\/api/, /^\/tacho/],
         globPatterns: ['**/*.{js,css,html,woff,woff2,mp3}'],
       },
       manifest: {

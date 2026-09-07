@@ -27,13 +27,14 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import PendingIcon from '@mui/icons-material/Pending';
 import VideocamIcon from '@mui/icons-material/Videocam';
+import MyLocationIcon from '@mui/icons-material/MyLocation';
 
 import { useTranslation } from './LocalizationProvider';
 import RemoveDialog from './RemoveDialog';
 import PositionValue from './PositionValue';
 import { useDeviceReadonly, useRestriction } from '../util/permissions';
 import usePositionAttributes from '../attributes/usePositionAttributes';
-import { devicesActions } from '../../store';
+import { devicesActions, sessionActions } from '../../store';
 import { useCatch, useCatchCallback } from '../../reactHelper';
 import { useAttributePreference } from '../util/preferences';
 import fetchOrThrow from '../util/fetchOrThrow';
@@ -132,6 +133,21 @@ const StatusCard = ({ deviceId, position, onClose, disableActions, desktopPaddin
 
   const deviceImage = device?.attributes?.deviceImage;
   const cmsv9DeviceId = device?.attributes?.cmsv9DeviceId;
+  const online = device?.status === 'online';
+  const mapFollow = useAttributePreference('mapFollow', false);
+
+  const toggleFollow = useCatchCallback(async () => {
+    const updatedUser = {
+      ...user,
+      attributes: { ...user.attributes, mapFollow: !mapFollow },
+    };
+    await fetchOrThrow(`/api/users/${user.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updatedUser),
+    });
+    dispatch(sessionActions.updateUser(updatedUser));
+  }, [user, mapFollow, dispatch]);
 
   const positionAttributes = usePositionAttributes(t);
   const positionItems = useAttributePreference(
@@ -246,16 +262,29 @@ const StatusCard = ({ deviceId, position, onClose, disableActions, desktopPaddin
                   </IconButton>
                 </Tooltip>
                 {cmsv9DeviceId && (
-                  <Tooltip title={t('linkLiveVideo')}>
-                    <IconButton
-                      color="primary"
-                      onClick={() => navigate(`/cmsv9-video?deviceId=${deviceId}`)}
-                      disabled={disableActions}
-                    >
-                      <VideocamIcon />
-                    </IconButton>
+                  <Tooltip title={online ? t('linkLiveVideo') : `${t('linkLiveVideo')} — offline`}>
+                    <span>
+                      <IconButton
+                        color={online ? 'primary' : 'error'}
+                        onClick={() => navigate(`/cmsv9-video?deviceId=${deviceId}`)}
+                        disabled={disableActions || !online}
+                      >
+                        <VideocamIcon />
+                      </IconButton>
+                    </span>
                   </Tooltip>
                 )}
+                <Tooltip title={mapFollow ? 'Following on map' : 'Follow on map'}>
+                  <span>
+                    <IconButton
+                      color={mapFollow ? 'primary' : 'default'}
+                      onClick={toggleFollow}
+                      disabled={disableActions || !position}
+                    >
+                      <MyLocationIcon />
+                    </IconButton>
+                  </span>
+                </Tooltip>
                 <Tooltip title={t('reportReplay')}>
                   <IconButton
                     onClick={() => navigate(`/replay?deviceId=${deviceId}`)}

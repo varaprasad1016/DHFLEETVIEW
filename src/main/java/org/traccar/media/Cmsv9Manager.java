@@ -370,12 +370,21 @@ public class Cmsv9Manager {
      * on-demand hooks are triggered).
      */
     public boolean isStreamLive(String streamName) {
+        // The stream can register on the local relay and/or the portal media
+        // server (where the browser actually plays from). Accept it on either so
+        // a slow local relay does not produce a false "did not appear" while the
+        // portal already serves the stream.
+        return streamOnHost("127.0.0.1", streamName)
+                || streamOnHost(apiUri("").getHost(), streamName);
+    }
+
+    private boolean streamOnHost(String host, String streamName) {
         String secret = value(Keys.CMSV9_MEDIA_SECRET);
         if (secret == null) {
             return false;
         }
         try {
-            URI uri = URI.create("https://127.0.0.1:" + getMediaPort()
+            URI uri = URI.create("https://" + host + ":" + getMediaPort()
                     + "/index/api/getMediaList?secret=" + secret);
             HttpRequest request = HttpRequest.newBuilder(uri)
                     .timeout(Duration.ofSeconds(5))
@@ -394,7 +403,7 @@ public class Cmsv9Manager {
                 }
             }
         } catch (Exception e) {
-            // treat as not live
+            // treat as not live on this host
         }
         return false;
     }
@@ -404,10 +413,117 @@ public class Cmsv9Manager {
      * stream is not available.
      */
     public InputStream openStream(String streamName) throws Exception {
-        URI uri = URI.create("https://127.0.0.1:" + getMediaPort()
+        InputStream in = openStreamOnHost("127.0.0.1", streamName);
+        if (in == null) {
+            in = openStreamOnHost(apiUri("").getHost(), streamName);
+        }
+        return in;
+    }
+
+    private InputStream openStreamOnHost(String host, String streamName) throws Exception {
+        URI uri = URI.create("https://" + host + ":" + getMediaPort()
                 + "/live/" + streamName + ".live.flv");
         HttpRequest request = HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofSeconds(10))
+                .GET()
+                .build();
+        HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        if (response.statusCode() / 100 != 2) {
+            response.body().close();
+            return null;
+        }
+        return response.body();
+    }
+
+    /**
+     * Starts a recorded-footage playback via the CNMS playbackAppoint API and
+     * opens the FLV stream from the URL the platform returns. The device takes
+     * a moment to begin pushing, so the URL is retried briefly.
+     */
+    public InputStream openPlaybackStream(
+            String terminal, int channel, String startTime, String endTime) throws Exception {
+        JsonNode resp = playbackAppoint(terminal, String.valueOf(channel), startTime, endTime);
+        if (resp.path("errCode").asInt(-1) != 0) {
+            return null;
+        }
+        String httpUrl = resp.path("resultData").path("httpurl").asText("");
+        LOG.info("playback {} ch{} resultData={}", terminal, channel, resp.path("resultData"));
+        if (httpUrl.isEmpty()) {
+            return null;
+        }
+        long start = System.currentTimeMillis();
+        long deadline = start + 45000;
+        while (System.currentTimeMillis() < deadline) {
+            InputStream in = openUrl(httpUrl);
+            if (in != null) {
+                LOG.info("playback {} ch{} connected in {} ms via {}",
+                        terminal, channel, System.currentTimeMillis() - start, httpUrl);
+                return in;
+            }
+            try {
+                Thread.sleep(2000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return null;
+            }
+        }
+        LOG.warn("playback {} ch{} never became available after 45s ({})", terminal, channel, httpUrl);
+        return null;
+    }
+
+    public boolean isFfmpegAvailable() {
+        return new java.io.File(ffmpegPath()).isFile();
+    }
+
+    private String ffmpegPath() {
+        return "tools/ffmpeg.exe";
+    }
+
+    /**
+     * Plays a recorded segment and remuxes the H.265 FLV into a fragmented MP4
+     * on the fly (ffmpeg -c copy for video, no re-encode, nothing written to
+     * disk; audio transcoded to AAC so the file is broadly playable). Closing
+     * the returned stream tears down the ffmpeg process. Returns null if
+     * playback is unavailable.
+     */
+    public InputStream openPlaybackMp4(
+            String terminal, int channel, String startTime, String endTime) throws Exception {
+        InputStream flv = openPlaybackStream(terminal, channel, startTime, endTime);
+        if (flv == null) {
+            return null;
+        }
+        ProcessBuilder pb = new ProcessBuilder(
+                ffmpegPath(),
+                "-hide_banner", "-loglevel", "error",
+                "-i", "pipe:0",
+                "-c:v", "copy",
+                "-c:a", "aac",
+                "-movflags", "frag_keyframe+empty_moov+default_base_moof",
+                "-f", "mp4",
+                "pipe:1");
+        pb.redirectError(ProcessBuilder.Redirect.DISCARD);
+        Process process = pb.start();
+        Thread feeder = new Thread(() -> {
+            try (InputStream in = flv; java.io.OutputStream out = process.getOutputStream()) {
+                in.transferTo(out);
+            } catch (java.io.IOException e) {
+                // downstream closed or playback ended
+            }
+        }, "cmsv9-ffmpeg-feed");
+        feeder.setDaemon(true);
+        feeder.start();
+        return new java.io.FilterInputStream(process.getInputStream()) {
+            @Override
+            public void close() throws java.io.IOException {
+                super.close();
+                process.destroy();
+            }
+        };
+    }
+
+    private InputStream openUrl(String url) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+                .timeout(Duration.ofSeconds(15))
                 .GET()
                 .build();
         HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());

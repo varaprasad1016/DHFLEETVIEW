@@ -1,15 +1,12 @@
 import { useState } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
-import { Button, TextField, Typography, Snackbar, IconButton } from '@mui/material';
+import { Button, TextField, Typography, IconButton } from '@mui/material';
 import { makeStyles } from 'tss-react/mui';
 import { useNavigate } from 'react-router-dom';
+import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import LoginLayout from './LoginLayout';
 import { useTranslation } from '../common/components/LocalizationProvider';
-import { snackBarDurationShortMs } from '../common/util/duration';
-import { useCatch, useAsyncTask } from '../reactHelper';
-import { sessionActions } from '../store';
+import { useCatch } from '../reactHelper';
 import BackIcon from '../common/components/BackIcon';
-import PasswordField from '../common/components/PasswordField';
 import fetchOrThrow from '../common/util/fetchOrThrow';
 
 const useStyles = makeStyles()((theme) => ({
@@ -28,56 +25,97 @@ const useStyles = makeStyles()((theme) => ({
     letterSpacing: '-0.01em',
     marginLeft: theme.spacing(1),
   },
+  subtitle: {
+    color: theme.palette.text.secondary,
+    fontSize: '0.85rem',
+    marginTop: theme.spacing(-1),
+    marginBottom: theme.spacing(0.5),
+  },
+  success: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    textAlign: 'center',
+    gap: theme.spacing(1.5),
+    padding: theme.spacing(1, 0, 2),
+  },
+  successIcon: {
+    fontSize: 64,
+    color: theme.palette.success.main,
+  },
+  successTitle: {
+    fontSize: '1.3rem',
+    fontWeight: 700,
+    letterSpacing: '-0.01em',
+  },
+  successText: {
+    color: theme.palette.text.secondary,
+    fontSize: '0.9rem',
+    maxWidth: 320,
+  },
 }));
 
 const RegisterPage = () => {
   const { classes } = useStyles();
-  const dispatch = useDispatch();
   const navigate = useNavigate();
   const t = useTranslation();
 
-  const server = useSelector((state) => state.session.server);
-  const totpForce = useSelector((state) => state.session.server.attributes.totpForce);
-
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [totpKey, setTotpKey] = useState(null);
-  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [phone, setPhone] = useState('');
+  const [submitted, setSubmitted] = useState(false);
 
-  useAsyncTask(
-    async ({ signal }) => {
-      if (totpForce) {
-        const response = await fetchOrThrow('/api/users/totp', { method: 'POST', signal });
-        setTotpKey(await response.text());
-      }
-    },
-    [totpForce, setTotpKey],
-  );
+  const emailValid = /(.+)@(.+)\.(.{2,})/.test(email);
+  const valid = name.trim() && emailValid && phone.trim();
 
   const handleSubmit = useCatch(async (event) => {
     event.preventDefault();
-    await fetchOrThrow('/api/users', {
+    await fetchOrThrow('/api/enquiry', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, email, password, totpKey }),
+      body: JSON.stringify({ name, email, phone }),
     });
-    setSnackbarOpen(true);
+    setSubmitted(true);
   });
+
+  if (submitted) {
+    return (
+      <LoginLayout>
+        <div className={classes.success}>
+          <CheckCircleRoundedIcon className={classes.successIcon} />
+          <span className={classes.successTitle}>Enquiry received</span>
+          <span className={classes.successText}>
+            Thank you for your interest in DH FleetView. Our team will review your
+            enquiry and be in touch with you shortly.
+          </span>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={() => navigate('/login')}
+            fullWidth
+            style={{ height: 46, fontSize: '0.95rem', marginTop: 8 }}
+          >
+            Back to sign in
+          </Button>
+        </div>
+      </LoginLayout>
+    );
+  }
 
   return (
     <LoginLayout>
       <div className={classes.container}>
         <div className={classes.header}>
-          {!server.newServer && (
-            <IconButton color="primary" onClick={() => navigate('/login')}>
-              <BackIcon />
-            </IconButton>
-          )}
+          <IconButton color="primary" onClick={() => navigate('/login')}>
+            <BackIcon />
+          </IconButton>
           <Typography className={classes.title} color="primary">
-            {t('loginRegister')}
+            Request access
           </Typography>
         </div>
+        <span className={classes.subtitle}>
+          Tell us how to reach you and our team will get in touch.
+        </span>
         <TextField
           required
           label={t('sharedName')}
@@ -96,46 +134,27 @@ const RegisterPage = () => {
           autoComplete="email"
           onChange={(event) => setEmail(event.target.value)}
         />
-        <PasswordField
+        <TextField
           required
-          label={t('userPassword')}
-          name="password"
-          value={password}
-          autoComplete="current-password"
-          onChange={(event) => setPassword(event.target.value)}
+          type="tel"
+          label={t('sharedPhone')}
+          name="phone"
+          value={phone}
+          autoComplete="tel"
+          onChange={(event) => setPhone(event.target.value)}
         />
-        {totpForce && (
-          <TextField
-            required
-            label={t('loginTotpKey')}
-            name="totpKey"
-            value={totpKey || ''}
-            slotProps={{
-              input: { readOnly: true },
-            }}
-          />
-        )}
         <Button
           variant="contained"
           color="primary"
           onClick={handleSubmit}
           type="submit"
-          disabled={!name || !password || !(server.newServer || /(.+)@(.+)\.(.{2,})/.test(email))}
+          disabled={!valid}
           fullWidth
           style={{ height: 46, fontSize: '0.95rem', marginTop: 4 }}
         >
-          {t('loginRegister')}
+          Submit enquiry
         </Button>
       </div>
-      <Snackbar
-        open={snackbarOpen}
-        onClose={() => {
-          dispatch(sessionActions.updateServer({ ...server, newServer: false }));
-          navigate('/login');
-        }}
-        autoHideDuration={snackBarDurationShortMs}
-        message={t('loginCreated')}
-      />
     </LoginLayout>
   );
 };

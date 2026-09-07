@@ -24,8 +24,6 @@ import {
   formatAlarm,
   formatBoolean,
   formatPercentage,
-  formatStatus,
-  getStatusColor,
 } from '../common/util/formatter';
 import { useTranslation } from '../common/components/LocalizationProvider';
 import { mapIconKey, mapIcons } from '../map/core/preloadImages';
@@ -83,6 +81,21 @@ const useStyles = makeStyles()((theme) => ({
   neutral: {
     color: theme.palette.neutral.main,
   },
+  railRunning: {
+    borderLeft: `4px solid ${theme.palette.success.main}`,
+  },
+  railIdling: {
+    borderLeft: `4px solid ${theme.palette.warning.main}`,
+  },
+  railParked: {
+    borderLeft: `4px solid ${theme.palette.neutral.main}`,
+  },
+  railOffline: {
+    borderLeft: `4px solid ${theme.palette.error.main}`,
+  },
+  railDefault: {
+    borderLeft: '4px solid transparent',
+  },
   selected: {
     backgroundColor: alpha(theme.palette.primary.main, 0.08),
     '&:hover': {
@@ -133,17 +146,22 @@ const DeviceRow = ({ devices, index, style }) => {
     if (vehicleStatus === 'offline') return classes.avatarOffline;
     return classes.avatarDefault;
   })();
+  const railClass = (() => {
+    if (vehicleStatus === 'running') return classes.railRunning;
+    if (vehicleStatus === 'idling') return classes.railIdling;
+    if (vehicleStatus === 'parked' || vehicleStatus === 'stopped') return classes.railParked;
+    if (vehicleStatus === 'offline') return classes.railOffline;
+    return classes.railDefault;
+  })();
   // Icon library: selectable category icons (mapIcons) are shown in avatar; color by ignition
   // Gray when ignition off (parked/stopped/offline), green when running (spec)
   const vehicleStatusLabel = vehicleStatus.charAt(0).toUpperCase() + vehicleStatus.slice(1);
 
   const secondaryText = () => {
-    let status;
-    if (item.status === 'online' || !item.lastUpdate) {
-      status = formatStatus(item.status, t);
-    } else {
-      status = dayjs(item.lastUpdate).fromNow();
-    }
+    // Single source of truth for status: the operational vehicle status. The
+    // separate connection Online/Offline was removed because the two could
+    // disagree (e.g. "Online • OFFLINE") and flicker on first load.
+    const lastSeen = item.lastUpdate ? dayjs(item.lastUpdate).fromNow() : null;
     return (
       <>
         {secondaryValue && (
@@ -152,13 +170,17 @@ const DeviceRow = ({ devices, index, style }) => {
             {' • '}
           </>
         )}
-        <span className={classes[getStatusColor(item.status)]}>{status}</span>
-        {' • '}
-        <Tooltip title={`Ignition: ${ignition === true ? 'ON' : ignition === false ? 'OFF' : 'unknown'} – ${vehicleStatusLabel} (Teltonika io239 fallback)`}>
+        <Tooltip title={`Ignition: ${ignition === true ? 'ON' : ignition === false ? 'OFF' : 'unknown'} – ${vehicleStatusLabel}`}>
           <span className={classes[getVehicleStatusColor(vehicleStatus)]} style={{ fontWeight: 600, fontSize: '0.7rem', textTransform: 'uppercase' }}>
             {vehicleStatusLabel}
           </span>
         </Tooltip>
+        {vehicleStatus === 'offline' && lastSeen && (
+          <span className={classes.neutral}>
+            {' • '}
+            {lastSeen}
+          </span>
+        )}
       </>
     );
   };
@@ -170,7 +192,7 @@ const DeviceRow = ({ devices, index, style }) => {
         onClick={() => dispatch(devicesActions.selectId(item.id))}
         disabled={!admin && item.disabled}
         selected={selectedDeviceId === item.id}
-        className={selectedDeviceId === item.id ? classes.selected : null}
+        className={`${railClass} ${selectedDeviceId === item.id ? classes.selected : ''}`}
       >
         <ListItemAvatar>
           <Tooltip title={`${vehicleStatusLabel} — ${item.category || 'default'} icon (${ignition === true ? 'ignition ON → green' : ignition === false ? 'ignition OFF → gray' : 'unknown'})`}>
