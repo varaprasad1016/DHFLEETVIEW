@@ -1,42 +1,21 @@
 name: Build Mobile Apps
 
-# Builds and publishes the DH FleetView mobile apps from GitHub-hosted runners.
-# No local Mac is needed: the iOS job runs on a macOS runner.
-#
-#   Android -> Google Play, production track, draft status
-#   iOS     -> TestFlight
-#
-# The asymmetry is Apple's, not ours. Google Play accepts an upload straight
-# into a production draft that a human then rolls out. Apple requires review
-# before anything reaches the App Store, so the equivalent "uploaded but not
-# live" state is TestFlight. Promote a TestFlight build to the App Store from
-# App Store Connect when you actually want a release.
-#
-# Both publish jobs skip themselves cleanly when their secrets are absent, so
-# the workflow keeps producing downloadable artifacts before signing is set up.
-#
-# Setup: docs/IOS-PUBLISHING.md
+# Builds the DH FleetView Android AAB and iOS app on GitHub-hosted runners.
+# iOS requires a macOS runner (Xcode) - no local Mac needed.
+# Android AAB is signed with the upload keystore from repo secrets and,
+# auto-published to Google Play (production, draft) on every push to main,
+# tag, or manual dispatch.
 
 on:
   workflow_dispatch:        # manual trigger from the Actions tab
   push:
-    branches: [main, ios-app-store-publishing]
+    branches: [main]
     tags: ['v*']
-
-env:
-  # Every store upload needs a build number higher than the last one accepted.
-  # pubspec.yaml pins one, which is right for local builds and wrong for CI:
-  # a second push would re-upload the same number and be rejected. The run
-  # number is monotonic per repository; the offset clears build numbers already
-  # used by hand (1.0.3+4 at the time of writing).
-  BUILD_NUMBER_OFFSET: 100
 
 jobs:
   ios:
     name: iOS (macOS runner)
     runs-on: macos-latest
-    outputs:
-      signed: ${{ steps.signing.outputs.signed }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -263,12 +242,10 @@ jobs:
       # -------------------------------------------------------------- unsigned
 
       - name: Build iOS (unsigned)
-        if: steps.signing.outputs.signed != 'true'
         working-directory: traccar-manager
-        run: flutter build ios --release --no-codesign --build-number="$BUILD_NUMBER"
+        run: flutter build ios --release --no-codesign
 
-      - name: Package unsigned .ipa
-        if: steps.signing.outputs.signed != 'true'
+      - name: Package .ipa
         working-directory: traccar-manager
         run: |
           mkdir -p Payload
@@ -276,11 +253,10 @@ jobs:
           zip -r DH-FleetView.ipa Payload
           rm -rf Payload
 
-      - name: Upload unsigned .ipa
-        if: steps.signing.outputs.signed != 'true'
+      - name: Upload .ipa
         uses: actions/upload-artifact@v4
         with:
-          name: DH-FleetView-iOS-unsigned
+          name: DH-FleetView-iOS
           path: traccar-manager/DH-FleetView.ipa
           if-no-files-found: error
           retention-days: 5
@@ -301,10 +277,6 @@ jobs:
       - name: Get dependencies
         working-directory: traccar-manager
         run: flutter pub get
-
-      - name: Compute build number
-        shell: bash
-        run: echo "BUILD_NUMBER=$(( ${{ github.run_number }} + BUILD_NUMBER_OFFSET ))" >> "$GITHUB_ENV"
 
       - name: Verify signing secrets
         shell: bash
@@ -336,7 +308,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           STORE_FILE: ${{ github.workspace }}/environment/dhfleetview.keystore
-        run: flutter build appbundle --release --build-number="$BUILD_NUMBER"
+        run: flutter build appbundle --release
 
       - name: Build APK (release, sideload)
         working-directory: traccar-manager
@@ -345,7 +317,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           STORE_FILE: ${{ github.workspace }}/environment/dhfleetview.keystore
-        run: flutter build apk --release --build-number="$BUILD_NUMBER"
+        run: flutter build apk --release
 
       - name: Upload AAB
         uses: actions/upload-artifact@v4
@@ -393,55 +365,3 @@ jobs:
           releaseFiles: app-release.aab
           track: production
           status: draft
-
-  publish-testflight:
-    name: Publish to TestFlight
-    runs-on: macos-latest
-    needs: ios
-    if: >-
-      needs.ios.outputs.signed == 'true' &&
-      (github.ref == 'refs/heads/main' ||
-       github.ref == 'refs/heads/ios-app-store-publishing' ||
-       github.ref_type == 'tag' ||
-       github.event_name == 'workflow_dispatch')
-    steps:
-      - name: Check publishing configured
-        shell: bash
-        run: |
-          if [ -z "${{ secrets.APPSTORE_ISSUER_ID }}" ] \
-            || [ -z "${{ secrets.APPSTORE_KEY_ID }}" ] \
-            || [ -z "${{ secrets.APPSTORE_PRIVATE_KEY }}" ]; then
-            echo "App Store Connect API key secrets not configured; skipping publish"
-            echo "SKIP=1" >> "$GITHUB_ENV"
-          fi
-
-      - name: Download .ipa
-        if: env.SKIP != '1'
-        uses: actions/download-artifact@v4
-        with:
-          name: DH-FleetView-iOS
-          path: ipa
-
-      - name: Locate the .ipa
-        if: env.SKIP != '1'
-        shell: bash
-        run: |
-          # The file is named after the Xcode product, currently "Runner". That
-          # is a project setting somebody may reasonably rename, so find it
-          # rather than hard-coding a name the build would silently outgrow.
-          IPA=$(find ipa -name '*.ipa' | head -1)
-          if [ -z "$IPA" ]; then
-            echo "No .ipa found in the downloaded artifact" >&2
-            exit 1
-          fi
-          echo "IPA_PATH=$IPA" >> "$GITHUB_ENV"
-          echo "Uploading $IPA"
-
-      - name: Upload to TestFlight
-        if: env.SKIP != '1'
-        uses: apple-actions/upload-testflight-build@v3
-        with:
-          app-path: ${{ env.IPA_PATH }}
-          issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
-          api-key-id: ${{ secrets.APPSTORE_KEY_ID }}
-          api-private-key: ${{ secrets.APPSTORE_PRIVATE_KEY }}
