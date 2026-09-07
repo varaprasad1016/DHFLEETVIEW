@@ -116,7 +116,7 @@ jobs:
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             archive \
-            CODE_SIGN_STYLE=Automatic \
+            CODE_SIGNING_ALLOWED=NO \
             DEVELOPMENT_TEAM=ZAWG6D59DU \
             PRODUCT_BUNDLE_IDENTIFIER=com.dhgroup.fleetview
 
