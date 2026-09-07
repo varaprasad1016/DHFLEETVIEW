@@ -1,27 +1,27 @@
-# One-click submission of the latest TestFlight build to App Store review.
-#
-# Prerequisites (one time, in App Store Connect, since only you can do these):
-#   - Create the app version (e.g. 1.0) in "Prepare for Submission"
-#   - Fill required metadata: screenshots, description, keywords, support URL
-#   - Complete App Privacy (location data) and Age Rating
-#   - App Review Information: a WORKING demo account (this app is login-gated)
-# Then run this workflow; it selects the latest build and submits for review.
+# Submit to App Store review, or push text metadata, using the API key.
+# Lane "metadata" uploads category/description/keywords/URLs (no submission).
+# Lane "submit" submits the latest build (App Store Connect listing must be complete).
 
 name: Submit to App Store
 
 on:
   workflow_dispatch:
+    inputs:
+      lane:
+        description: "fastlane lane: submit or metadata"
+        required: false
+        default: "submit"
 
 jobs:
-  submit:
+  run:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Submit latest build for App Store review
+      - name: Run fastlane ${{ inputs.lane }}
         working-directory: traccar-manager
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           APP_STORE_CONNECT_KEY: ${{ secrets.APP_STORE_CONNECT_KEY }}
-        run: fastlane submit
+        run: fastlane ${{ inputs.lane }}
