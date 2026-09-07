@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b1220">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Tacho Licence">
+<link rel="manifest" href="approver/manifest.webmanifest">
+<title>Tacho Licence</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; min-height: 100vh; font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: radial-gradient(120% 90% at 50% 0%, #16233c 0%, #0b1220 55%, #070c16 100%);
+    color: #e7ecf5; display: flex; flex-direction: column; align-items: center;
+    padding: max(24px, env(safe-area-inset-top)) 20px calc(24px + env(safe-area-inset-bottom));
+  }
+  .wrap { width: 100%; max-width: 460px; }
+  header { text-align: center; margin: 8px 0 22px; }
+  header .mark { font-size: 30px; letter-spacing: .5px; font-weight: 700; }
+  header .sub { color: #8ea3c4; font-size: 13px; margin-top: 4px; }
+  .card {
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 18px; padding: 20px; margin-bottom: 16px; backdrop-filter: blur(6px);
+  }
+  .statusline { display: flex; align-items: center; gap: 10px; font-size: 15px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; box-shadow: 0 0 0 4px rgba(255,255,255,0.05); }
+  .dot.ok { background: #34d399; } .dot.warn { background: #fbbf24; } .dot.bad { background: #f87171; } .dot.mut { background: #64748b; }
+  .kv { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid rgba(255,255,255,0.06); font-size: 14px; }
+  .kv:first-of-type { border-top: 0; }
+  .kv .k { color: #8ea3c4; } .kv .v { font-variant-numeric: tabular-nums; text-align: right; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: #8ea3c4; margin: 0 0 12px; }
+  label { display: block; font-size: 13px; color: #8ea3c4; margin: 0 0 6px; }
+  input {
+    width: 100%; padding: 13px 14px; font-size: 17px; letter-spacing: 2px; text-align: center;
+    background: #0c1526; border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; color: #fff;
+  }
+  button {
+    width: 100%; padding: 16px; font-size: 17px; font-weight: 650; border: 0; border-radius: 14px;
+    color: #05203a; background: linear-gradient(180deg, #6ee7ff, #38bdf8); cursor: pointer; margin-top: 14px;
+    transition: transform .06s ease, opacity .2s ease;
+  }
+  button:active { transform: translateY(1px) scale(.995); }
+  button.secondary { background: rgba(255,255,255,0.08); color: #cfe0f7; }
+  button:disabled { opacity: .45; cursor: default; }
+  .big { padding: 22px; font-size: 20px; }
+  .msg { margin-top: 14px; font-size: 14px; text-align: center; min-height: 20px; }
+  .msg.ok { color: #34d399; } .msg.bad { color: #f87171; } .msg.info { color: #8ea3c4; }
+  .foot { text-align: center; color: #55688a; font-size: 12px; margin-top: 6px; word-break: break-all; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="mark">Tacho&nbsp;Licence</div>
+    <div class="sub">DH FleetView · monthly approval</div>
+  </header>
+
+  <div class="card">
+    <div class="statusline"><span id="dot" class="dot mut"></span><strong id="headline">Checking…</strong></div>
+    <div id="details" hidden style="margin-top:14px">
+      <div class="kv"><span class="k">Current cycle</span><span class="v" id="v-period">—</span></div>
+      <div class="kv"><span class="k">Approved through</span><span class="v" id="v-until">—</span></div>
+      <div class="kv"><span class="k">Time remaining</span><span class="v" id="v-left">—</span></div>
+      <div class="kv"><span class="k">Server</span><span class="v" id="v-server">—</span></div>
+    </div>
+  </div>
+
+  <!-- Pairing (first run only) -->
+  <div class="card" id="pairCard" hidden>
+    <h2>Pair this phone</h2>
+    <label for="pin">One-time pairing PIN</label>
+    <input id="pin" inputmode="numeric" autocomplete="one-time-code" placeholder="••••••">
+    <button id="pairBtn" class="big">Pair this phone</button>
+    <div class="msg info" id="pairMsg">Your signing key stays on this phone. Only its public half is sent.</div>
+  </div>
+
+  <!-- Approve -->
+  <div class="card" id="approveCard" hidden>
+    <h2>Monthly approval</h2>
+    <button id="approveBtn" class="big">Approve this month</button>
+    <button id="refreshBtn" class="secondary">Refresh status</button>
+    <div class="msg" id="approveMsg"></div>
+  </div>
+
+  <div class="foot" id="fp"></div>
+</div>
+
+<script>
+// Works whether served at /approver (local) or /tacho/approver (via IIS).
+const BASE = location.pathname.replace(/\/approver\/?$/, "");
+const API = location.origin + BASE;
+const DB = "tacho-approver";
+let statusData = null;
+
+// ---- key storage (IndexedDB holds the non-extractable CryptoKeyPair) ----
+function idb() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open(DB, 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("keys");
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  });
+}
+async function kvGet(k) { const db = await idb(); return new Promise((res, rej) => {
+  const t = db.transaction("keys").objectStore("keys").get(k); t.onsuccess = () => res(t.result); t.onerror = () => rej(t.error); }); }
+async function kvSet(k, v) { const db = await idb(); return new Promise((res, rej) => {
+  const t = db.transaction("keys", "readwrite").objectStore("keys").put(v, k); t.onsuccess = () => res(); t.onerror = () => rej(t.error); }); }
+
+async function getOrCreateKeys() {
+  let pair = await kvGet("pair");
+  if (!pair) {
+    pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, ["sign", "verify"]);
+    await kvSet("pair", pair); // CryptoKeys are structured-cloneable; private stays non-extractable
+  }
+  return pair;
+}
+function b64(buf) { return btoa(String.fromCharCode(...new Uint8Array(buf))); }
+async function rawPubB64(pubKey) { return b64(await crypto.subtle.exportKey("raw", pubKey)); }
+
+// ---- UI helpers ----
+const $ = (id) => document.getElementById(id);
+function fmtLeft(s) {
+  if (!s || s <= 0) return "expired";
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600);
+  return d > 0 ? `${d}d ${h}h` : `${h}h ${Math.floor((s % 3600) / 60)}m`;
+}
+function fmtDate(iso) { if (!iso) return "—"; const d = new Date(iso); return d.toLocaleString(undefined, { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }); }
+
+function render() {
+  const s = statusData;
+  $("details").hidden = false;
+  $("v-period").textContent = s.current_period || "—";
+  $("v-until").textContent = fmtDate(s.valid_until);
+  $("v-left").textContent = fmtLeft(s.seconds_remaining);
+  $("v-server").textContent = s.server_id || "—";
+
+  const dot = $("dot"), head = $("headline");
+  if (!s.paired) { dot.className = "dot warn"; head.textContent = "Not paired yet"; $("pairCard").hidden = false; $("approveCard").hidden = true; return; }
+  $("pairCard").hidden = true; $("approveCard").hidden = false;
+  if (s.licensed) {
+    const dueSoon = s.approved_period !== s.current_period;
+    dot.className = "dot " + (dueSoon ? "warn" : "ok");
+    head.textContent = dueSoon ? "Approval due for this cycle" : "Active — service running";
+    $("approveBtn").disabled = false;
+    $("approveBtn").textContent = dueSoon ? "Approve this month" : "Re-approve (not needed yet)";
+  } else {
+    dot.className = "dot bad"; head.textContent = "Suspended — approval required";
+    $("approveBtn").disabled = false; $("approveBtn").textContent = "Approve this month";
+  }
+}
+
+async function loadStatus() {
+  const r = await fetch(API + "/api/license/status", { cache: "no-store" });
+  statusData = await r.json();
+  render();
+}
+
+async function pair() {
+  const msg = $("pairMsg"); msg.className = "msg info"; msg.textContent = "Pairing…";
+  try {
+    const pair = await getOrCreateKeys();
+    const pub = await rawPubB64(pair.publicKey);
+    const r = await fetch(API + "/api/license/pair", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pin: $("pin").value.trim(), public_key: pub }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || "Pairing failed");
+    msg.className = "msg ok"; msg.textContent = "Paired. This phone now controls the licence.";
+    await loadStatus();
+  } catch (e) { msg.className = "msg bad"; msg.textContent = e.message; }
+}
+
+async function approve() {
+  const msg = $("approveMsg"); msg.className = "msg info"; msg.textContent = "Approving…";
+  try {
+    await loadStatus();
+    const pair = await getOrCreateKeys();
+    const period = statusData.current_period;
+    const issued = new Date().toISOString();
+    const message = `TACHO-LICENSE|${statusData.server_id}|${period}|${issued}`;
+    const sig = await crypto.subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" }, pair.privateKey, new TextEncoder().encode(message)
+    );
+    const r = await fetch(API + "/api/license/approve", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ period, issued_at: issued, signature: b64(sig) }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || "Approval failed");
+    msg.className = "msg ok"; msg.textContent = "Approved through " + fmtDate(j.valid_until);
+    await loadStatus();
+  } catch (e) { msg.className = "msg bad"; msg.textContent = e.message; }
+}
+
+$("pairBtn").onclick = pair;
+$("approveBtn").onclick = approve;
+$("refreshBtn").onclick = loadStatus;
+
+(async () => {
+  try {
+    const pair = await getOrCreateKeys();
+    $("fp").textContent = "key " + (await rawPubB64(pair.publicKey)).slice(0, 16) + "…";
+  } catch (e) { $("fp").textContent = ""; }
+  loadStatus().catch(() => { $("headline").textContent = "Can't reach server"; $("dot").className = "dot bad"; });
+  setInterval(loadStatus, 60000);
+})();
+</script>
+</body>
+</html>
