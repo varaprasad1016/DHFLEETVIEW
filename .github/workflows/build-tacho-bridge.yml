@@ -1,0 +1,90 @@
+# Build the Tacho Bridge App (Windows installer) on GitHub Actions.
+#
+# The forked Tauri/Quasar app lives in tacho-bridge-app/ (this branch). A
+# Windows runner installs Node + Rust, builds the installer, and uploads it as
+# a workflow artifact; on a `tba-v*` tag it also publishes a GitHub Release.
+#
+# Stage 3 will enable the deploy-to-server job to SCP the .exe onto the
+# DHFleetView box at media/tacho-bridge/TachoBridgeSetup.exe so the
+# "Download Tacho Bridge App" button serves it.
+
+name: Build Tacho Bridge App
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['tba-v*']
+    paths: ['tacho-bridge-app/**', '.github/workflows/build-tacho-bridge.yml']
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: tacho-bridge-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'tacho-bridge-app/src-tauri -> target'
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # Builds the Quasar frontend (via tauri.conf beforeBuildCommand) and the
+      # Tauri app; on a tag, attaches the installer to a GitHub Release.
+      - name: Build (and release on tag)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: tacho-bridge-app
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          releaseName: 'Tacho Bridge App ${{ github.ref_name }}'
+          releaseDraft: false
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tacho-bridge-windows
+          path: |
+            tacho-bridge-app/src-tauri/target/release/bundle/**/*.exe
+            tacho-bridge-app/src-tauri/target/release/bundle/**/*.msi
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------
+  # Stage 3: push the freshly built installer onto the DHFleetView server so the
+  # download button updates automatically. Enabled once OpenSSH + the repo
+  # secrets (SERVER_SSH_HOST, SERVER_SSH_USER, SERVER_SSH_KEY) are set up.
+  # ---------------------------------------------------------------------------
+  deploy-to-server:
+    needs: windows
+    if: false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download built installer
+        uses: actions/download-artifact@v4
+        with:
+          name: tacho-bridge-windows
+          path: installer
+
+      - name: Pick the .exe and copy to the server
+        run: |
+          EXE=$(find installer -name '*.exe' | head -1)
+          echo "Deploying: $EXE"
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.SERVER_SSH_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          scp -i ~/.ssh/id_ed25519 "$EXE" \
+            "${{ secrets.SERVER_SSH_USER }}@${{ secrets.SERVER_SSH_HOST }}:C:/DHFleetView/media/tacho-bridge/TachoBridgeSetup.exe"

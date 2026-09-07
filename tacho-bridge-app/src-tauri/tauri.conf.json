@@ -1,0 +1,44 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "tba",
+  "version": "0.7.3",
+  "identifier": "com.flespi.tba.dev",
+  "build": {
+    "frontendDist": "../dist/spa",
+    "devUrl": "http://localhost:9000",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "tba",
+        "width": 620,
+        "height": 400,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "frameworks": [],
+      "minimumSystemVersion": "10.13",
+      "signingIdentity": "@env:APPLE_IDENTITY",
+      "providerShortName": "@env:APPLE_TEAM_ID",
+      "entitlements": "entitlements.plist"
+    }
+  }
+}
