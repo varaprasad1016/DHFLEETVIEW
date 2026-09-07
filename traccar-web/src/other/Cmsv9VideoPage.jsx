@@ -282,6 +282,7 @@ const Cmsv9VideoPage = () => {
   const [channel, setChannel] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [liveError, setLiveError] = useState(false);
+  const [playbackActive, setPlaybackActive] = useState(false);
   const [playerMsg, setPlayerMsg] = useState('');
 
   const [gridActive, setGridActive] = useState(false);
@@ -619,6 +620,7 @@ const Cmsv9VideoPage = () => {
   const playRecording = useCallback(
     async (item) => {
       setLiveError(false);
+      setPlaybackActive(false);
       stopPlayback();
       if (!cmsv9DeviceId) return;
       setLoading(true);
@@ -659,6 +661,7 @@ const Cmsv9VideoPage = () => {
         }, 30000);
         player.on('videoInfo', () => {
           clearTimeout(timeout);
+          setPlaybackActive(true);
         });
         player.on('error', () => {
           clearTimeout(timeout);
@@ -841,13 +844,27 @@ const Cmsv9VideoPage = () => {
           )}
           {tab === 2 && (
             <>
-              {playing && (
+              {(playing || liveError) && (
                 <Box sx={{ px: 2, pt: 2 }}>
-                  {!liveError ? (
-                    <div ref={videoRef} style={{ width: '100%', height: 320, background: '#000', borderRadius: 8, overflow: 'hidden' }} />
-                  ) : (
-                    <Typography color="error" variant="body2">{t('errorConnection')}</Typography>
-                  )}
+                  <Box sx={{ position: 'relative', width: '100%', height: 320, background: '#000', borderRadius: 2, overflow: 'hidden' }}>
+                    {!liveError && (
+                      <div ref={videoRef} style={{ width: '100%', height: '100%' }} />
+                    )}
+                    {!liveError && !playbackActive && (
+                      <Box sx={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1, color: '#fff' }}>
+                        <CircularProgress size={28} color="inherit" />
+                        <Typography variant="body2">Starting playback…</Typography>
+                      </Box>
+                    )}
+                    {liveError && (
+                      <Box sx={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 0.5, color: '#fff', textAlign: 'center', px: 2 }}>
+                        <Typography variant="subtitle2">Playback unavailable</Typography>
+                        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)' }}>
+                          The vehicle may not be streaming right now. Try again in a moment.
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
                 </Box>
               )}
               <Box sx={{ px: 2, pt: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>

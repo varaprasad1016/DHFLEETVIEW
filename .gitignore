@@ -34,3 +34,9 @@ logs/
 data/
 web.backup-*/
 
+
+# ffmpeg binary (145MB) - fetched on deploy via tools/setup-ffmpeg.ps1
+tools/ffmpeg.exe
+
+# jar backups from deploy cycles
+tracker-server.jar.backup-*

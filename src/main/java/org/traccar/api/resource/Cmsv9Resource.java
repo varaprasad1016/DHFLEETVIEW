@@ -155,14 +155,16 @@ public class Cmsv9Resource extends BaseResource {
             @QueryParam("endTime") String endTime) throws Exception {
         String terminal = getCmsDeviceId(deviceId);
         int cnmsChannel = channel + 1;
-        InputStream input = cmsv9Manager.openPlaybackStream(
-                terminal, cnmsChannel, startTime, endTime);
+        boolean mp4 = cmsv9Manager.isFfmpegAvailable();
+        InputStream input = mp4
+                ? cmsv9Manager.openPlaybackMp4(terminal, cnmsChannel, startTime, endTime)
+                : cmsv9Manager.openPlaybackStream(terminal, cnmsChannel, startTime, endTime);
         if (input == null) {
             return Response.status(Response.Status.NOT_FOUND).build();
         }
 
         String stamp = startTime != null ? startTime.replaceAll("[^0-9]", "") : "clip";
-        String filename = terminal + "_ch" + cnmsChannel + "_" + stamp + ".flv";
+        String filename = terminal + "_ch" + cnmsChannel + "_" + stamp + (mp4 ? ".mp4" : ".flv");
 
         StreamingOutput output = out -> {
             try (InputStream in = input) {
@@ -177,7 +179,7 @@ public class Cmsv9Resource extends BaseResource {
             }
         };
         return Response.ok(output)
-                .header("Content-Type", "video/x-flv")
+                .header("Content-Type", mp4 ? "video/mp4" : "video/x-flv")
                 .header("Content-Disposition", "attachment; filename=\"" + filename + "\"")
                 .header("Cache-Control", "no-cache")
                 .build();
