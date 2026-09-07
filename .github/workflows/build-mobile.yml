@@ -117,8 +117,7 @@ jobs:
             -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             archive \
             CODE_SIGNING_ALLOWED=NO \
-            DEVELOPMENT_TEAM=ZAWG6D59DU \
-            PRODUCT_BUNDLE_IDENTIFIER=com.dhgroup.fleetview
+            DEVELOPMENT_TEAM=ZAWG6D59DU
 
           xcodebuild \
             -exportArchive \
