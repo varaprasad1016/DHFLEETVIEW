@@ -202,7 +202,8 @@ public class TaskCnmsSync extends SingleScheduleTask {
                 }
 
                 boolean exists = false;
-                for (Device device : storage.getObjects(Device.class, new Request(new Columns.Include("id", "attributes")))) {
+                Request deviceRequest = new Request(new Columns.Include("id", "attributes"));
+                for (Device device : storage.getObjects(Device.class, deviceRequest)) {
                     if (terminal.equals(device.getString("cmsv9DeviceId"))) {
                         exists = true;
                         break;

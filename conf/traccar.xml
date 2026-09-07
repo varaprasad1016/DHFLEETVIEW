@@ -23,9 +23,60 @@
     <entry key="cmsv9.wsPort">9006</entry>
     <entry key="cmsv9.wsKey">J04Tb9pcLF7y6QrFmgTJLeVv33YbMhqW</entry>
     <entry key="cmsv9.mediaSecret">kAYUY7AEzk7mlB8XzZQ9qSixAGJGHggZ</entry>
+    <!-- Tachograph: remote DDD download and delivery to an analysis bureau.
+         See docs/tachograph/ for what each of these does and how to commission it. -->
     <entry key="tacho.enabled">true</entry>
     <entry key="tacho.storagePath">data/tachograph</entry>
+
+    <!-- TEST ONLY. Runs downloads against a built-in vehicle-unit emulator instead of real
+         vehicles. The files it produces are synthetic and are marked as such. Set this to
+         false before this server is used for real compliance data. -->
     <entry key="tacho.simulator">true</entry>
-    <entry key="tacho.retryDelays">30,120,600</entry>
+
+    <!-- Port that FMC650 units open their tachograph data tunnel on. Zero disables the
+         listener, which is why real downloads are off until this is set and the port is
+         opened on the firewall. Configure the same port as the device's remote tachograph
+         server address. -->
+    <entry key="tacho.tunnel.port">0</entry>
+    <entry key="tacho.tunnel.waitSeconds">180</entry>
+    <entry key="tacho.tunnel.idleTimeoutSeconds">300</entry>
+
+    <!-- Command that tells a device to open its tunnel. The syntax depends on the FMC650
+         firmware build, so it is left unset until confirmed against the hardware; a device
+         that connects on its own schedule needs nothing here. -->
+    <!-- <entry key="tacho.triggerCommand"></entry> -->
+
+    <!-- Download scheduling. The legal maxima are 28 days for driver cards and 90 for
+         vehicle units; these defaults leave a margin. -->
+    <entry key="tacho.driverIntervalDays">28</entry>
+    <entry key="tacho.vehicleIntervalDays">60</entry>
+    <entry key="tacho.activityDays">92</entry>
+    <entry key="tacho.includeDetailedSpeed">false</entry>
+    <entry key="tacho.retryDelays">30,120,600,1800</entry>
+
+    <!-- Vehicle unit protocol timings. Widened from the bench values because the round trip
+         runs over a mobile network. Raise blockIdleMillis if large blocks arrive truncated. -->
+    <entry key="tacho.vu.responseTimeoutMillis">20000</entry>
+    <entry key="tacho.vu.blockIdleMillis">5000</entry>
+    <entry key="tacho.vu.pendingExtensionMillis">30000</entry>
+    <entry key="tacho.vu.blockTimeoutMillis">900000</entry>
+    <entry key="tacho.vu.maxRequestAttempts">3</entry>
+    <entry key="tacho.vu.continuationMode">REPEAT_HEADER</entry>
+
+    <!-- Company card relay through the tacho bridge. -->
+    <entry key="tacho.card.pollTimeoutSeconds">25</entry>
+    <entry key="tacho.card.commandTimeoutSeconds">30</entry>
+    <entry key="tacho.bridge.offlineAfterSeconds">120</entry>
+
+    <!-- Delivery to analysis bureaux such as Convey Reporting. Targets and their credentials
+         are configured in the web app, not here.
+
+         tacho.forward.secret encrypts those stored credentials. Set it to a long random value
+         before configuring any target, keep it out of version control, and do not change it
+         afterwards: every stored credential would have to be entered again. -->
+    <entry key="tacho.forward.enabled">true</entry>
+    <entry key="tacho.forward.retryDelays">60,300,1800,7200,21600</entry>
+    <entry key="tacho.forward.maxAttempts">6</entry>
+    <!-- <entry key="tacho.forward.secret">CHANGE-ME-TO-A-LONG-RANDOM-VALUE</entry> -->
 
 </properties>

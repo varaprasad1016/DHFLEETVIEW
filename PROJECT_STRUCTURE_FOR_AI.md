@@ -1,7 +1,7 @@
 # DHFleetView - Full Project Structure for AI
 
-**Generated:** 2026-08-31
-**Graphify:** `graphify-out/graph.json` (25886 nodes, 104223 edges, 47MB) - AST-only, no LLM cost
+**Generated:** 2026-09-03
+**Graphify:** `graphify-out/graph.json` (33270 nodes, 132401 edges) - AST-only, no LLM cost
 **Root:** `C:\DHFleetView` (also `C:/DHFleetView` on WSL)
 
 ## Quick Start for Future AI
@@ -27,16 +27,17 @@ graphify update . --no-cluster  # current graph is AST-only
 DHFleetView/                          # Traccar server (Java, Gradle, tracker-server.jar)
 ├── src/main/java/org/traccar/       # Server source (protocols, models, storage, tachograph)
 │   ├── api/resource/                 # REST: TachographResource.java (+ 30 others)
-│   ├── config/Keys.java              # Keys: tacho.enabled, tacho.storagePath, tacho.simulator, etc.
-│   ├── model/                        # Tachograph* + Device, Group, Position
+│   ├── config/Keys.java              # Keys: tacho.* (enabled, tunnel.*, vu.*, card.*, forward.*)
+│   ├── model/                        # Tachograph* (Configuration, DownloadJob, File, Bridge,
+│   │                                 #   AuthSession, Forward, ForwardTarget, Audit) + Device...
 │   ├── protocol/                     # TeltonikaProtocolDecoder.java (io239 = ignition)
-│   ├── schedule/                     # TaskTachographScheduler, TaskTachographRecovery
+│   ├── schedule/                     # TaskTachographScheduler / Recovery / Forwarder
 │   ├── session/ConnectionManager     # getDeviceSession for FMC650 status
-│   └── tachograph/                   # TachographManager, Storage, DeviceClient, AuthProvider
-├── schema/changelog-*.xml            # Liquibase: changelog-6.16.0.xml adds tc_tachograph_*
-├── conf/traccar.xml                  # tacho.enabled=true, tacho.simulator=true, cmsv9.*
-├── tacho-bridge/                     # Windows bridge app (Java, javax.smartcardio, PC/SC)
-│   └── src/main/java/com/dhfleetview/bridge/
+│   └── tachograph/                   # See "Tachograph module" below
+├── schema/changelog-*.xml            # Liquibase: 6.16.0 + 6.17.0 add tc_tachograph_*
+├── conf/traccar.xml                  # tacho.* (documented inline), cmsv9.*
+├── tacho-bridge/                     # Windows bridge app (Java 17, javax.smartcardio, PC/SC)
+│   └── src/main/java/com/dhfleetview/bridge/   # Main, ServerClient, *SmartCardReader
 ├── traccar-web/                      # Web app (React 19 + MUI 9 + MapLibre, Vite)
 │   ├── src/
 │   │   ├── common/util/vehicleStatus.js  # NEW: ignition -> running/idling/parked/stopped
@@ -72,9 +73,36 @@ DHFleetView/                          # Traccar server (Java, Gradle, tracker-se
 | `traccar-web/src/main/MainPage.jsx` | Fleet list default on mobile (fleetView), filter chips |
 | `traccar-web/src/main/FleetDashboard.jsx` | Clickable stats (running/idling/parked/stopped/offline) |
 | `traccar-web/src/main/DeviceRow.jsx` | Avatar gray (ign OFF) / green (running) via vehicleStatus |
-| `src/main/java/org/traccar/tachograph/` | TachographManager (690 lines), Storage, Simulator |
-| `src/main/java/org/traccar/model/Tachograph*.java` | 5 models (Configuration, DownloadJob, File, Bridge, AuthSession) |
-| `tacho-bridge/src/main/java/com/dhfleetview/bridge/Main.java` | Bridge heartbeat + pairing |
+| `src/main/java/org/traccar/tachograph/` | Tachograph module, see below |
+| `src/main/java/org/traccar/model/Tachograph*.java` | 8 models |
+| `traccar-web/src/tachograph/` | Web app section: 6 tabs + stat cards |
+| `tacho-bridge/.../bridge/Main.java` | Bridge: pairing, heartbeat, card relay loop |
+
+## Tachograph module
+
+Remote DDD download from FMC650 vehicles, company-card authentication via an office bridge, and
+delivery to analysis bureaux (Convey Reporting). **Read `docs/tachograph/ARCHITECTURE.md` first.**
+
+| Package | Responsibility |
+|---|---|
+| `tachograph.protocol` | Annex 1B download protocol: `VuMessage` framing, `VuDownloadSession`, `DddFileBuilder`, `DddInspector`, `TrepType`, `ContinuationMode` |
+| `tachograph.tunnel` | `TachographTunnelServer` (Netty, `tacho.tunnel.port`), `TunnelConnection`, registry |
+| `tachograph.device` | `Fmc650TachographClient`, `VirtualVehicleUnit` (emulator), `VuDownloadRunner` (shared) |
+| `tachograph.card` | `RemoteCardService` (APDU relay + long poll), `CardApdu`, `CardIdentityReader` |
+| `tachograph.forward` | `TachographForwardService`, `SftpForwarder`, `HttpsForwarder`, `SecretCipher` |
+| `tachograph` | `TachographManager` (jobs), `TachographBridgeManager`, `TachographStorage`, audit |
+
+Three things to know before changing any of it:
+
+1. **No card cryptography anywhere.** The vehicle unit and the company card authenticate each
+   other; the server relays bytes and holds no keys. Do not add key handling.
+2. **The simulator shares the production code path** (`VuDownloadRunner` over a `VuChannel`).
+   Keep it that way — it is what makes the module testable without hardware.
+3. **`tacho.vu.continuationMode`** is the one genuinely deployment-dependent value. See
+   `docs/tachograph/VU-PROTOCOL.md`.
+
+Gotcha: the storage layer writes a zero `*Id` column as SQL NULL, so such columns must be
+nullable wherever zero is meaningful (group zero = whole server). See `docs/tachograph/DATABASE.md`.
 
 ## Build & Deploy
 
@@ -115,6 +143,23 @@ graphify query "question"       # BFS traversal
 3. Check `traccar-web/src/common/util/vehicleStatus.js` for ignition logic before touching fleet status.
 4. Mobile default URL is `https://dhfleetview.co.uk` - dev URLs auto-migrated.
 5. Play Store package `com.dhgroup.fleetview`, version in `traccar-manager/pubspec.yaml`.
+6. Tachograph: read `docs/tachograph/ARCHITECTURE.md` before touching that module. It is the
+   largest subsystem and the one with real compliance consequences.
+7. `./gradlew build` runs checkstyle (120 cols, LF, no unused imports) and must stay green.
+8. Frontend uses MUI 9, where `<Grid item xs>` no longer exists. New layout code uses CSS grid.
+   Run `npx eslint --fix` on anything you touch; prettier is enforced.
+
+## Verified end to end
+
+The tachograph module was exercised against a running server on an isolated database: user and
+device creation, a vehicle download completing through the emulator, metadata extracted from the
+DDD, SHA-256 matching between database, response header and bytes, the audit trail, bridge
+pairing and token authentication (including rejection of bad and reused credentials), a full
+company-card APDU relay round trip, and delivery queueing with retry scheduling.
+
+Not yet verified, because each needs hardware or an account: the FMC650 trigger command syntax,
+`tacho.vu.continuationMode` against a real vehicle unit, live card authentication, and a
+successful transfer to a real bureau. See `docs/tachograph/TESTING.md`.
 
 ---
 *Generated via `graphify update . --no-cluster` + manual tree. Give this file + `graphify-out/graph.json` to any AI for full context.*

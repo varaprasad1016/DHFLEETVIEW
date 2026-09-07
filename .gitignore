@@ -40,3 +40,5 @@ tools/ffmpeg.exe
 
 # jar backups from deploy cycles
 tracker-server.jar.backup-*
+# Graphify AST cache - rebuilt by "graphify update .", not source
+graphify-out/cache/

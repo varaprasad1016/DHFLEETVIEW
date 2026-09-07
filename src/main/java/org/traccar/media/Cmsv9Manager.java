@@ -62,9 +62,18 @@ public class Cmsv9Manager {
         this.objectMapper = objectMapper;
         try {
             X509TrustManager trustAll = new X509TrustManager() {
-                public X509Certificate[] getAcceptedIssuers() { return null; }
-                public void checkClientTrusted(X509Certificate[] c, String a) {}
-                public void checkServerTrusted(X509Certificate[] c, String a) {}
+                @Override
+                public X509Certificate[] getAcceptedIssuers() {
+                    return new X509Certificate[0];
+                }
+
+                @Override
+                public void checkClientTrusted(X509Certificate[] chain, String authType) {
+                }
+
+                @Override
+                public void checkServerTrusted(X509Certificate[] chain, String authType) {
+                }
             };
             SSLContext sslContext = SSLContext.getInstance("TLS");
             sslContext.init(null, new TrustManager[]{trustAll}, new SecureRandom());
@@ -596,9 +605,18 @@ public class Cmsv9Manager {
         SSLContext sslContext = SSLContext.getInstance("TLS");
         sslContext.init(null, new TrustManager[]{
             new X509TrustManager() {
-                public X509Certificate[] getAcceptedIssuers() { return null; }
-                public void checkClientTrusted(X509Certificate[] c, String a) {}
-                public void checkServerTrusted(X509Certificate[] c, String a) {}
+                @Override
+                public X509Certificate[] getAcceptedIssuers() {
+                    return new X509Certificate[0];
+                }
+
+                @Override
+                public void checkClientTrusted(X509Certificate[] chain, String authType) {
+                }
+
+                @Override
+                public void checkServerTrusted(X509Certificate[] chain, String authType) {
+                }
             }
         }, new SecureRandom());
 
@@ -678,7 +696,11 @@ public class Cmsv9Manager {
         doneLatch.await(15, TimeUnit.SECONDS);
         WebSocket ws = wsRef.get();
         if (ws != null) {
-            try { ws.sendClose(1000, "done"); } catch (Exception ignored) {}
+            try {
+                ws.sendClose(1000, "done");
+            } catch (Exception ignored) {
+                // The socket is being torn down anyway.
+            }
         }
         return success.get();
     }
