@@ -68,7 +68,7 @@ jobs:
   # ---------------------------------------------------------------------------
   deploy-to-server:
     needs: windows
-    if: false
+    if: ${{ github.ref_type == 'tag' && needs.windows.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Download built installer
