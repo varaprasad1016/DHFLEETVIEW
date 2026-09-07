@@ -10,6 +10,10 @@
 
 name: Build Tacho Bridge App
 
+# Allow the build to create a Release and upload the installer.
+permissions:
+  contents: write
+
 on:
   workflow_dispatch:
   push:
