@@ -130,8 +130,22 @@ jobs:
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID"
 
-      - name: Upload signed .ipa
+      - name: Locate the signed .ipa
         if: steps.signing.outputs.signed == 'true'
+        run: echo "IPA_PATH=$(ls traccar-manager/build/ios/ipa/*.ipa | head -1)" >> "$GITHUB_ENV"
+
+      - name: Upload to TestFlight
+        if: steps.signing.outputs.signed == 'true'
+        uses: apple-actions/upload-testflight-build@v3
+        with:
+          app-path: ${{ env.IPA_PATH }}
+          issuer-id: ${{ secrets.ASC_ISSUER_ID }}
+          api-key-id: ${{ secrets.ASC_KEY_ID }}
+          api-private-key: ${{ secrets.APP_STORE_CONNECT_KEY }}
+
+      - name: Upload signed .ipa (best effort; skipped when artifact storage is full)
+        if: steps.signing.outputs.signed == 'true'
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: DH-FleetView-iOS
