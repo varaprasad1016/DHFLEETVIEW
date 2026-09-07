@@ -12,6 +12,9 @@ on:
     branches: [main]
     tags: ['v*']
 
+permissions:
+  contents: write
+
 jobs:
   ios:
     name: iOS (macOS runner)
@@ -132,6 +135,18 @@ jobs:
       - name: Locate the signed .ipa
         if: steps.signing.outputs.signed == 'true'
         run: echo "IPA_PATH=$(ls traccar-manager/build/ios/ipa/*.ipa | head -1)" >> "$GITHUB_ENV"
+
+      - name: Publish .ipa to a GitHub Release (downloadable for device testing)
+        if: steps.signing.outputs.signed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create ios-ipa-latest \
+            --repo "${{ github.repository }}" \
+            --title "DH FleetView iOS .ipa (latest)" \
+            --notes "Signed .ipa for on-device testing (BrowserStack / LambdaTest / Appetize)." 2>/dev/null || true
+          gh release upload ios-ipa-latest "$IPA_PATH" --repo "${{ github.repository }}" --clobber
+          echo "Uploaded $IPA_PATH to release ios-ipa-latest"
 
       - name: Upload to TestFlight
         if: steps.signing.outputs.signed == 'true'
