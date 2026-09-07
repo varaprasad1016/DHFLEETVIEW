@@ -56,14 +56,6 @@ jobs:
           releaseName: 'Tacho Bridge App ${{ github.ref_name }}'
           releaseDraft: false
 
-      - name: Upload installer artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: tacho-bridge-windows
-          path: |
-            tacho-bridge-app/src-tauri/target/release/bundle/**/*.exe
-            tacho-bridge-app/src-tauri/target/release/bundle/**/*.msi
-          if-no-files-found: warn
 
   # ---------------------------------------------------------------------------
   # Stage 3: push the freshly built installer onto the DHFleetView server so the
@@ -75,11 +67,12 @@ jobs:
     if: ${{ github.ref_type == 'tag' && needs.windows.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Download built installer
-        uses: actions/download-artifact@v4
-        with:
-          name: tacho-bridge-windows
-          path: installer
+      - name: Download installer from the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p installer
+          gh release download "${{ github.ref_name }}"             --repo "${{ github.repository }}"             --pattern '*.exe' --dir installer
 
       - name: Pick the .exe and copy to the server
         run: |
