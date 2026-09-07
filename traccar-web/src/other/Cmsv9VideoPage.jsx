@@ -36,6 +36,7 @@ import {
   cmsv9GetConfig,
   cmsv9StartLive,
   cmsv9StopLive,
+  cmsv9StartPlayback,
   cmsv9Search,
   cmsv9History,
   cmsv9StreamStatus,
@@ -623,21 +624,33 @@ const Cmsv9VideoPage = () => {
       stopPlayback();
       if (!cmsv9DeviceId) return;
       setLoading(true);
+      cancelledRef.current = false;
       try {
-        const start = item.startTime || from.format('YYYY-MM-DD HH:mm:ss');
-        const end = item.endTime || to.format('YYYY-MM-DD HH:mm:ss');
-        // Play the recorded footage through the server FLV proxy: it drives the
-        // real playbackAppoint session and waits until the DVR is actually
-        // pushing before the bytes flow, so the browser never chases a stream
-        // name that was never registered.
-        const flvUrl = `/api/cmsv9/playback-stream/${deviceId}/${channel}`
-          + `?startTime=${encodeURIComponent(start)}&endTime=${encodeURIComponent(end)}`;
+        const data = await cmsv9StartPlayback(
+          deviceId,
+          channel,
+          item.startTime || from.format('YYYY-MM-DD HH:mm:ss'),
+          item.endTime || to.format('YYYY-MM-DD HH:mm:ss'),
+        );
+        if (data.errCode !== 0 && data.errCode !== -1) {
+          throw new Error(data.resultMsg || 'Failed to start playback');
+        }
+        const { flvUrl } = data;
+        if (!flvUrl) throw new Error('No playback URL returned');
         setPlaying(true);
-        if (!videoRef.current) return;
-        const player = await createFlvPlayer(videoRef.current, flvUrl, {
-          timeout: 60,
-          loadingTimeout: 60,
-        });
+        // The platform pushes the recorded segment to the portal relay as a
+        // regular FLV stream, so it plays directly in the browser just like
+        // live does.
+        const found = await waitForStream(flvUrl, 90000, () => cancelledRef.current);
+        if (!found) {
+          if (!cancelledRef.current) {
+            setLiveError(true);
+            setPlaying(false);
+          }
+          return;
+        }
+        if (!videoRef.current || cancelledRef.current) return;
+        const player = await createFlvPlayer(videoRef.current, flvUrl);
         flvPlayerRef.current = player;
         if (!player) {
           setLiveError(true);
@@ -649,7 +662,7 @@ const Cmsv9VideoPage = () => {
           setPlaying(false);
           destroyFlvPlayer(player);
           flvPlayerRef.current = null;
-        }, 60000);
+        }, 30000);
         player.on('videoInfo', () => {
           clearTimeout(timeout);
           setPlaybackActive(true);
@@ -897,10 +910,6 @@ const Cmsv9VideoPage = () => {
                         onClick={() => {
                           setTrimStart(start);
                           setTrimEnd(end);
-                          playRecording({
-                            startTime: start.format('YYYY-MM-DD HH:mm:ss'),
-                            endTime: end.format('YYYY-MM-DD HH:mm:ss'),
-                          });
                         }}
                         sx={{
                           position: 'absolute',
@@ -924,7 +933,7 @@ const Cmsv9VideoPage = () => {
                   ))}
                 </Box>
                 <Typography variant="caption" color="textSecondary">
-                  Click a segment to watch it here, adjust the trim range, then download the exact clip. The list below grabs whole segments.
+                  Select a segment to set the range, then press Preview to watch it or Download for the exact clip. The list below grabs whole segments.
                 </Typography>
               </Box>
               {trimStart && trimEnd && (
@@ -957,6 +966,22 @@ const Cmsv9VideoPage = () => {
                     >
                       Preview
                     </Button>
+                    {playing && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="inherit"
+                        startIcon={<StopIcon />}
+                        onClick={() => {
+                          cancelledRef.current = true;
+                          stopPlayback();
+                          setPlaybackActive(false);
+                          setLiveError(false);
+                        }}
+                      >
+                        Stop
+                      </Button>
+                    )}
                     <Button
                       size="small"
                       variant="contained"
@@ -1000,7 +1025,6 @@ const Cmsv9VideoPage = () => {
                         onClick={() => {
                           setTrimStart(start);
                           setTrimEnd(end);
-                          playRecording({ startTime: startStr, endTime: endStr });
                         }}
                       >
                         <ListItemText

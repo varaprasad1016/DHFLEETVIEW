@@ -438,13 +438,17 @@ public class Cmsv9Manager {
             return null;
         }
         String httpUrl = resp.path("resultData").path("httpurl").asText("");
+        LOG.info("playback {} ch{} resultData={}", terminal, channel, resp.path("resultData"));
         if (httpUrl.isEmpty()) {
             return null;
         }
-        long deadline = System.currentTimeMillis() + 45000;
+        long start = System.currentTimeMillis();
+        long deadline = start + 45000;
         while (System.currentTimeMillis() < deadline) {
             InputStream in = openUrl(httpUrl);
             if (in != null) {
+                LOG.info("playback {} ch{} connected in {} ms via {}",
+                        terminal, channel, System.currentTimeMillis() - start, httpUrl);
                 return in;
             }
             try {
@@ -454,6 +458,7 @@ public class Cmsv9Manager {
                 return null;
             }
         }
+        LOG.warn("playback {} ch{} never became available after 45s ({})", terminal, channel, httpUrl);
         return null;
     }
 

@@ -185,43 +185,6 @@ public class Cmsv9Resource extends BaseResource {
                 .build();
     }
 
-    /**
-     * Proxies recorded footage to the browser as HTTP-FLV so the in-page
-     * Jessibuca player can render it directly. Reuses the same playback path
-     * as the download (the real playbackAppoint httpurl plus a readiness poll),
-     * so Preview no longer depends on a fabricated relay stream name that never
-     * registers for on-demand playback.
-     */
-    @GET
-    @Path("playback-stream/{deviceId}/{channel}")
-    public Response playbackStream(
-            @PathParam("deviceId") long deviceId,
-            @PathParam("channel") int channel,
-            @QueryParam("startTime") String startTime,
-            @QueryParam("endTime") String endTime) throws Exception {
-        String terminal = getCmsDeviceId(deviceId);
-        int cnmsChannel = channel + 1;
-        InputStream input = cmsv9Manager.openPlaybackStream(terminal, cnmsChannel, startTime, endTime);
-        if (input == null) {
-            return Response.status(Response.Status.NOT_FOUND).build();
-        }
-        StreamingOutput output = out -> {
-            try (InputStream in = input) {
-                byte[] buffer = new byte[8192];
-                int length;
-                while ((length = in.read(buffer)) != -1) {
-                    out.write(buffer, 0, length);
-                    out.flush();
-                }
-            } catch (IOException e) {
-                // client disconnected or playback stream ended
-            }
-        };
-        return Response.ok(output)
-                .header("Content-Type", "video/x-flv")
-                .header("Cache-Control", "no-cache")
-                .build();
-    }
 
     @POST
     @Path("stop/{deviceId}/{channel}")
@@ -250,8 +213,12 @@ public class Cmsv9Resource extends BaseResource {
         String startTime = params.get("startTime");
         String endTime = params.get("endTime");
 
-        cmsv9Manager.playbackAppoint(terminal, String.valueOf(cnmsChannel), startTime, endTime);
-        String flvUrl = cmsv9Manager.buildPlaybackFlvUrl(terminal, cnmsChannel);
+        JsonNode resp = cmsv9Manager.playbackAppoint(
+                terminal, String.valueOf(cnmsChannel), startTime, endTime);
+        String flvUrl = resp.path("resultData").path("httpurl").asText("");
+        if (flvUrl.isEmpty()) {
+            flvUrl = cmsv9Manager.buildPlaybackFlvUrl(terminal, cnmsChannel);
+        }
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("errCode", 0);
