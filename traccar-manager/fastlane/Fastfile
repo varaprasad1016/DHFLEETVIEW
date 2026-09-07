@@ -1,25 +1,40 @@
 default_platform(:ios)
 
-platform :ios do
-  desc "Submit the latest uploaded build to App Store review. " \
-       "The version's metadata, screenshots, privacy answers and demo account " \
-       "must already be prepared in App Store Connect."
-  lane :submit do
-    api_key = app_store_connect_api_key(
-      key_id: ENV.fetch("ASC_KEY_ID"),
-      issuer_id: ENV.fetch("ASC_ISSUER_ID"),
-      key_content: ENV.fetch("APP_STORE_CONNECT_KEY"),
-      is_key_content_base64: false
-    )
+def asc_key
+  app_store_connect_api_key(
+    key_id: ENV.fetch("ASC_KEY_ID"),
+    issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+    key_content: ENV.fetch("APP_STORE_CONNECT_KEY"),
+    is_key_content_base64: false
+  )
+end
 
+platform :ios do
+  desc "Upload text metadata (category, description, keywords, URLs) to App Store Connect. No submission, no screenshots."
+  lane :metadata do
     deliver(
-      api_key: api_key,
+      api_key: asc_key,
+      app_identifier: "com.dhgroup.fleetview",
+      submit_for_review: false,
+      force: true,
+      run_precheck_before_submit: false,
+      skip_binary_upload: true,
+      skip_screenshots: true,
+      skip_metadata: false,
+      sync_screenshots: false
+    )
+  end
+
+  desc "Submit the latest uploaded build to App Store review. The listing must be complete in App Store Connect."
+  lane :submit do
+    deliver(
+      api_key: asc_key,
       app_identifier: "com.dhgroup.fleetview",
       submit_for_review: true,
-      automatic_release: false,       # you press Release after approval
-      force: true,                    # no interactive HTML preview
-      skip_binary_upload: true,       # build was uploaded by the build workflow
-      skip_metadata: true,            # use what is already in App Store Connect
+      automatic_release: false,
+      force: true,
+      skip_binary_upload: true,
+      skip_metadata: true,
       skip_screenshots: true,
       precheck_include_in_app_purchases: false,
       submission_information: {
