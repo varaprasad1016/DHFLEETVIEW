@@ -7,10 +7,9 @@ use std::sync::Arc;
 use log::{debug, error, info, warn};
 use once_cell::sync::OnceCell;
 use lazy_static::lazy_static;
-use rumqttc::v5::AsyncClient;
 use tokio::time::Duration;
 
-use tauri::async_runtime::{JoinHandle, Mutex};
+use tauri::async_runtime::Mutex;
 
 // ───── PCSC ─────
 use pcsc::*;
@@ -19,7 +18,6 @@ use pcsc::{Card, Protocols, State as PcscState};
 // ───── Local Modules ─────
 use crate::config::{get_from_cache, CacheSection};
 use crate::global_app_handle::card_emit_event;
-use crate::mqtt::{ensure_connection, remove_connections_all};
 
 // ───── Constants ─────
 const MAX_BUFFER_SIZE: usize = 260; // Buffer size for smart card communication.
@@ -30,15 +28,14 @@ const SW_TECHNICAL_PROBLEM: &str = "6F00";
 type DynError = Box<dyn StdError + Send + Sync>;
 type DynResult<T> = Result<T, DynError>;
 
-/// Represents a card currently being processed (i.e., connected and active).
-#[derive(Debug)]
+/// A card currently registered and addressable by the WebSocket transport.
+/// TASK_POOL doubles as the card registry keyed by client_id (== card_id).
 pub struct ProcessingCard {
-    pub client_id: String,              // It is Card number. Uses as client_id for mqtt connection
-    pub reader_name: Option<String>,    // Name of the smart card reader (e.g., "Alcor Micro AU9540 00 00").
+    pub client_id: String,              // Card number == the card_id the server addresses.
+    pub reader_name: Option<String>,    // Name of the smart card reader.
     pub atr: Option<String>,            // ATR of the inserted card (hex-encoded).
-    #[allow(dead_code)] // to say the compiler does not warn about an unused field that is used in another file.
-    pub mqtt_client: AsyncClient,       // MQTT client instance.
-    pub task_handle: JoinHandle<()>,    // Async task handle managing communication for this card.
+    pub card: ManagedCard,              // Live PC/SC handle (cheap Arc clone).
+    pub busy: bool,                     // True while an auth session is in progress.
 }
 
 // ───── Statics ─────
@@ -166,13 +163,21 @@ async fn process_reader_states(reader_states: &mut [ReaderState]) -> Result<(), 
                         iccid = received_iccid;
                         card_number = get_from_cache(CacheSection::Cards, &iccid);
 
-                        ensure_connection(
-                            rs.name(),
-                            card_number.clone(),
-                            atr.clone(),
-                            managed_card,
-                        )
-                        .await;
+                        // Register the card so the WebSocket transport can address
+                        // it by card_id. Cards with no company-card number yet are
+                        // reported present but are not addressable.
+                        if !card_number.is_empty() {
+                            let mut pool = TASK_POOL.lock().await;
+                            if !pool.iter().any(|c| c.client_id == card_number) {
+                                pool.push(ProcessingCard {
+                                    client_id: card_number.clone(),
+                                    reader_name: Some(reader_name_string.to_string()),
+                                    atr: Some(atr.clone()),
+                                    card: managed_card,
+                                    busy: false,
+                                });
+                            }
+                        }
                     }
                     Err(e) => {
                         log::error!("Failed to get ICCID: {}", e);
@@ -268,7 +273,6 @@ pub async fn should_register_new_card(reader_name: &str, atr: &str) -> CardProce
         log::debug!("Case 2_2");
         if let Some(index) = to_remove {
             let removed = pool.remove(index);
-            removed.task_handle.abort();
             log::debug!("Case 2_3");
             log::warn!(
                 "Removed stale ProcessingCard for reader {} with old ATR {}",
@@ -462,8 +466,9 @@ pub async fn manual_sync_cards(
     log::debug!("Manual sync cards function is called. Restart: {}", restart);
 
     if restart {
-        // remove all connections
-        remove_connections_all().await;
+        // Drop all registered cards (and their sniffer state).
+        TASK_POOL.lock().await.clear();
+        crate::apdu_sniffer::forget_all();
 
         return Ok(());
     }
@@ -811,4 +816,52 @@ impl ManagedCard {
         Ok(iccid)
     }
 
+}
+
+
+// ----- WebSocket transport helpers -----
+// TASK_POOL is the card registry the WebSocket transport addresses by card_id.
+
+/// Returns a clone of the live card handle for `card_id`, if registered.
+pub async fn find_card(card_id: &str) -> Option<ManagedCard> {
+    let pool = TASK_POOL.lock().await;
+    pool.iter().find(|c| c.client_id == card_id).map(|c| c.card.clone())
+}
+
+/// Snapshot of registered cards as (card_id, present, busy, atr) for status reports.
+pub async fn snapshot_cards() -> Vec<(String, bool, bool, String)> {
+    let pool = TASK_POOL.lock().await;
+    pool.iter()
+        .map(|c| (c.client_id.clone(), true, c.busy, c.atr.clone().unwrap_or_default()))
+        .collect()
+}
+
+/// Marks a card busy/idle around an authentication session.
+pub async fn set_card_busy(card_id: &str, busy: bool) {
+    let mut pool = TASK_POOL.lock().await;
+    if let Some(c) = pool.iter_mut().find(|c| c.client_id == card_id) {
+        c.busy = busy;
+    }
+}
+
+/// Ends a session: clear busy, reset the card, and record a successful auth.
+pub async fn finish_session(card_id: &str) {
+    let card = {
+        let mut pool = TASK_POOL.lock().await;
+        pool.iter_mut().find(|c| c.client_id == card_id).map(|c| {
+            c.busy = false;
+            c.card.clone()
+        })
+    };
+    if let Some(card) = card {
+        card.reconnect().await;
+    }
+    crate::config::record_auth_result_async(card_id, true).await;
+}
+
+/// Removes a card from the pool (e.g. when its config is deleted).
+pub async fn remove_from_pool(card_id: &str) {
+    let mut pool = TASK_POOL.lock().await;
+    pool.retain(|c| c.client_id != card_id);
+    crate::apdu_sniffer::forget(card_id);
 }

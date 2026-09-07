@@ -1,10 +1,9 @@
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 
 // ───── Modules ─────
-mod app_connect;        // Application connection to the MQTT broker.
 mod config;             // Configuration handling.
 mod logger;             // Logging functionality.
-mod mqtt;               // MQTT communication.
+mod websocket;          // WebSocket transport to the tachograph-server.
 mod smart_card;         // PCSC module for smart card operations.
 mod apdu_sniffer;       // Passive sniffer for plaintext EF data in proxied APDUs.
 mod global_app_handle;  // Global access to app state and emitters.
@@ -78,8 +77,8 @@ pub fn run() {
                     });
 
                     async_runtime::spawn(async {
-                        // Start Main MQTT App client connection
-                        app_connect::app_connection().await;
+                        // Start the WebSocket transport to the tachograph-server.
+                        websocket::run().await;
                     });
 
                     // Spawn a background task to monitor the COM port for the Smart Card Rack device. This will run concurrently with the main application.
@@ -114,7 +113,6 @@ pub fn run() {
             config::update_server,         // update server config from the frontend
             config::remove_card,            // remove card from config
             smart_card::manual_sync_cards, // manual sync cards from the frontend
-            app_connect::app_connection,     // App connection to the MQTT broker
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

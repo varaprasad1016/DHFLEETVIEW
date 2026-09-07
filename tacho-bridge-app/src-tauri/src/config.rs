@@ -17,7 +17,6 @@ use tauri::Emitter;
 
 // ───── Local Modules ─────
 use crate::global_app_handle::emit_card_config_event;
-use crate::mqtt::remove_connections;
 // use crate::smart_card::manual_sync_cards;
 
 /// Represents the configuration settings for the application.
@@ -349,7 +348,7 @@ pub async fn remove_card_from_config(
         log::debug!("Configuration loaded to cache successfully");
 
         // Kill card task with the specified client_id (card number)
-        remove_connections(vec![card_number.to_string()]).await;
+        crate::smart_card::remove_from_pool(card_number).await;
         log::debug!("Removed connection for card {}", card_number);
 
         emit_card_config_event("global-card-config-updated", card_number.to_string(), None);
