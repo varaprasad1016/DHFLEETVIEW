@@ -42,6 +42,7 @@ public class TaskCnmsSync extends SingleScheduleTask {
     private final Cmsv9Manager cmsv9Manager;
 
     private long lastDeviceSync = 0;
+    private long lastGpsReport = 0;
 
     @Inject
     public TaskCnmsSync(
@@ -85,11 +86,20 @@ public class TaskCnmsSync extends SingleScheduleTask {
             return;
         }
 
+        int cLinked = 0;
+        int cErr = 0;
+        int cEmpty = 0;
+        int cZero = 0;
+        int cSkipTracker = 0;
+        int cWritten = 0;
+        boolean report = System.currentTimeMillis() - lastGpsReport > TimeUnit.SECONDS.toMillis(60);
+
         for (Device device : storage.getObjects(Device.class, new Request(new Columns.All()))) {
             String terminal = device.getString("cmsv9DeviceId");
             if (terminal == null || terminal.isBlank()) {
                 continue;
             }
+            cLinked++;
 
             // Hierarchy: prefer a real tracker. If this device has a recent fix from an
             // actual tracker (any protocol other than our CNMS pull), skip the DVR GPS
@@ -98,16 +108,23 @@ public class TaskCnmsSync extends SingleScheduleTask {
             Position last = cacheManager.getPosition(device.getId());
             if (last != null && !"cnms".equals(last.getProtocol()) && last.getFixTime() != null
                     && System.currentTimeMillis() - last.getFixTime().getTime() < TRACKER_FRESH_MS) {
+                cSkipTracker++;
                 continue;
             }
 
             try {
                 JsonNode response = cmsv9Manager.getGpsStatus(terminal);
                 if (response.path("errCode").asInt(-1) != 0) {
+                    cErr++;
+                    if (report) {
+                        LOG.info("CNMS GPS {}: errCode={} msg={}", terminal,
+                                response.path("errCode").asInt(-1), response.path("resultMsg").asText(""));
+                    }
                     continue;
                 }
                 JsonNode dataList = response.path("resultData");
                 if (!dataList.isArray() || dataList.isEmpty()) {
+                    cEmpty++;
                     continue;
                 }
 
@@ -139,6 +156,7 @@ public class TaskCnmsSync extends SingleScheduleTask {
                 // with an epoch-zero gpstime. Storing it would write a 0,0 fix on every
                 // cycle, so skip until the device sends real coordinates.
                 if (lat == 0 && lng == 0) {
+                    cZero++;
                     continue;
                 }
 
@@ -188,10 +206,17 @@ public class TaskCnmsSync extends SingleScheduleTask {
                 } finally {
                     cacheManager.removeDevice(device.getId(), key);
                 }
+                cWritten++;
 
             } catch (Exception e) {
-                LOG.debug("CNMS GPS update failed for {}: {}", terminal, e.getMessage());
+                LOG.warn("CNMS GPS update failed for {}: {}", terminal, e.getMessage(), e);
             }
+        }
+
+        if (report) {
+            lastGpsReport = System.currentTimeMillis();
+            LOG.info("CNMS GPS cycle: {} linked, {} written, {} zero-fix, {} empty, {} errCode, {} tracker-preferred",
+                    cLinked, cWritten, cZero, cEmpty, cErr, cSkipTracker);
         }
     }
 
@@ -348,21 +373,25 @@ public class TaskCnmsSync extends SingleScheduleTask {
         return value.toUpperCase().replaceAll("[^A-Z0-9]", "");
     }
 
+    // CNMS/CMSV9 gpstime is "yyMMddHHmmss" in UTC, e.g. "260908060034" =
+    // 2026-09-08 06:00:34 UTC. (It is NOT day-first, and NOT server-local: decoding
+    // it as ddMMyy stamped every fix in ~2008 so date-ranged reports found nothing;
+    // decoding it as server-local put fixes in the future.)
     private Date parseCnmsTime(String gpstime) {
         if (gpstime == null || gpstime.length() < 12) {
             return null;
         }
         try {
-            String year = "20" + gpstime.substring(4, 6);
+            String year = "20" + gpstime.substring(0, 2);
             String month = gpstime.substring(2, 4);
-            String day = gpstime.substring(0, 2);
+            String day = gpstime.substring(4, 6);
             String hour = gpstime.substring(6, 8);
             String min = gpstime.substring(8, 10);
             String sec = gpstime.substring(10, 12);
             return Date.from(java.time.LocalDateTime.of(
                     Integer.parseInt(year), Integer.parseInt(month), Integer.parseInt(day),
                     Integer.parseInt(hour), Integer.parseInt(min), Integer.parseInt(sec))
-                    .atZone(java.time.ZoneId.systemDefault()).toInstant());
+                    .toInstant(java.time.ZoneOffset.UTC));
         } catch (Exception e) {
             return null;
         }
