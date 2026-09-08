@@ -1,21 +1,26 @@
 """Daily walkaround check + defect reporting API. Every route is gated by the
 monthly licence via `require_license`, so it locks with the rest of the
 compliance suite.
+
+Supports optional per-item photos and a driver signature captured on the form,
+plus a date-filtered history so past walkaround reports can be pulled back.
 """
 
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_license
 from app.database import get_session
-from app.models.walkaround import WalkaroundCheck, WalkaroundDefect
+from app.models.walkaround import WalkaroundCheck, WalkaroundDefect, WalkaroundPhoto
+from app.services import media_store
 
 router = APIRouter(prefix="/api/walkaround", tags=["walkaround"], dependencies=[Depends(require_license)])
 
@@ -54,7 +59,12 @@ class DefectIn(BaseModel):
     item: str
     severity: str = Field(default="major", pattern="^(dangerous|major|minor)$")
     description: str | None = None
-    photo_key: str | None = None
+    photo: str | None = None   # optional base64 data URL
+
+
+class PhotoIn(BaseModel):
+    item: str | None = None    # which check item (null = general)
+    image: str                 # base64 data URL
 
 
 class CheckIn(BaseModel):
@@ -66,12 +76,34 @@ class CheckIn(BaseModel):
     notes: str | None = None
     safe_to_drive: bool = True
     defects: list[DefectIn] = []
+    photos: list[PhotoIn] = []          # optional per-item / general photos
+    signature: str | None = None        # optional base64 data URL of the signature
 
 
 class RectifyIn(BaseModel):
     rectified_by: str | None = None
     rectification_notes: str | None = None
     status: str = Field(default="rectified", pattern="^(rectified|monitoring|open)$")
+
+
+def _parse_day(value: str, end: bool = False) -> datetime:
+    """Parse a YYYY-MM-DD (or ISO) string to a UTC datetime; end -> next midnight."""
+    try:
+        d = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        d = datetime.combine(datetime.strptime(value[:10], "%Y-%m-%d").date(), time.min)
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=timezone.utc)
+    if end and len(value) <= 10:
+        d = d + timedelta(days=1)
+    return d
+
+
+def _store(data_url: str) -> dict:
+    try:
+        return media_store.save_data_url(data_url)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Bad image: {e}")
 
 
 @router.get("/items")
@@ -95,19 +127,27 @@ async def submit_check(body: CheckIn, session: AsyncSession = Depends(get_sessio
         safe_to_drive=body.safe_to_drive,
         result="defects" if body.defects else "pass",
     )
+    if body.signature:
+        check.signature_path = _store(body.signature)["storage_path"]
     session.add(check)
     await session.flush()  # get check.id
 
     for d in body.defects:
         session.add(WalkaroundDefect(
-            check_id=check.id,
-            vehicle_reg=reg,
-            item=d.item,
-            severity=d.severity,
-            description=d.description,
-            photo_key=d.photo_key,
-            reported_by=body.driver_name,
-        ))
+            check_id=check.id, vehicle_reg=reg, item=d.item, severity=d.severity,
+            description=d.description, reported_by=body.driver_name))
+        if d.photo:
+            meta = _store(d.photo)
+            session.add(WalkaroundPhoto(
+                check_id=check.id, item=d.item,
+                content_type=meta["content_type"], storage_path=meta["storage_path"]))
+
+    for p in body.photos:
+        meta = _store(p.image)
+        session.add(WalkaroundPhoto(
+            check_id=check.id, item=p.item,
+            content_type=meta["content_type"], storage_path=meta["storage_path"]))
+
     await session.commit()
 
     has_blocking = any(d.severity in ("dangerous", "major") for d in body.defects)
@@ -124,13 +164,25 @@ async def submit_check(body: CheckIn, session: AsyncSession = Depends(get_sessio
 
 
 @router.get("/checks")
-async def list_checks(limit: int = 50, session: AsyncSession = Depends(get_session)) -> list[dict]:
-    rows = (await session.execute(
-        select(WalkaroundCheck).order_by(WalkaroundCheck.created_at.desc()).limit(min(limit, 200))
-    )).scalars().all()
-    # defect counts per check
+async def list_checks(limit: int = 100, start: str | None = None, end: str | None = None,
+                      reg: str | None = None, driver: str | None = None,
+                      session: AsyncSession = Depends(get_session)) -> list[dict]:
+    stmt = select(WalkaroundCheck).order_by(WalkaroundCheck.created_at.desc())
+    if reg:
+        stmt = stmt.where(WalkaroundCheck.vehicle_reg == reg.strip().upper().replace(" ", ""))
+    if driver:
+        stmt = stmt.where(WalkaroundCheck.driver_name.ilike(f"%{driver}%"))
+    if start:
+        stmt = stmt.where(WalkaroundCheck.created_at >= _parse_day(start))
+    if end:
+        stmt = stmt.where(WalkaroundCheck.created_at < _parse_day(end, end=True))
+    rows = (await session.execute(stmt.limit(min(limit, 500)))).scalars().all()
+
     counts = dict((await session.execute(
         select(WalkaroundDefect.check_id, func.count()).group_by(WalkaroundDefect.check_id)
+    )).all())
+    photo_counts = dict((await session.execute(
+        select(WalkaroundPhoto.check_id, func.count()).group_by(WalkaroundPhoto.check_id)
     )).all())
     return [{
         "id": str(c.id),
@@ -141,8 +193,59 @@ async def list_checks(limit: int = 50, session: AsyncSession = Depends(get_sessi
         "result": c.result,
         "safe_to_drive": c.safe_to_drive,
         "defect_count": counts.get(c.id, 0),
+        "photo_count": photo_counts.get(c.id, 0),
+        "has_signature": bool(c.signature_path),
         "created_at": c.created_at.isoformat() if c.created_at else None,
     } for c in rows]
+
+
+@router.get("/checks/{check_id}")
+async def get_check(check_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> dict:
+    c = (await session.execute(
+        select(WalkaroundCheck).where(WalkaroundCheck.id == check_id))).scalar_one_or_none()
+    if c is None:
+        raise HTTPException(status_code=404, detail="Check not found.")
+    defects = (await session.execute(
+        select(WalkaroundDefect).where(WalkaroundDefect.check_id == check_id))).scalars().all()
+    photos = (await session.execute(
+        select(WalkaroundPhoto).where(WalkaroundPhoto.check_id == check_id))).scalars().all()
+    return {
+        "id": str(c.id), "vehicle_reg": c.vehicle_reg, "driver_name": c.driver_name,
+        "check_type": c.check_type, "odometer_km": c.odometer_km, "location": c.location,
+        "result": c.result, "safe_to_drive": c.safe_to_drive, "notes": c.notes,
+        "has_signature": bool(c.signature_path),
+        "created_at": c.created_at.isoformat() if c.created_at else None,
+        "defects": [{
+            "id": str(d.id), "item": d.item, "severity": d.severity,
+            "description": d.description, "status": d.status,
+        } for d in defects],
+        "photos": [{"id": str(p.id), "item": p.item} for p in photos],
+    }
+
+
+@router.get("/photos/{photo_id}")
+async def get_photo(photo_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> Response:
+    p = (await session.execute(
+        select(WalkaroundPhoto).where(WalkaroundPhoto.id == photo_id))).scalar_one_or_none()
+    if p is None:
+        raise HTTPException(status_code=404, detail="Photo not found.")
+    try:
+        return Response(content=media_store.read(p.storage_path), media_type=p.content_type)
+    except OSError:
+        raise HTTPException(status_code=404, detail="Photo file missing.")
+
+
+@router.get("/checks/{check_id}/signature")
+async def get_signature(check_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> Response:
+    c = (await session.execute(
+        select(WalkaroundCheck).where(WalkaroundCheck.id == check_id))).scalar_one_or_none()
+    if c is None or not c.signature_path:
+        raise HTTPException(status_code=404, detail="No signature.")
+    ct = "image/png" if c.signature_path.lower().endswith("png") else "image/jpeg"
+    try:
+        return Response(content=media_store.read(c.signature_path), media_type=ct)
+    except OSError:
+        raise HTTPException(status_code=404, detail="Signature file missing.")
 
 
 @router.get("/defects")

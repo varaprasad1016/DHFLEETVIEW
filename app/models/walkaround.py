@@ -35,6 +35,7 @@ class WalkaroundCheck(Base):
     # Whether the driver declared the vehicle safe to drive despite any minor defects.
     safe_to_drive: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
     notes: Mapped[str | None] = mapped_column(Text)
+    signature_path: Mapped[str | None] = mapped_column(String(500))  # driver's signature image
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     defects: Mapped[list["WalkaroundDefect"]] = relationship(
@@ -62,3 +63,16 @@ class WalkaroundDefect(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     check: Mapped["WalkaroundCheck"] = relationship(back_populates="defects")
+
+
+class WalkaroundPhoto(Base):
+    __tablename__ = "walkaround_photos"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    check_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("walkaround_checks.id", ondelete="CASCADE"), nullable=False)
+    item: Mapped[str | None] = mapped_column(String(80))   # which check item; null = general photo
+    content_type: Mapped[str] = mapped_column(String(40), server_default=text("'image/jpeg'"))
+    storage_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
