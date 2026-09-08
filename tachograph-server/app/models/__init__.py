@@ -20,6 +20,7 @@ from app.models.operations import (
     Schedule,
 )
 from app.models.licensing import LicenseState
+from app.models.walkaround import WalkaroundCheck, WalkaroundDefect
 
 __all__ = [
     "Base",
@@ -36,4 +37,6 @@ __all__ = [
     "WebhookDelivery",
     "CardEvent",
     "LicenseState",
+    "WalkaroundCheck",
+    "WalkaroundDefect",
 ]
