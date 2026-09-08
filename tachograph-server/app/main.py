@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from app.config import settings
 from app.api.license import router as license_router
+from app.api.walkaround import router as walkaround_router
 
 
 @asynccontextmanager
@@ -23,6 +24,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Tachograph Server", version="0.1.0", lifespan=lifespan)
 app.include_router(license_router)
+app.include_router(walkaround_router)
 
 
 _STATIC = Path(__file__).parent / "static"
@@ -32,6 +34,25 @@ _STATIC = Path(__file__).parent / "static"
 async def approver() -> str:
     """The phone approver PWA (same-origin, so no CORS/CSP issues)."""
     return (_STATIC / "approver.html").read_text(encoding="utf-8")
+
+
+def _page(name: str) -> str:
+    return (_STATIC / name).read_text(encoding="utf-8")
+
+
+@app.get("/compliance", response_class=HTMLResponse)
+async def compliance_page() -> str:
+    return _page("compliance.html")
+
+
+@app.get("/walkaround", response_class=HTMLResponse)
+async def walkaround_page() -> str:
+    return _page("walkaround.html")
+
+
+@app.get("/defects", response_class=HTMLResponse)
+async def defects_page() -> str:
+    return _page("defects.html")
 
 
 @app.get("/approver/manifest.webmanifest")
