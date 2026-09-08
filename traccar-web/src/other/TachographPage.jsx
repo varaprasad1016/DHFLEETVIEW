@@ -1,8 +1,20 @@
 import { useEffect, useState } from 'react';
-import { Alert, Box, Tab, Tabs, Typography } from '@mui/material';
+import {
+  Box, Button, Card, CardContent, Chip, FormControlLabel, Grid, MenuItem,
+  Paper, Switch, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  TextField, Typography,
+} from '@mui/material';
+import { useSelector } from 'react-redux';
+import { t } from '../common/components/LocalizationProvider';
 import PageLayout from '../common/components/PageLayout';
 import SettingsMenu from '../settings/components/SettingsMenu';
 import DownloadIcon from '@mui/icons-material/Download';
+import FactCheckIcon from '@mui/icons-material/FactCheck';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import EventAvailableIcon from '@mui/icons-material/EventAvailable';
+import AirIcon from '@mui/icons-material/Air';
+import DashboardCustomizeIcon from '@mui/icons-material/DashboardCustomize';
 import { useCatch, useCatchCallback } from '../reactHelper';
 import {
   tachoGetConfiguration, tachoSaveConfiguration, tachoRequestDownload,
@@ -10,74 +22,73 @@ import {
   tachoCancelDownload,
 } from '../common/util/tachograph';
 
-import { useCatch } from '../reactHelper';
-import { tachoGetSummary } from '../common/util/tachograph';
-import TachographStatCards from '../tachograph/TachographStatCards';
-import TachographVehiclesTab from '../tachograph/TachographVehiclesTab';
-import TachographDownloadsTab from '../tachograph/TachographDownloadsTab';
-import TachographFilesTab from '../tachograph/TachographFilesTab';
-import TachographBridgesTab from '../tachograph/TachographBridgesTab';
-import TachographDeliveryTab from '../tachograph/TachographDeliveryTab';
-import TachographAuditTab from '../tachograph/TachographAuditTab';
-
-const TABS = [
-  { key: 'vehicles', label: 'Vehicles', component: TachographVehiclesTab },
-  { key: 'downloads', label: 'Downloads', component: TachographDownloadsTab },
-  { key: 'files', label: 'Files', component: TachographFilesTab },
-  { key: 'bridges', label: 'Bridges', component: TachographBridgesTab },
-  { key: 'delivery', label: 'Delivery', component: TachographDeliveryTab },
-  { key: 'audit', label: 'Audit', component: TachographAuditTab },
-];
-
-/**
- * The tachograph section.
- *
- * <p>The summary strip stays visible across every tab because the two numbers that matter — is
- * anything failing, and is anything stuck undelivered — are the ones an operator would otherwise
- * only discover by going looking. Failures are highlighted rather than merely counted.
- */
 const TachographPage = () => {
-  const [tab, setTab] = useState('vehicles');
-  const [summary, setSummary] = useState(null);
+  const [deviceId, setDeviceId] = useState('');
+  const [config, setConfig] = useState(null);
+  const [downloads, setDownloads] = useState([]);
+  const [files, setFiles] = useState([]);
+  const [bridges, setBridges] = useState([]);
+  const [pairingCode, setPairingCode] = useState('');
+  const [stats, setStats] = useState({ total: 0, completed: 0, pending: 0, failed: 0 });
 
-  const loadSummary = useCatch(async () => {
-    setSummary(await tachoGetSummary());
+  const devices = useSelector((state) => Object.values(state.devices.items));
+
+  const loadConfig = useCatch(async () => {
+    if (!deviceId) return;
+    const data = await tachoGetConfiguration(Number(deviceId));
+    setConfig(data);
+  });
+
+  const loadDownloads = useCatch(async () => {
+    const data = await tachoListDownloads({ deviceId: deviceId || undefined, limit: 50 });
+    const list = Array.isArray(data) ? data : [];
+    setDownloads(list);
+    const completed = list.filter((j) => j.status === 'COMPLETED').length;
+    const pending = list.filter((j) => ['QUEUED', 'WAITING_FOR_DEVICE', 'WAITING_FOR_BRIDGE', 'REQUESTING', 'DOWNLOADING', 'PROCESSING'].includes(j.status)).length;
+    const failed = list.filter((j) => j.status === 'FAILED').length;
+    setStats({ total: list.length, completed, pending, failed, overdue: 0 });
+  });
+
+  const loadFiles = useCatch(async () => {
+    const data = await tachoListFiles({ deviceId: deviceId || undefined, limit: 50 });
+    setFiles(Array.isArray(data) ? data : []);
+  });
+
+  const loadBridges = useCatch(async () => {
+    const data = await tachoListBridges();
+    setBridges(Array.isArray(data) ? data : []);
   });
 
   useEffect(() => {
-    loadSummary();
-    // eslint-disable-next-line @eslint-react/exhaustive-deps
-  }, [tab]);
+    loadBridges();
+  }, []);
 
-  const ActiveTab = TABS.find((entry) => entry.key === tab)?.component ?? TachographVehiclesTab;
+  useEffect(() => {
+    if (deviceId) {
+      loadConfig();
+      loadDownloads();
+      loadFiles();
+    }
+  }, [deviceId]);
 
-  const stats = summary
-    ? [
-        { label: 'In progress', value: summary.activeDownloads },
-        { label: 'Completed', value: summary.completedDownloads },
-        {
-          label: 'Failed',
-          value: summary.failedDownloads,
-          alert: summary.failedDownloads > 0,
-        },
-        { label: 'Files stored', value: summary.files },
-        {
-          label: 'Bridges ready',
-          value: `${summary.bridgesReady}/${summary.bridges}`,
-          alert: summary.bridges > 0 && summary.bridgesReady === 0,
-          detail: summary.bridges === 0 ? 'none paired' : undefined,
-        },
-        {
-          label: 'Awaiting delivery',
-          value: summary.pendingDeliveries,
-        },
-        {
-          label: 'Delivery failures',
-          value: summary.failedDeliveries,
-          alert: summary.failedDeliveries > 0,
-        },
-      ]
-    : [];
+  const handleSaveConfig = useCatchCallback(async () => {
+    if (!config) return;
+    await tachoSaveConfiguration(Number(deviceId), config);
+  }, [config, deviceId]);
+
+  const handleDownload = useCatchCallback(async (type) => {
+    if (!deviceId) return;
+    await tachoRequestDownload(Number(deviceId), type);
+    await loadDownloads();
+  }, [deviceId]);
+
+  const handlePairingCode = useCatchCallback(async () => {
+    // Use the first group's id as example; in a real deployment the user picks a company/group.
+    const groups = await fetch('/api/groups').then((r) => r.json()).catch(() => []);
+    const groupId = Array.isArray(groups) && groups.length > 0 ? groups[0].id : 1;
+    const result = await tachoGeneratePairingCode(groupId, 'Tacho Bridge');
+    setPairingCode(result.pairingCode || JSON.stringify(result));
+  }, []);
 
   return (
     <PageLayout menu={<SettingsMenu />} breadcrumbs={['sharedTachograph']}>
@@ -98,6 +109,40 @@ const TachographPage = () => {
             <Card><CardContent><Typography variant="caption">Failed</Typography><Typography variant="h6">{stats.failed}</Typography></CardContent></Card>
           </Grid>
         </Grid>
+
+        <Paper sx={{ p: 2, mb: 3 }}>
+          <Typography variant="h6" gutterBottom>Compliance</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            UK fleet compliance tools, unlocked by the monthly phone licence.
+          </Typography>
+          <Grid container spacing={2}>
+            {[
+              { label: 'Compliance hub', desc: 'All tools & licence status', href: '/tacho/compliance', icon: <DashboardCustomizeIcon /> },
+              { label: 'Walkaround checks', desc: 'Driver daily vehicle check', href: '/tacho/walkaround', icon: <FactCheckIcon /> },
+              { label: 'Vehicle defects', desc: 'Defects & rectification log', href: '/tacho/defects', icon: <WarningAmberIcon /> },
+              { label: 'Tacho compliance', desc: "Drivers' hours & WTD, archive", href: '/tacho/hours', icon: <AccessTimeIcon /> },
+              { label: 'MOT & tax reminders', desc: 'DVLA MOT, tax & Euro status', href: '/tacho/reminders', icon: <EventAvailableIcon /> },
+              { label: 'Clean Air Zone', desc: 'ULEZ / CAZ charge exposure', href: '/tacho/caz', icon: <AirIcon /> },
+            ].map((tool) => (
+              <Grid item xs={12} sm={6} md={4} key={tool.href}>
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  startIcon={tool.icon}
+                  href={tool.href}
+                  target="_blank"
+                  rel="noopener"
+                  sx={{ justifyContent: 'flex-start', textAlign: 'left', p: 1.5, height: '100%' }}
+                >
+                  <Box>
+                    <Typography variant="subtitle2">{tool.label}</Typography>
+                    <Typography variant="caption" color="text.secondary">{tool.desc}</Typography>
+                  </Box>
+                </Button>
+              </Grid>
+            ))}
+          </Grid>
+        </Paper>
 
         <Paper sx={{ p: 2, mb: 3 }}>
           <Typography variant="h6" gutterBottom>Vehicle Configuration</Typography>
@@ -282,40 +327,6 @@ const TachographPage = () => {
             Simulator mode: {String(JSON.stringify({ note: 'Enable tacho.simulator=true for testing without hardware' }))}
           </Typography>
         </Box>
-        <Typography variant="h5" gutterBottom>
-          Tachograph
-        </Typography>
-
-        {summary?.simulator && (
-          <Alert severity="warning" sx={{ mb: 2 }}>
-            Simulator mode is on. Downloads are produced by a built-in emulator and are not real
-            tachograph data. Turn off <code>tacho.simulator</code> before using this in production.
-          </Alert>
-        )}
-
-        {summary && !summary.simulator && !summary.tunnelPort && (
-          <Alert severity="info" sx={{ mb: 2 }}>
-            No tachograph tunnel port is configured, so vehicles cannot connect for a download. Set{' '}
-            <code>tacho.tunnel.port</code> on the server and point the vehicles&apos; remote
-            tachograph server setting at it.
-          </Alert>
-        )}
-
-        {summary && <TachographStatCards stats={stats} />}
-
-        <Tabs
-          value={tab}
-          onChange={(event, value) => setTab(value)}
-          variant="scrollable"
-          scrollButtons="auto"
-          sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}
-        >
-          {TABS.map((entry) => (
-            <Tab key={entry.key} value={entry.key} label={entry.label} />
-          ))}
-        </Tabs>
-
-        <ActiveTab />
       </Box>
     </PageLayout>
   );
