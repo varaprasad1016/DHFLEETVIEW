@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Clean Air Zones</title>
+<style>
+  :root{color-scheme:dark;--bg:#0b1220;--card:#131c2e;--line:#22304a;--fg:#e6edf7;--mut:#8aa0c0;--acc:#38bdf8;--ok:#34d399;--warn:#f59e0b;--bad:#f87171;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif;}
+  header{padding:16px;max-width:960px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;}
+  h1{font-size:19px;margin:0;} a.back{color:var(--acc);text-decoration:none;font-size:13px;}
+  main{padding:0 16px 60px;max-width:960px;margin:0 auto;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px;}
+  .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px;}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;text-align:center;}
+  .kpi b{display:block;font-size:22px;} .kpi span{color:var(--mut);font-size:12px;}
+  table{width:100%;border-collapse:collapse;font-size:14px;} th,td{text-align:left;padding:8px 9px;border-bottom:1px solid var(--line);}
+  th{color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase;}
+  .tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;text-transform:uppercase;}
+  .compliant{background:#0f2a1f;color:var(--ok);} .non_compliant{background:#2a1113;color:var(--bad);} .unknown{background:#1b2233;color:var(--mut);}
+  .note{color:var(--mut);font-size:12px;} h3{margin:0 0 8px;}
+  .charge{color:var(--warn);font-weight:700;}
+  .empty{color:var(--mut);padding:24px;text-align:center;}
+  .lock{text-align:center;color:var(--mut);padding:40px 16px;} .lock a{color:var(--acc);}
+  .hidden{display:none!important;}
+</style>
+</head>
+<body>
+<header><h1>Clean Air Zones</h1><a class="back" href="compliance">← Compliance</a></header>
+<main>
+  <div id="lock" class="lock hidden">🔒 Locked. <a href="approver">Approve this month's licence</a> to open Clean Air Zones.</div>
+  <div id="app" class="hidden">
+    <div class="kpis" id="kpis"></div>
+    <div class="card">
+      <h3>Fleet emissions compliance</h3>
+      <div class="note" id="std"></div>
+      <div id="vlist"></div>
+    </div>
+    <div class="card">
+      <h3>UK charging zones (indicative)</h3>
+      <div id="zones"></div>
+      <div class="note" style="margin-top:8px">Charges vary by vehicle class and change over time — verify with each authority. A non-compliant vehicle is chargeable in every charging zone it enters. Live zone-entry tracking is a planned add-on.</div>
+    </div>
+  </div>
+</main>
+<script>
+  const $=(id)=>document.getElementById(id);
+  const esc=s=>(s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const gbp=n=>n==null?'—':'£'+n.toFixed(2);
+  async function init(){
+    let s; try{ s=await (await fetch('api/license/status',{cache:'no-store'})).json(); }catch{}
+    if(!s||!s.licensed){ $('lock').classList.remove('hidden'); return; }
+    $('app').classList.remove('hidden');
+    const d=await (await fetch('api/caz/exposure',{cache:'no-store'})).json();
+    const su=d.summary;
+    $('kpis').innerHTML=`
+      <div class="kpi"><b style="color:var(--bad)">${su.non_compliant}</b><span>Non-compliant</span></div>
+      <div class="kpi"><b style="color:var(--ok)">${su.compliant}</b><span>Compliant</span></div>
+      <div class="kpi"><b>${su.unknown}</b><span>Unknown</span></div>`;
+    $('std').textContent=`Minimum standard: Euro ${d.standard.diesel} diesel, Euro ${d.standard.petrol} petrol; zero-emission always compliant.`;
+    if(!d.vehicles.length){ $('vlist').innerHTML='<div class="empty">No vehicles. Add and refresh vehicles in MOT / tax reminders first.</div>'; }
+    else {
+      let h='<table><tr><th>Reg</th><th>Fuel</th><th>Euro</th><th>Status</th><th>Reason</th></tr>';
+      d.vehicles.forEach(v=>{ h+=`<tr><td><b>${esc(v.reg)}</b></td><td>${esc(v.fuel_type||'—')}</td><td>${esc(v.euro_status||'—')}</td>
+        <td><span class="tag ${v.verdict}">${v.verdict.replace('_',' ')}</span></td><td class="note">${esc(v.reason)}</td></tr>`; });
+      $('vlist').innerHTML=h+'</table>';
+    }
+    let z='<table><tr><th>Zone</th><th>Car / van</th><th>HGV / bus</th><th>Notes</th></tr>';
+    d.zones.forEach(zn=>{ z+=`<tr><td>${esc(zn.name)}</td>
+      <td class="charge">${zn.kind==='penalty'?'penalty':gbp(zn.car_van)}</td>
+      <td class="charge">${zn.kind==='penalty'?'penalty':gbp(zn.hgv_bus)}</td>
+      <td class="note">${esc(zn.note)}</td></tr>`; });
+    $('zones').innerHTML=z+'</table>';
+  }
+  init();
+</script>
+</body>
+</html>
