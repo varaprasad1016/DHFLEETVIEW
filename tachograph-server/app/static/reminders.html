@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>MOT &amp; Tax Reminders</title>
+<style>
+  :root{color-scheme:dark;--bg:#0b1220;--card:#131c2e;--line:#22304a;--fg:#e6edf7;--mut:#8aa0c0;--acc:#38bdf8;--ok:#34d399;--warn:#f59e0b;--bad:#f87171;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif;}
+  header{padding:16px;max-width:960px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;}
+  h1{font-size:19px;margin:0;} a.back{color:var(--acc);text-decoration:none;font-size:13px;}
+  main{padding:0 16px 60px;max-width:960px;margin:0 auto;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px;}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px;}
+  @media(max-width:600px){.kpis{grid-template-columns:repeat(2,1fr);}}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;text-align:center;}
+  .kpi b{display:block;font-size:22px;} .kpi span{color:var(--mut);font-size:12px;}
+  table{width:100%;border-collapse:collapse;font-size:14px;} th,td{text-align:left;padding:8px 9px;border-bottom:1px solid var(--line);}
+  th{color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase;}
+  .tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;text-transform:uppercase;}
+  .ok{background:#0f2a1f;color:var(--ok);} .due_soon{background:#2a230f;color:var(--warn);} .overdue{background:#2a1113;color:var(--bad);} .unknown{background:#1b2233;color:var(--mut);}
+  .btn{background:var(--acc);color:#04121f;font-weight:700;border:none;border-radius:9px;padding:9px 15px;font:inherit;cursor:pointer;}
+  .btn.small{padding:5px 9px;font-size:12px;background:transparent;color:var(--mut);border:1px solid var(--line);}
+  input{background:#0d1526;border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:9px;font:inherit;}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .msg{padding:10px;border-radius:9px;margin-top:8px;display:none;} .msg.ok{background:#0f2a1f;border:1px solid var(--ok);display:block;} .msg.bad{background:#2a1113;border:1px solid var(--bad);display:block;}
+  .setup{background:#22230f;border:1px solid var(--warn);border-radius:10px;padding:12px;margin-bottom:12px;color:#f4e3b0;font-size:13px;}
+  .empty{color:var(--mut);padding:24px;text-align:center;} .note{color:var(--mut);font-size:12px;}
+  .lock{text-align:center;color:var(--mut);padding:40px 16px;} .lock a{color:var(--acc);}
+  .hidden{display:none!important;}
+</style>
+</head>
+<body>
+<header><h1>MOT &amp; tax reminders</h1><a class="back" href="compliance">← Compliance</a></header>
+<main>
+  <div id="lock" class="lock hidden">🔒 Locked. <a href="approver">Approve this month's licence</a> to open reminders.</div>
+  <div id="app" class="hidden">
+    <div id="setup" class="setup hidden">
+      <b>DVLA lookups not configured.</b> Add a free DVLA Vehicle Enquiry Service key as
+      <code>dvla_ves_api_key</code> in the server <code>.env</code>, then restart the tacho API.
+      Register at register-for-ves.driver-vehicle-licensing.api.gov.uk. You can still add registrations now; refresh once the key is set.
+    </div>
+    <div class="kpis" id="kpis"></div>
+    <div class="card">
+      <div class="row">
+        <input id="reg" placeholder="Add registration(s), comma separated" style="flex:1;min-width:200px" autocapitalize="characters">
+        <button class="btn" id="add">Add</button>
+        <button class="btn" id="refresh">Refresh all from DVLA</button>
+      </div>
+      <div class="msg" id="msg"></div>
+    </div>
+    <div class="card" id="list"></div>
+  </div>
+</main>
+<script>
+  const $=(id)=>document.getElementById(id);
+  const esc=s=>(s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const dd=s=>s?new Date(s).toLocaleDateString('en-GB',{timeZone:'Europe/London'}):'—';
+  const days=n=>n==null?'':(n<0?`${-n}d overdue`:`${n}d`);
+
+  async function kpis(){
+    const s=await (await fetch('api/reminders/summary',{cache:'no-store'})).json();
+    $('setup').classList.toggle('hidden', s.dvla_configured);
+    $('kpis').innerHTML=`
+      <div class="kpi"><b style="color:var(--bad)">${s.overdue}</b><span>Overdue</span></div>
+      <div class="kpi"><b style="color:var(--warn)">${s.due_soon}</b><span>Due soon</span></div>
+      <div class="kpi"><b>${s.unknown}</b><span>Unknown</span></div>
+      <div class="kpi"><b>${s.total}</b><span>Monitored</span></div>`;
+  }
+  async function list(){
+    const d=await (await fetch('api/reminders',{cache:'no-store'})).json();
+    if(!d.vehicles.length){ $('list').innerHTML='<div class="empty">No vehicles yet. Add registrations above.</div>'; return; }
+    let h='<table><tr><th>Reg</th><th>Vehicle</th><th>Tax</th><th>Tax due</th><th>MOT</th><th>MOT expiry</th><th></th></tr>';
+    d.vehicles.forEach(v=>{ h+=`<tr>
+      <td><b>${esc(v.reg)}</b>${v.check_error?'<div class="note" style="color:var(--warn)">'+esc(v.check_error)+'</div>':''}</td>
+      <td>${esc([v.make,v.fuel_type,v.euro_status].filter(Boolean).join(' · ')||'—')}</td>
+      <td><span class="tag ${v.tax_state}">${v.tax_state.replace('_',' ')}</span></td>
+      <td>${dd(v.tax_due_date)} <span class="note">${days(v.tax_days)}</span></td>
+      <td><span class="tag ${v.mot_state}">${v.mot_state.replace('_',' ')}</span></td>
+      <td>${dd(v.mot_expiry_date)} <span class="note">${days(v.mot_days)}</span></td>
+      <td><button class="btn small" data-del="${esc(v.reg)}">Remove</button></td></tr>`; });
+    $('list').innerHTML=h+'</table>';
+    $('list').querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{
+      await fetch('api/reminders/vehicles/'+encodeURIComponent(b.dataset.del),{method:'DELETE'}); kpis(); list();
+    });
+  }
+  function show(t,cls){ const m=$('msg'); m.textContent=t; m.className='msg '+cls; }
+  $('add').onclick=async()=>{
+    const regs=$('reg').value.split(',').map(s=>s.trim()).filter(Boolean);
+    if(!regs.length) return;
+    const d=await (await fetch('api/reminders/vehicles',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({regs})})).json();
+    $('reg').value=''; show(`Added ${d.added} vehicle(s).`,'ok'); kpis(); list();
+  };
+  $('refresh').onclick=async()=>{
+    $('refresh').disabled=true; show('Querying DVLA…','ok');
+    const res=await fetch('api/reminders/refresh',{method:'POST'});
+    const d=await res.json();
+    if(!res.ok){ show((d.detail&&d.detail.message)||d.detail||'Refresh failed.','bad'); }
+    else show(`Checked ${d.checked}: ${d.ok} ok, ${d.errors} error(s).`,'ok');
+    $('refresh').disabled=false; kpis(); list();
+  };
+  async function init(){
+    let s; try{ s=await (await fetch('api/license/status',{cache:'no-store'})).json(); }catch{}
+    if(!s||!s.licensed){ $('lock').classList.remove('hidden'); return; }
+    $('app').classList.remove('hidden'); await kpis(); list();
+  }
+  init();
+</script>
+</body>
+</html>
