@@ -59,6 +59,7 @@ const useStyles = makeStyles()((theme) => ({
     justifyContent: 'center',
     backgroundColor: '#000',
     minHeight: 240,
+    maxHeight: 'calc(100vh - 200px)',
     position: 'relative',
   },
   player: {
@@ -198,7 +199,8 @@ async function createFlvPlayer(container, url, options = {}) {
     autoWasm: true,
     debug: false,
     showBandwidth: false,
-    isResize: false,
+    // false = stretch to fill (grid tiles); true = keep aspect ratio (single view)
+    isResize: options.isResize ?? false,
     useWebFullScreen: false,
     timeout: options.timeout || 20,
     loadingTimeout: options.loadingTimeout || 30,
@@ -404,7 +406,7 @@ const Cmsv9VideoPage = () => {
         return;
       }
       if (!videoRef.current || cancelledRef.current) return;
-      const player = await createFlvPlayer(videoRef.current, flvUrl);
+      const player = await createFlvPlayer(videoRef.current, flvUrl, { isResize: true });
       if (!player) {
         setLiveError(true);
         setPlaying(false);
@@ -722,7 +724,7 @@ const Cmsv9VideoPage = () => {
           return;
         }
         if (!videoRef.current || cancelledRef.current) return;
-        const player = await createFlvPlayer(videoRef.current, flvUrl);
+        const player = await createFlvPlayer(videoRef.current, flvUrl, { isResize: true });
         flvPlayerRef.current = player;
         if (!player) {
           setLiveError(true);
