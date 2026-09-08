@@ -303,7 +303,7 @@ public class Cmsv9Manager {
         wsStop(terminal, channel);
         mediacontrol(terminal, channel, 1);
         try {
-            Thread.sleep(1500);
+            Thread.sleep(400);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -537,7 +537,7 @@ public class Cmsv9Manager {
                 return true;
             }
             try {
-                Thread.sleep(1000);
+                Thread.sleep(300);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return false;
@@ -636,13 +636,13 @@ public class Cmsv9Manager {
                         } else if (result == 4) {
                             LOG.info("WS login acknowledged (result=4), sending order...");
                             sendWsOrderMsg(webSocket, id, terminal, order, content);
-                            Thread.sleep(300);
+                            Thread.sleep(100);
                             sendWsOrderMsg(webSocket, id, terminal, order, content);
-                            Thread.sleep(300);
+                            Thread.sleep(100);
                             sendWsOrderMsg(webSocket, id, terminal, order, content);
                             success.set(true);
-                            LOG.info("WS order sent 3 times, waiting 1s for relay...");
-                            Thread.sleep(1000);
+                            LOG.info("WS order sent 3 times, waiting for relay...");
+                            Thread.sleep(250);
                             doneLatch.countDown();
                         } else {
                             LOG.info("WS answer result={}, waiting...", result);
