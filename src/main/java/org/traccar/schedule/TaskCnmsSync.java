@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.traccar.media.Cmsv9Manager;
 import org.traccar.model.Device;
+import org.traccar.model.ObjectOperation;
 import org.traccar.model.Permission;
 import org.traccar.model.Position;
 import org.traccar.model.User;
@@ -18,6 +19,10 @@ import org.traccar.storage.query.Request;
 
 import jakarta.inject.Inject;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -205,26 +210,71 @@ public class TaskCnmsSync extends SingleScheduleTask {
                 return;
             }
 
+            // Load every device once and index them:
+            //  - terminals already linked to a DVR (via the cmsv9DeviceId attribute)
+            //  - unlinked tracker devices, keyed by their normalised registration/plate,
+            //    so a DVR can be auto-linked onto the matching tracker instead of
+            //    spawning a separate "cnms-<terminal>" device.
+            Set<String> linkedTerminals = new HashSet<>();
+            Map<String, Device> trackersByPlate = new HashMap<>();
+            // Standalone auto-created placeholders (uniqueId "cnms-<terminal>") that we
+            // previously created; kept so we can spot ones that should fold into a tracker.
+            Map<String, Device> placeholders = new HashMap<>();
+            for (Device device : storage.getObjects(Device.class, new Request(
+                    new Columns.Include("id", "name", "uniqueId", "attributes")))) {
+                String linked = device.getString("cmsv9DeviceId");
+                if (linked != null && !linked.isBlank()) {
+                    linkedTerminals.add(linked);
+                    String uid = device.getUniqueId();
+                    if (uid != null && uid.startsWith("cnms-")) {
+                        placeholders.put(linked, device);
+                    }
+                    continue;
+                }
+                // Candidate tracker for auto-linking. Key on the device name (the reg)
+                // and, if present, an explicit plate/registration attribute.
+                for (String plate : new String[] {
+                        normalizePlate(device.getName()),
+                        normalizePlate(device.getString("plate")),
+                        normalizePlate(device.getString("registration"))}) {
+                    if (!plate.isBlank()) {
+                        trackersByPlate.putIfAbsent(plate, device);
+                    }
+                }
+            }
+
             for (JsonNode node : list) {
                 if (node.path("nodetype").asInt(0) != 2) {
                     continue;
                 }
                 String terminal = node.path("terminal").asText("");
-                if (terminal.isBlank()) {
+                if (terminal.isBlank() || linkedTerminals.contains(terminal)) {
                     continue;
                 }
 
-                boolean exists = false;
-                for (Device device : storage.getObjects(Device.class, new Request(new Columns.Include("id", "attributes")))) {
-                    if (terminal.equals(device.getString("cmsv9DeviceId"))) {
-                        exists = true;
-                        break;
-                    }
-                }
+                String nodeName = node.path("nodeName").asText(terminal);
+                String plate = normalizePlate(nodeName);
+                Device tracker = plate.isBlank() ? null : trackersByPlate.get(plate);
 
-                if (!exists) {
+                if (tracker != null) {
+                    // Auto-link: attach this DVR to the existing tracker so the vehicle
+                    // is one device (tracker GPS preferred, DVR camera + GPS fallback).
+                    tracker.getAttributes().put("cmsv9DeviceId", terminal);
+                    storage.updateObject(tracker, new Request(
+                            new Columns.Include("attributes"),
+                            new Condition.Equals("id", tracker.getId())));
+                    cacheManager.invalidateObject(true, Device.class, tracker.getId(), ObjectOperation.UPDATE);
+
+                    // Prevent this tracker (and this terminal) from being reused.
+                    linkedTerminals.add(terminal);
+                    trackersByPlate.values().removeIf(d -> d.getId() == tracker.getId());
+
+                    LOG.info("Auto-linked DVR {} to tracker '{}' (id {}) by registration {}",
+                            terminal, tracker.getName(), tracker.getId(), nodeName);
+                } else {
+                    // No matching tracker: create a standalone CNMS (camera-only) device.
                     Device device = new Device();
-                    device.setName(node.path("nodeName").asText(terminal));
+                    device.setName(nodeName);
                     device.setUniqueId("cnms-" + terminal);
                     device.setCategory("CNMS");
                     device.getAttributes().put("cmsv9DeviceId", terminal);
@@ -238,12 +288,46 @@ public class TaskCnmsSync extends SingleScheduleTask {
                     cacheManager.invalidatePermission(true, User.class, 2, Device.class, deviceId, true);
                     connectionManager.invalidatePermission(true, User.class, 2, Device.class, deviceId, true);
 
+                    linkedTerminals.add(terminal);
                     LOG.info("Auto-created CNMS device: {} ({})", device.getName(), terminal);
                 }
             }
+
+            // Consolidation report (non-destructive): find standalone DVR placeholders
+            // that share a registration with a real tracker device. These are the
+            // duplicates that "auto link" is meant to collapse into a single device.
+            // We only LOG them here; merging/deleting is done on explicit confirmation.
+            int candidates = 0;
+            for (Map.Entry<String, Device> entry : placeholders.entrySet()) {
+                Device placeholder = entry.getValue();
+                String plate = normalizePlate(placeholder.getName());
+                Device tracker = plate.isBlank() ? null : trackersByPlate.get(plate);
+                if (tracker != null && tracker.getId() != placeholder.getId()) {
+                    candidates++;
+                    LOG.info("MERGE CANDIDATE: DVR placeholder '{}' (id {}, terminal {}) "
+                            + "duplicates tracker '{}' (id {}) by registration",
+                            placeholder.getName(), placeholder.getId(), entry.getKey(),
+                            tracker.getName(), tracker.getId());
+                }
+            }
+            Set<Long> distinctTrackers = new HashSet<>();
+            for (Device d : trackersByPlate.values()) {
+                distinctTrackers.add(d.getId());
+            }
+            LOG.info("CNMS sync: {} unlinked tracker(s), {} DVR placeholder(s), {} merge candidate(s)",
+                    distinctTrackers.size(), placeholders.size(), candidates);
         } catch (Exception e) {
             LOG.warn("CNMS deptTree sync failed", e);
         }
+    }
+
+    // Normalise a registration/plate for matching: upper-case, strip everything
+    // that is not a letter or digit (spaces, dashes, etc.). "G10 JHL" -> "G10JHL".
+    private static String normalizePlate(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.toUpperCase().replaceAll("[^A-Z0-9]", "");
     }
 
     private Date parseCnmsTime(String gpstime) {
