@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>DH FleetView Compliance</title>
+<style>
+  :root { color-scheme: dark; --bg:#0b1220; --card:#131c2e; --line:#22304a; --fg:#e6edf7; --mut:#8aa0c0; --acc:#38bdf8; --ok:#34d399; --warn:#f59e0b; --bad:#f87171; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif; }
+  header { padding:20px 18px 6px; }
+  h1 { font-size:20px; margin:0 0 2px; }
+  .sub { color:var(--mut); font-size:13px; }
+  main { padding:12px 16px 40px; max-width:720px; margin:0 auto; }
+  .status { display:flex; align-items:center; gap:10px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; margin:10px 0 16px; }
+  .dot { width:10px; height:10px; border-radius:50%; flex:none; }
+  .dot.ok{background:var(--ok);} .dot.bad{background:var(--bad);} .dot.warn{background:var(--warn);}
+  .status b{font-weight:600;} .status .meta{color:var(--mut);font-size:12px;margin-top:2px;}
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width:520px){ .grid{grid-template-columns:1fr;} }
+  a.card { display:block; text-decoration:none; color:inherit; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; transition:border-color .15s, transform .05s; }
+  a.card:active{ transform:scale(.99); }
+  a.card:hover{ border-color:var(--acc); }
+  a.card.soon{ opacity:.55; pointer-events:none; }
+  .card h3{ margin:0 0 4px; font-size:16px; }
+  .card p{ margin:0; color:var(--mut); font-size:13px; }
+  .pill{ display:inline-block; font-size:11px; color:var(--acc); border:1px solid var(--line); border-radius:999px; padding:1px 8px; margin-left:6px; vertical-align:middle;}
+  .lock { background:var(--card); border:1px solid var(--bad); border-radius:14px; padding:20px; text-align:center; }
+  .lock h2{ margin:0 0 8px; } .lock p{ color:var(--mut); }
+  .btn{ display:inline-block; background:var(--acc); color:#04121f; font-weight:700; text-decoration:none; padding:11px 18px; border-radius:10px; margin-top:8px; }
+  .hidden{ display:none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Compliance</h1>
+  <div class="sub">DH FleetView — UK fleet compliance suite</div>
+</header>
+<main>
+  <div class="status" id="status">
+    <span class="dot warn" id="dot"></span>
+    <div><b id="stTitle">Checking licence…</b><div class="meta" id="stMeta"></div></div>
+  </div>
+
+  <section id="tools" class="hidden">
+    <div class="grid">
+      <a class="card" href="walkaround">
+        <h3>Daily walkaround check</h3>
+        <p>Driver first-use vehicle check &amp; defect reporting (DVSA).</p>
+      </a>
+      <a class="card" href="defects">
+        <h3>Defects <span class="pill" id="defPill">—</span></h3>
+        <p>Open defects, severity and rectification audit trail.</p>
+      </a>
+      <a class="card soon" href="#">
+        <h3>MOT / tax reminders <span class="pill">soon</span></h3>
+        <p>Auto MOT, tax &amp; Euro status by registration (DVLA/DVSA).</p>
+      </a>
+      <a class="card soon" href="#">
+        <h3>Clean Air Zone <span class="pill">soon</span></h3>
+        <p>ULEZ/CAZ zone entries &amp; charge exposure.</p>
+      </a>
+      <a class="card soon" href="#">
+        <h3>Tacho compliance <span class="pill">soon</span></h3>
+        <p>Drivers' hours &amp; WTD infringements, downloads, archive.</p>
+      </a>
+      <a class="card soon" href="#">
+        <h3>Earned Recognition <span class="pill">soon</span></h3>
+        <p>DVSA KPI dashboard for the Earned Recognition scheme.</p>
+      </a>
+    </div>
+  </section>
+
+  <section id="locked" class="lock hidden">
+    <h2>🔒 Compliance suite locked</h2>
+    <p id="lockMsg">Approve this month's licence from your paired phone to unlock the compliance tools.</p>
+    <a class="btn" href="approver">Open phone approver</a>
+  </section>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  async function init(){
+    let s;
+    try { s = await (await fetch('api/license/status',{cache:'no-store'})).json(); }
+    catch { $('stTitle').textContent='Cannot reach licence service'; $('dot').className='dot bad'; return; }
+    const days = s.days_remaining ?? 0;
+    if (s.licensed){
+      $('dot').className='dot ' + (days<=3 ? 'warn':'ok');
+      $('stTitle').textContent = 'Licensed · '+ (s.current_period||'') ;
+      $('stMeta').textContent = days+' day'+(days===1?'':'s')+' remaining in this cycle (renews on the '+s.renew_day+'th).';
+      $('tools').classList.remove('hidden'); $('locked').classList.add('hidden');
+      try { const sum = await (await fetch('api/walkaround/summary',{cache:'no-store'})).json();
+        $('defPill').textContent = (sum.open_defects||0) + (sum.open_dangerous? ' ⚠':''); } catch {}
+    } else {
+      $('dot').className='dot bad';
+      $('stTitle').textContent = s.paired ? 'Licence lapsed' : 'Not paired';
+      $('stMeta').textContent = s.paired ? 'This cycle has not been approved.' : 'Pair your phone to begin.';
+      $('locked').classList.remove('hidden'); $('tools').classList.add('hidden');
+    }
+  }
+  init();
+</script>
+</body>
+</html>
