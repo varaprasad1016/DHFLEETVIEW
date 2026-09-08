@@ -52,12 +52,12 @@
         <h3>Defects <span class="pill" id="defPill">—</span></h3>
         <p>Open defects, severity and rectification audit trail.</p>
       </a>
-      <a class="card soon" href="#">
-        <h3>MOT / tax reminders <span class="pill">soon</span></h3>
+      <a class="card" href="reminders">
+        <h3>MOT / tax reminders <span class="pill" id="motPill">—</span></h3>
         <p>Auto MOT, tax &amp; Euro status by registration (DVLA/DVSA).</p>
       </a>
-      <a class="card soon" href="#">
-        <h3>Clean Air Zone <span class="pill">soon</span></h3>
+      <a class="card" href="caz">
+        <h3>Clean Air Zone <span class="pill" id="cazPill">—</span></h3>
         <p>ULEZ/CAZ zone entries &amp; charge exposure.</p>
       </a>
       <a class="card" href="hours">
@@ -93,6 +93,10 @@
         $('defPill').textContent = (sum.open_defects||0) + (sum.open_dangerous? ' ⚠':''); } catch {}
       try { const t = await (await fetch('api/tacho/summary',{cache:'no-store'})).json();
         $('tachoPill').textContent = (t.open_infringements||0) + (t.open_serious? ' ⚠':''); } catch {}
+      try { const r = await (await fetch('api/reminders/summary',{cache:'no-store'})).json();
+        $('motPill').textContent = (r.overdue+r.due_soon) + ((r.overdue)? ' ⚠':''); } catch {}
+      try { const z = await (await fetch('api/caz/summary',{cache:'no-store'})).json();
+        $('cazPill').textContent = (z.non_compliant||0) + (z.non_compliant? ' ⚠':''); } catch {}
     } else {
       $('dot').className='dot bad';
       $('stTitle').textContent = s.paired ? 'Licence lapsed' : 'Not paired';
