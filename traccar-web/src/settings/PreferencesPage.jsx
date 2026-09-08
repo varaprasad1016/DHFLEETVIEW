@@ -124,8 +124,8 @@ const PreferencesPage = () => {
                     label={t('mapActive')}
                     value={
                       attributes.activeMapStyles?.split(',') || [
+                        'googleRoad',
                         'locationIqStreets',
-                        'locationIqDark',
                         'openFreeMap',
                       ]
                     }
