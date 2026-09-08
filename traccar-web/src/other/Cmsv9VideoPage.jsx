@@ -294,6 +294,7 @@ const Cmsv9VideoPage = () => {
   const [playerMsg, setPlayerMsg] = useState('');
 
   const [gridActive, setGridActive] = useState(false);
+  const [gridHd, setGridHd] = useState(false);
   const [gridErrors, setGridErrors] = useState({});
 
   const [from, setFrom] = useState(dayjs().subtract(1, 'hour'));
@@ -359,7 +360,7 @@ const Cmsv9VideoPage = () => {
     activeChannelRef.current = channel;
     setLoading(true);
     try {
-      const data = await cmsv9StartLive(deviceId, channel);
+      const data = await cmsv9StartLive(deviceId, channel, 0);
       if (data.errCode !== 0 && data.errCode !== -1) {
         throw new Error(data.resultMsg || 'Failed to start live');
       }
@@ -478,6 +479,20 @@ const Cmsv9VideoPage = () => {
     setGridActive(true);
   }, [ensureConfig, cmsv9DeviceId]);
 
+  // Switch the grid between the DVR's main (HD) and sub (SD) streams. HD is
+  // heavier over the vehicle's cellular uplink, so a full grid may struggle;
+  // SD stays the default for reliable multi-channel. Toggling restarts the grid.
+  const setGridQuality = useCallback(
+    (hd) => {
+      setGridHd(hd);
+      if (gridActive) {
+        stopGrid();
+        setTimeout(() => startGrid(), 350);
+      }
+    },
+    [gridActive, stopGrid, startGrid],
+  );
+
   useEffect(() => {
     if (!gridActive || !config) return;
     const timers = [];
@@ -492,7 +507,7 @@ const Cmsv9VideoPage = () => {
         if (cancelledRef.current) return;
       }
       try {
-        const data = await cmsv9StartLive(deviceId, ch);
+        const data = await cmsv9StartLive(deviceId, ch, gridHd ? 0 : 1);
         if (data.errCode !== 0 && data.errCode !== -1) {
           setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
           return;
@@ -759,6 +774,17 @@ const Cmsv9VideoPage = () => {
                 onClick={() => (gridActive ? stopGrid() : startGrid())}
               >
                 {gridActive ? t('sharedStop') : t('cmsv9PlayAll')}
+              </Button>
+            )}
+            {tab === 1 && (
+              <Button
+                variant={gridHd ? 'contained' : 'outlined'}
+                size="small"
+                onClick={() => setGridQuality(!gridHd)}
+                sx={{ ml: 1 }}
+                title="Toggle live quality. HD uses the DVR main stream; SD (default) is lighter for multi-channel."
+              >
+                {gridHd ? 'HD' : 'SD'}
               </Button>
             )}
             {tab === 0 && (
