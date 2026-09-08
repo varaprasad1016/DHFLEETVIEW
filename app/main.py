@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from app.config import settings
 from app.api.license import router as license_router
 from app.api.walkaround import router as walkaround_router
+from app.api.tacho import router as tacho_router
 
 
 @asynccontextmanager
@@ -25,6 +26,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Tachograph Server", version="0.1.0", lifespan=lifespan)
 app.include_router(license_router)
 app.include_router(walkaround_router)
+app.include_router(tacho_router)
 
 
 _STATIC = Path(__file__).parent / "static"
@@ -53,6 +55,11 @@ async def walkaround_page() -> str:
 @app.get("/defects", response_class=HTMLResponse)
 async def defects_page() -> str:
     return _page("defects.html")
+
+
+@app.get("/hours", response_class=HTMLResponse)
+async def hours_page() -> str:
+    return _page("hours.html")
 
 
 @app.get("/approver/manifest.webmanifest")

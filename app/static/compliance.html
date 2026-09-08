@@ -60,8 +60,8 @@
         <h3>Clean Air Zone <span class="pill">soon</span></h3>
         <p>ULEZ/CAZ zone entries &amp; charge exposure.</p>
       </a>
-      <a class="card soon" href="#">
-        <h3>Tacho compliance <span class="pill">soon</span></h3>
+      <a class="card" href="hours">
+        <h3>Tacho compliance <span class="pill" id="tachoPill">—</span></h3>
         <p>Drivers' hours &amp; WTD infringements, downloads, archive.</p>
       </a>
       <a class="card soon" href="#">
@@ -91,6 +91,8 @@
       $('tools').classList.remove('hidden'); $('locked').classList.add('hidden');
       try { const sum = await (await fetch('api/walkaround/summary',{cache:'no-store'})).json();
         $('defPill').textContent = (sum.open_defects||0) + (sum.open_dangerous? ' ⚠':''); } catch {}
+      try { const t = await (await fetch('api/tacho/summary',{cache:'no-store'})).json();
+        $('tachoPill').textContent = (t.open_infringements||0) + (t.open_serious? ' ⚠':''); } catch {}
     } else {
       $('dot').className='dot bad';
       $('stTitle').textContent = s.paired ? 'Licence lapsed' : 'Not paired';

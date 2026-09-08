@@ -13,3 +13,6 @@ __pycache__/
 # OS
 Thumbs.db
 .DS_Store
+
+# Tacho file archive (real driver-card/VU downloads)
+data/
