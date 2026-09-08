@@ -295,6 +295,8 @@ const Cmsv9VideoPage = () => {
 
   const [gridActive, setGridActive] = useState(false);
   const [gridHd, setGridHd] = useState(false);
+  const [singleHd, setSingleHd] = useState(true);
+  const singleHdRef = useRef(true);
   const [gridErrors, setGridErrors] = useState({});
 
   const [from, setFrom] = useState(dayjs().subtract(1, 'hour'));
@@ -360,7 +362,7 @@ const Cmsv9VideoPage = () => {
     activeChannelRef.current = channel;
     setLoading(true);
     try {
-      const data = await cmsv9StartLive(deviceId, channel, 0);
+      const data = await cmsv9StartLive(deviceId, channel, singleHdRef.current ? 0 : 1);
       if (data.errCode !== 0 && data.errCode !== -1) {
         throw new Error(data.resultMsg || 'Failed to start live');
       }
@@ -418,6 +420,21 @@ const Cmsv9VideoPage = () => {
       }
     }
   }, [cmsv9DeviceId, channel, stopPlayback]);
+
+  // Switch the single-channel view between HD (DVR main stream) and SD (sub
+  // stream). A ref feeds startLive so the memoised callback always reads the
+  // latest choice; toggling while playing restarts the stream at the new quality.
+  const setSingleQuality = useCallback(
+    (hd) => {
+      setSingleHd(hd);
+      singleHdRef.current = hd;
+      if (playing) {
+        doStopLive();
+        setTimeout(() => startLive(), 350);
+      }
+    },
+    [playing, doStopLive, startLive],
+  );
 
   const unmountStateRef = useRef({ deviceId, cmsv9DeviceId });
   unmountStateRef.current = { deviceId, cmsv9DeviceId };
@@ -763,6 +780,17 @@ const Cmsv9VideoPage = () => {
                 onClick={() => (playing ? doStopLive() : startLive())}
               >
                 {playing ? t('sharedStop') : t('sharedPlay')}
+              </Button>
+            )}
+            {tab === 0 && (
+              <Button
+                variant={singleHd ? 'contained' : 'outlined'}
+                size="small"
+                onClick={() => setSingleQuality(!singleHd)}
+                sx={{ ml: 1 }}
+                title="Toggle live quality. HD uses the DVR main stream; SD is lighter on a weak connection."
+              >
+                {singleHd ? 'HD' : 'SD'}
               </Button>
             )}
             {tab === 1 && (
