@@ -95,7 +95,7 @@ const useStyles = makeStyles()((theme) => ({
   grid: {
     flexGrow: 1,
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+    gridTemplateColumns: '1fr 1fr',
     gap: theme.spacing(1),
     padding: theme.spacing(1, 2),
     overflow: 'auto',
@@ -107,7 +107,8 @@ const useStyles = makeStyles()((theme) => ({
     backgroundColor: '#0a0a0a',
     borderRadius: 8,
     overflow: 'hidden',
-    aspectRatio: '16 / 9',
+    aspectRatio: '4 / 3',
+    cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -128,6 +129,16 @@ const useStyles = makeStyles()((theme) => ({
     fontWeight: 600,
     zIndex: 1,
     pointerEvents: 'none',
+  },
+  cellSelected: {
+    border: '2px solid #22c55e',
+  },
+  groupTabs: {
+    display: 'flex',
+    justifyContent: 'center',
+    gap: theme.spacing(1),
+    padding: theme.spacing(1, 2, 0),
+    flexWrap: 'wrap',
   },
   cellActions: {
     position: 'absolute',
@@ -314,6 +325,21 @@ const Cmsv9VideoPage = () => {
     return Array.from({ length: Math.min(Math.max(Number(n), 1), 16) }, (_, i) => i);
   }, [config, defaultChannels]);
 
+  // Show channels four-up (2x2), paged by CH1-4 / CH5-8 groups like the DVR app.
+  const channelGroups = useMemo(() => {
+    const groups = [];
+    for (let i = 0; i < channels.length; i += 4) {
+      groups.push(channels.slice(i, i + 4));
+    }
+    return groups.length ? groups : [[]];
+  }, [channels]);
+  const [activeGroup, setActiveGroup] = useState(0);
+  const visibleChannels = useMemo(
+    () => channelGroups[Math.min(activeGroup, channelGroups.length - 1)] || [],
+    [channelGroups, activeGroup],
+  );
+  const [selectedChannel, setSelectedChannel] = useState(null);
+
   const ensureConfig = useCallback(async () => {
     if (config) return config;
     setLoading(true);
@@ -454,6 +480,12 @@ const Cmsv9VideoPage = () => {
 
   const [pendingMaximize, setPendingMaximize] = useState(null);
 
+  useEffect(() => {
+    if (gridActive && visibleChannels.length && !visibleChannels.includes(selectedChannel)) {
+      setSelectedChannel(visibleChannels[0]);
+    }
+  }, [gridActive, visibleChannels, selectedChannel]);
+
   const stopGrid = useCallback(() => {
     cancelledRef.current = true;
     channels.forEach((ch) => {
@@ -514,7 +546,7 @@ const Cmsv9VideoPage = () => {
     if (!gridActive || !config) return;
     const timers = [];
     const cancelled = new Set();
-    channels.forEach(async (ch, idx) => {
+    visibleChannels.forEach(async (ch, idx) => {
       const videoEl = gridPlayers.current[ch]?.videoEl;
       if (!videoEl || videoEl.dataset.attached) return;
       // Stagger startup: N tiles firing play-orders and spinning up N WASM
@@ -569,9 +601,9 @@ const Cmsv9VideoPage = () => {
     });
     return () => {
       cancelledRef.current = true;
-      channels.forEach((ch) => cancelled.add(ch));
+      visibleChannels.forEach((ch) => cancelled.add(ch));
       timers.forEach(clearTimeout);
-      channels.forEach((ch) => {
+      visibleChannels.forEach((ch) => {
         destroyFlvPlayer(gridPlayers.current[ch]?.player);
         if (gridPlayers.current[ch]?.videoEl) {
           delete gridPlayers.current[ch].videoEl.dataset.attached;
@@ -586,7 +618,7 @@ const Cmsv9VideoPage = () => {
         }
       });
     };
-  }, [gridActive, config, cmsv9DeviceId, deviceId, channels]);
+  }, [gridActive, config, cmsv9DeviceId, deviceId, visibleChannels]);
 
   const takeSnapshot = useCatch(
     async (player) => {
@@ -859,12 +891,29 @@ const Cmsv9VideoPage = () => {
               )}
             </div>
           )}
+          {tab === 1 && channelGroups.length > 1 && (
+            <div className={classes.groupTabs}>
+              {channelGroups.map((grp, gi) => (
+                <Chip
+                  key={gi}
+                  label={`CH${grp[0] + 1}-${grp[grp.length - 1] + 1}`}
+                  color={activeGroup === gi ? 'primary' : 'default'}
+                  onClick={() => setActiveGroup(gi)}
+                  size="small"
+                />
+              ))}
+            </div>
+          )}
           {tab === 1 && (
             <div className={classes.grid}>
-              {channels.map((ch) => (
-                <div key={ch} className={classes.cell}>
+              {visibleChannels.map((ch) => (
+                <div
+                  key={ch}
+                  className={`${classes.cell}${selectedChannel === ch ? ` ${classes.cellSelected}` : ''}`}
+                  onClick={() => setSelectedChannel(ch)}
+                >
                   <Chip
-                    label={`${t('sharedChannel')} ${ch + 1}`}
+                    label={`${device?.name ? `${device.name} - ` : ''}CH${ch + 1}`}
                     size="small"
                     className={classes.cellLabel}
                   />
