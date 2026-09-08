@@ -226,7 +226,7 @@ async function waitForStreamReady(deviceId, channel, timeoutMs, cancelFn) {
     } catch (e) {
       // keep polling while device starts pushing
     }
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 300));
   }
   return false;
 }
@@ -246,14 +246,14 @@ async function waitForStream(url, timeoutMs = 45000, cancelFn) {
     if (cancelFn && cancelFn()) return false;
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 2000);
+      const timer = setTimeout(() => controller.abort(), 1200);
       const res = await fetch(absolute, { signal: controller.signal, cache: 'no-store' });
       clearTimeout(timer);
       if (res.ok) return true;
     } catch (e) {
       // keep polling while device starts pushing
     }
-    await new Promise((resolve) => setTimeout(resolve, 750));
+    await new Promise((resolve) => setTimeout(resolve, 300));
   }
   return false;
 }
