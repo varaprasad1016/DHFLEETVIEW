@@ -371,7 +371,11 @@ public class Cmsv9Manager {
                         resetChannel(terminal, channel);
                         wsPlay(terminal, channel);
                         mediacontrol(terminal, channel, 0);
-                        waitForStreamLive(streamName, 45000);
+                        // Do NOT block here waiting for the stream to appear: this
+                        // task is fire-and-forget (the frontend polls readiness), and
+                        // holding the play lane for up to 45s per channel makes a
+                        // channel that can't establish stall every other channel in a
+                        // multi-view grid. Send the order and move on.
                     }
                 }
             } catch (Exception e) {
