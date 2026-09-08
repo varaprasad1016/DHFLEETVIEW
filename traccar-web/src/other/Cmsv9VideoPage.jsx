@@ -249,7 +249,14 @@ async function waitForStream(url, timeoutMs = 45000, cancelFn) {
       const timer = setTimeout(() => controller.abort(), 1200);
       const res = await fetch(absolute, { signal: controller.signal, cache: 'no-store' });
       clearTimeout(timer);
-      if (res.ok) return true;
+      if (res.ok) {
+        // We only need to know the stream exists. Abort immediately so this probe
+        // does not hold a streaming connection open — otherwise N channels leak N
+        // connections and blow past the browser's ~6-per-host limit, leaving no
+        // sockets for the actual players (the "only 2 channels play" bug).
+        controller.abort();
+        return true;
+      }
     } catch (e) {
       // keep polling while device starts pushing
     }
