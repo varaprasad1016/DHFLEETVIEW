@@ -21,6 +21,7 @@ from app.models.operations import (
 )
 from app.models.licensing import LicenseState
 from app.models.walkaround import WalkaroundCheck, WalkaroundDefect
+from app.models.tacho import TachoFile, Infringement
 
 __all__ = [
     "Base",
@@ -39,4 +40,6 @@ __all__ = [
     "LicenseState",
     "WalkaroundCheck",
     "WalkaroundDefect",
+    "TachoFile",
+    "Infringement",
 ]
