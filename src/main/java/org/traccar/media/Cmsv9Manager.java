@@ -249,8 +249,13 @@ public class Cmsv9Manager {
     // --- WebSocket play/stop commands ---
 
     public boolean wsPlay(String terminal, int channel) {
+        return wsPlay(terminal, channel, 1);
+    }
+
+    // streamType 0 = main (HD), 1 = sub (SD). Content: host,port,0,channel,dataType(1=video),streamType
+    public boolean wsPlay(String terminal, int channel, int streamType) {
         return wsSendOrderOnce(terminal, "9101",
-                videoServerHost() + "," + videoServerPort() + ",0," + (channel) + ",1,1");
+                videoServerHost() + "," + videoServerPort() + ",0," + (channel) + ",1," + streamType);
     }
 
     /**
@@ -362,6 +367,10 @@ public class Cmsv9Manager {
      * and confirmed on the local media server.
      */
     public void playLiveAsync(String terminal, int channel) {
+        playLiveAsync(terminal, channel, 1);
+    }
+
+    public void playLiveAsync(String terminal, int channel, int streamType) {
         cancelPendingStop(terminal, channel);
         playExecutor.submit(() -> {
             try {
@@ -369,8 +378,8 @@ public class Cmsv9Manager {
                     String streamName = liveStreamName(terminal, channel);
                     if (!isStreamLive(streamName)) {
                         resetChannel(terminal, channel);
-                        wsPlay(terminal, channel);
-                        mediacontrol(terminal, channel, 0);
+                        wsPlay(terminal, channel, streamType);
+                        mediacontrol(terminal, channel, 0, streamType);
                         // Do NOT block here waiting for the stream to appear: this
                         // task is fire-and-forget (the frontend polls readiness), and
                         // holding the play lane for up to 45s per channel makes a
@@ -422,6 +431,10 @@ public class Cmsv9Manager {
      * command is delivered; the WebSocket order alone is not enough.
      */
     private void mediacontrol(String terminal, int channel, int type) {
+        mediacontrol(terminal, channel, type, 1);
+    }
+
+    private void mediacontrol(String terminal, int channel, int type, int streamType) {
         try {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("sign", "ifNTSJ5vmA");
@@ -430,7 +443,7 @@ public class Cmsv9Manager {
             body.put("id", String.valueOf(channel));
             body.put("protocol", 1);
             body.put("vedioType", 1);
-            body.put("streamType", 1);
+            body.put("streamType", streamType);
             String json = objectMapper.writeValueAsString(body);
             HttpRequest request = HttpRequest.newBuilder(
                             URI.create("http://127.0.0.1:9005/cmsapi/mediacontrol"))
