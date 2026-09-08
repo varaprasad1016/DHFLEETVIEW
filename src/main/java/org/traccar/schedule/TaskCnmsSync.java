@@ -27,6 +27,9 @@ public class TaskCnmsSync extends SingleScheduleTask {
 
     private static final long GPS_SYNC_INTERVAL_SECONDS = 15;
     private static final long DEVICE_SYNC_INTERVAL_MINUTES = 5;
+    // A real tracker takes priority over the DVR's GPS. While a device has a fix
+    // from an actual tracker no older than this, the DVR GPS fallback is skipped.
+    private static final long TRACKER_FRESH_MS = TimeUnit.MINUTES.toMillis(30);
 
     private final Storage storage;
     private final CacheManager cacheManager;
@@ -80,6 +83,16 @@ public class TaskCnmsSync extends SingleScheduleTask {
         for (Device device : storage.getObjects(Device.class, new Request(new Columns.All()))) {
             String terminal = device.getString("cmsv9DeviceId");
             if (terminal == null || terminal.isBlank()) {
+                continue;
+            }
+
+            // Hierarchy: prefer a real tracker. If this device has a recent fix from an
+            // actual tracker (any protocol other than our CNMS pull), skip the DVR GPS
+            // fallback so tracker data drives trips and reports; the DVR GPS is only
+            // written when no fresh tracker fix exists.
+            Position last = cacheManager.getPosition(device.getId());
+            if (last != null && !"cnms".equals(last.getProtocol()) && last.getFixTime() != null
+                    && System.currentTimeMillis() - last.getFixTime().getTime() < TRACKER_FRESH_MS) {
                 continue;
             }
 
@@ -202,8 +215,7 @@ public class TaskCnmsSync extends SingleScheduleTask {
                 }
 
                 boolean exists = false;
-                Request deviceRequest = new Request(new Columns.Include("id", "attributes"));
-                for (Device device : storage.getObjects(Device.class, deviceRequest)) {
+                for (Device device : storage.getObjects(Device.class, new Request(new Columns.Include("id", "attributes")))) {
                     if (terminal.equals(device.getString("cmsv9DeviceId"))) {
                         exists = true;
                         break;
