@@ -293,29 +293,47 @@ public class TaskCnmsSync extends SingleScheduleTask {
                 }
             }
 
-            // Consolidation report (non-destructive): find standalone DVR placeholders
-            // that share a registration with a real tracker device. These are the
-            // duplicates that "auto link" is meant to collapse into a single device.
-            // We only LOG them here; merging/deleting is done on explicit confirmation.
-            int candidates = 0;
+            // Consolidation: a standalone DVR placeholder that shares a registration
+            // with a real tracker device is the same vehicle. Fold them into one device
+            // by moving the camera link (cmsv9DeviceId) onto the tracker and deleting the
+            // now-redundant placeholder. The tracker keeps its own GPS history; the
+            // placeholder's pre-merge DVR-only positions are removed with it (cascade).
+            int merged = 0;
             for (Map.Entry<String, Device> entry : placeholders.entrySet()) {
+                String terminal = entry.getKey();
                 Device placeholder = entry.getValue();
                 String plate = normalizePlate(placeholder.getName());
                 Device tracker = plate.isBlank() ? null : trackersByPlate.get(plate);
-                if (tracker != null && tracker.getId() != placeholder.getId()) {
-                    candidates++;
-                    LOG.info("MERGE CANDIDATE: DVR placeholder '{}' (id {}, terminal {}) "
-                            + "duplicates tracker '{}' (id {}) by registration",
-                            placeholder.getName(), placeholder.getId(), entry.getKey(),
-                            tracker.getName(), tracker.getId());
+                if (tracker == null || tracker.getId() == placeholder.getId()) {
+                    continue;
                 }
+
+                // 1. Attach the DVR to the tracker.
+                tracker.getAttributes().put("cmsv9DeviceId", terminal);
+                storage.updateObject(tracker, new Request(
+                        new Columns.Include("attributes"),
+                        new Condition.Equals("id", tracker.getId())));
+                cacheManager.invalidateObject(true, Device.class, tracker.getId(), ObjectOperation.UPDATE);
+
+                // 2. Delete the redundant placeholder (positions/permissions cascade).
+                storage.removeObject(Device.class, new Request(
+                        new Condition.Equals("id", placeholder.getId())));
+                cacheManager.invalidateObject(true, Device.class, placeholder.getId(), ObjectOperation.DELETE);
+
+                // Don't let this tracker be reused as a match this pass.
+                trackersByPlate.values().removeIf(d -> d.getId() == tracker.getId());
+                merged++;
+                LOG.info("Merged DVR placeholder '{}' (id {}, terminal {}) into tracker '{}' (id {})",
+                        placeholder.getName(), placeholder.getId(), terminal,
+                        tracker.getName(), tracker.getId());
             }
+
             Set<Long> distinctTrackers = new HashSet<>();
             for (Device d : trackersByPlate.values()) {
                 distinctTrackers.add(d.getId());
             }
-            LOG.info("CNMS sync: {} unlinked tracker(s), {} DVR placeholder(s), {} merge candidate(s)",
-                    distinctTrackers.size(), placeholders.size(), candidates);
+            LOG.info("CNMS sync: {} unlinked tracker(s), {} DVR placeholder(s), {} merged this pass",
+                    distinctTrackers.size(), placeholders.size(), merged);
         } catch (Exception e) {
             LOG.warn("CNMS deptTree sync failed", e);
         }
