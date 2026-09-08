@@ -36,6 +36,9 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -62,18 +65,9 @@ public class Cmsv9Manager {
         this.objectMapper = objectMapper;
         try {
             X509TrustManager trustAll = new X509TrustManager() {
-                @Override
-                public X509Certificate[] getAcceptedIssuers() {
-                    return new X509Certificate[0];
-                }
-
-                @Override
-                public void checkClientTrusted(X509Certificate[] chain, String authType) {
-                }
-
-                @Override
-                public void checkServerTrusted(X509Certificate[] chain, String authType) {
-                }
+                public X509Certificate[] getAcceptedIssuers() { return null; }
+                public void checkClientTrusted(X509Certificate[] c, String a) {}
+                public void checkServerTrusted(X509Certificate[] c, String a) {}
             };
             SSLContext sslContext = SSLContext.getInstance("TLS");
             sslContext.init(null, new TrustManager[]{trustAll}, new SecureRandom());
@@ -192,7 +186,7 @@ public class Cmsv9Manager {
         body.put("terminal", terminal);
         body.put("id", String.valueOf(channel));
         body.put("protocol", "1");
-        body.put("vedioType", "0");
+        body.put("vedioType", "1");
         body.put("streamType", "1");
 
         JsonNode response = signedPost("/ajax/cmsapi/playSend", body);
@@ -256,7 +250,7 @@ public class Cmsv9Manager {
 
     public boolean wsPlay(String terminal, int channel) {
         return wsSendOrderOnce(terminal, "9101",
-                videoServerHost() + "," + videoServerPort() + ",0," + (channel) + ",0,1");
+                videoServerHost() + "," + videoServerPort() + ",0," + (channel) + ",1,1");
     }
 
     /**
@@ -284,6 +278,31 @@ public class Cmsv9Manager {
     });
 
     /**
+     * Streams are kept warm for this long after the viewer closes, so re-opening
+     * (or flicking between channels/vehicles) skips the whole start-up handshake.
+     */
+    private static final long KEEP_ALIVE_MS = 60000;
+    private final ScheduledExecutorService keepAliveExecutor =
+            Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "cmsv9-keepalive");
+                t.setDaemon(true);
+                return t;
+            });
+    private final Map<String, ScheduledFuture<?>> pendingStops = new ConcurrentHashMap<>();
+
+    private static String streamKey(String terminal, int channel) {
+        return terminal + "_" + channel;
+    }
+
+    /** Cancels a scheduled teardown for this stream (called when it is viewed again). */
+    private void cancelPendingStop(String terminal, int channel) {
+        ScheduledFuture<?> pending = pendingStops.remove(streamKey(terminal, channel));
+        if (pending != null) {
+            pending.cancel(false);
+        }
+    }
+
+    /**
      * Queues a channel play in the background. If the stream is already live
      * it is left untouched (a duplicate play request must never kill an
      * active push). Otherwise the channel is reset (stop first, to clear
@@ -291,6 +310,7 @@ public class Cmsv9Manager {
      * and confirmed on the local media server.
      */
     public void playLiveAsync(String terminal, int channel) {
+        cancelPendingStop(terminal, channel);
         playExecutor.submit(() -> {
             try {
                 synchronized (wsOrderLock) {
@@ -312,23 +332,30 @@ public class Cmsv9Manager {
         wsStop(terminal, channel);
         mediacontrol(terminal, channel, 1);
         try {
-            Thread.sleep(1500);
+            Thread.sleep(400);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
     }
 
     public void stopLiveAsync(String terminal, int channel) {
-        playExecutor.submit(() -> {
-            try {
-                synchronized (wsOrderLock) {
-                    wsStop(terminal, channel);
-                    mediacontrol(terminal, channel, 1);
+        // Keep the stream warm for KEEP_ALIVE_MS so a quick re-open is instant.
+        // A fresh close resets the timer; a re-open (playLiveAsync) cancels it.
+        cancelPendingStop(terminal, channel);
+        ScheduledFuture<?> pending = keepAliveExecutor.schedule(() -> {
+            pendingStops.remove(streamKey(terminal, channel));
+            playExecutor.submit(() -> {
+                try {
+                    synchronized (wsOrderLock) {
+                        wsStop(terminal, channel);
+                        mediacontrol(terminal, channel, 1);
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Live stop failed for {}/{}: {}", terminal, channel, e.getMessage());
                 }
-            } catch (Exception e) {
-                LOG.warn("Live stop failed for {}/{}: {}", terminal, channel, e.getMessage());
-            }
-        });
+            });
+        }, KEEP_ALIVE_MS, TimeUnit.MILLISECONDS);
+        pendingStops.put(streamKey(terminal, channel), pending);
     }
 
     /**
@@ -344,7 +371,7 @@ public class Cmsv9Manager {
             body.put("terminal", "0" + terminal);
             body.put("id", String.valueOf(channel));
             body.put("protocol", 1);
-            body.put("vedioType", 0);
+            body.put("vedioType", 1);
             body.put("streamType", 1);
             String json = objectMapper.writeValueAsString(body);
             HttpRequest request = HttpRequest.newBuilder(
@@ -546,7 +573,7 @@ public class Cmsv9Manager {
                 return true;
             }
             try {
-                Thread.sleep(1000);
+                Thread.sleep(300);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return false;
@@ -605,18 +632,9 @@ public class Cmsv9Manager {
         SSLContext sslContext = SSLContext.getInstance("TLS");
         sslContext.init(null, new TrustManager[]{
             new X509TrustManager() {
-                @Override
-                public X509Certificate[] getAcceptedIssuers() {
-                    return new X509Certificate[0];
-                }
-
-                @Override
-                public void checkClientTrusted(X509Certificate[] chain, String authType) {
-                }
-
-                @Override
-                public void checkServerTrusted(X509Certificate[] chain, String authType) {
-                }
+                public X509Certificate[] getAcceptedIssuers() { return null; }
+                public void checkClientTrusted(X509Certificate[] c, String a) {}
+                public void checkServerTrusted(X509Certificate[] c, String a) {}
             }
         }, new SecureRandom());
 
@@ -654,13 +672,13 @@ public class Cmsv9Manager {
                         } else if (result == 4) {
                             LOG.info("WS login acknowledged (result=4), sending order...");
                             sendWsOrderMsg(webSocket, id, terminal, order, content);
-                            Thread.sleep(300);
+                            Thread.sleep(100);
                             sendWsOrderMsg(webSocket, id, terminal, order, content);
-                            Thread.sleep(300);
+                            Thread.sleep(100);
                             sendWsOrderMsg(webSocket, id, terminal, order, content);
                             success.set(true);
-                            LOG.info("WS order sent 3 times, waiting 1s for relay...");
-                            Thread.sleep(1000);
+                            LOG.info("WS order sent 3 times, waiting for relay...");
+                            Thread.sleep(250);
                             doneLatch.countDown();
                         } else {
                             LOG.info("WS answer result={}, waiting...", result);
@@ -696,11 +714,7 @@ public class Cmsv9Manager {
         doneLatch.await(15, TimeUnit.SECONDS);
         WebSocket ws = wsRef.get();
         if (ws != null) {
-            try {
-                ws.sendClose(1000, "done");
-            } catch (Exception ignored) {
-                // The socket is being torn down anyway.
-            }
+            try { ws.sendClose(1000, "done"); } catch (Exception ignored) {}
         }
         return success.get();
     }

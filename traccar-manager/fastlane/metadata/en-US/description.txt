@@ -1,0 +1,11 @@
+DH FleetView is a fleet tracking and telematics platform for businesses. Monitor your vehicles live on the map, review trips and history, check driver and tachograph status, and view on-board camera footage from your phone.
+
+Features
+- Live GPS tracking of your whole fleet
+- Trip history and route playback
+- Driver and vehicle status at a glance
+- Tachograph and compliance information
+- On-board camera footage where fitted
+- Secure login for your organisation
+
+DH FleetView connects to your DH FleetView account. An active account is required to use the app.

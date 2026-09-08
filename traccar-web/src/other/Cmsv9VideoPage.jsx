@@ -178,13 +178,14 @@ async function createFlvPlayer(container, url, options = {}) {
   const Jessibuca = await loadJessibuca();
   const player = new Jessibuca({
     container,
-    videoBuffer: 0.6,
+    videoBuffer: options.videoBuffer ?? 0.2,
     decoder: '/decoder.js',
     hasAudio: options.hasAudio !== false,
     isFlv: true,
     useMSE: false,
+    useWCS: true,
     autoWasm: true,
-    debug: true,
+    debug: false,
     showBandwidth: false,
     isResize: false,
     useWebFullScreen: false,
@@ -225,7 +226,7 @@ async function waitForStreamReady(deviceId, channel, timeoutMs, cancelFn) {
     } catch (e) {
       // keep polling while device starts pushing
     }
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 300));
   }
   return false;
 }
@@ -245,14 +246,14 @@ async function waitForStream(url, timeoutMs = 45000, cancelFn) {
     if (cancelFn && cancelFn()) return false;
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 2000);
+      const timer = setTimeout(() => controller.abort(), 1200);
       const res = await fetch(absolute, { signal: controller.signal, cache: 'no-store' });
       clearTimeout(timer);
       if (res.ok) return true;
     } catch (e) {
       // keep polling while device starts pushing
     }
-    await new Promise((resolve) => setTimeout(resolve, 750));
+    await new Promise((resolve) => setTimeout(resolve, 300));
   }
   return false;
 }
@@ -480,7 +481,7 @@ const Cmsv9VideoPage = () => {
       // Stagger startup: N tiles firing play-orders and spinning up N WASM
       // H.265 decoders at the same instant is what makes multi-channel struggle.
       if (idx > 0) {
-        await new Promise((resolve) => setTimeout(resolve, idx * 800));
+        await new Promise((resolve) => setTimeout(resolve, idx * 400));
         if (cancelledRef.current) return;
       }
       try {
