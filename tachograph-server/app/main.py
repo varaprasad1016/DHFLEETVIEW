@@ -61,6 +61,11 @@ async def defects_page() -> str:
     return _page("defects.html")
 
 
+@app.get("/walkaround-reports", response_class=HTMLResponse)
+async def walkaround_reports_page() -> str:
+    return _page("walkaround-reports.html")
+
+
 @app.get("/hours", response_class=HTMLResponse)
 async def hours_page() -> str:
     return _page("hours.html")
