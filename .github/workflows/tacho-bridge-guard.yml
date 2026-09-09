@@ -1,0 +1,22 @@
+# Enforces that the Tacho Bridge App fork has NO flespi / MQTT association and
+# talks only to the DH FleetView server. Runs fast (grep only, no build) on every
+# change to the fork, so an upstream sync can never quietly reintroduce flespi.
+
+name: Tacho Bridge - flespi guard
+
+on:
+  push:
+    branches: [tacho-bridge-app]
+    paths: ['tacho-bridge-app/**', '.github/workflows/tacho-bridge-guard.yml']
+  pull_request:
+    paths: ['tacho-bridge-app/**']
+  workflow_dispatch:
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No flespi / MQTT associations
+        working-directory: tacho-bridge-app
+        run: bash scripts/check-flespi.sh
