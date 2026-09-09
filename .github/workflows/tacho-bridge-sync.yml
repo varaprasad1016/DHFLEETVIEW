@@ -1,0 +1,96 @@
+# Fortnightly sync of upstream flespi-software/Tacho-Bridge-App into this fork.
+# Runs on the 1st and 16th of each month (~ every 15 days). It does a subtree
+# merge onto a branch and opens a PR for review — it never merges to
+# tacho-bridge-app automatically, because our WebSocket transport diverges from
+# upstream's flespi MQTT and conflicts must be resolved in OUR favour. The flespi
+# guard result is reported in the PR body, so a sync can never quietly ship flespi.
+
+name: Tacho Bridge - upstream sync
+
+on:
+  schedule:
+    - cron: '0 6 1,16 * *'   # 06:00 UTC on the 1st and 16th (~fortnightly)
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Upstream branch to sync from'
+        default: 'master'
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: tacho-bridge-app
+          fetch-depth: 0
+
+      - name: Subtree sync + open PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM: https://github.com/flespi-software/Tacho-Bridge-App.git
+          BR: ${{ github.event.inputs.branch || 'master' }}
+        run: |
+          set -e
+          git config user.name "tba-sync[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git remote add upstream-tba "$UPSTREAM"
+          git fetch upstream-tba "$BR"
+          UPSHA=$(git rev-parse upstream-tba/$BR)
+          SHORT=${UPSHA:0:7}
+          BRANCH="sync/upstream-$SHORT"
+
+          # Dedup: if we already opened a sync branch for this upstream commit, stop.
+          if git ls-remote --exit-code --heads origin "refs/heads/$BRANCH" >/dev/null 2>&1; then
+            echo "Sync branch $BRANCH already exists — nothing to do."
+            exit 0
+          fi
+
+          git checkout -B "$BRANCH"
+
+          set +e
+          git subtree pull --prefix=tacho-bridge-app upstream-tba "$BR" \
+            -m "Merge upstream Tacho Bridge ($BR @ $SHORT)"
+          RC=$?
+          set -e
+
+          CONFLICTS="none"
+          if [ $RC -ne 0 ]; then
+            CONFLICTS=$(git diff --name-only --diff-filter=U | sed 's/^/- /')
+            [ -z "$CONFLICTS" ] && CONFLICTS="(merge failed)"
+            git add -A
+            git commit -m "Merge upstream Tacho Bridge ($BR @ $SHORT) [CONFLICTS to resolve]"
+          fi
+
+          # Nothing new to sync?
+          if [ -z "$(git rev-list tacho-bridge-app..HEAD)" ]; then
+            echo "Already up to date with upstream."
+            exit 0
+          fi
+
+          git push -u origin "$BRANCH"
+
+          GUARD="passed ✅"
+          if ! ( cd tacho-bridge-app && bash scripts/check-flespi.sh ); then
+            GUARD="FAILED ❌ — a flespi/MQTT association is present and must be removed before merging"
+          fi
+
+          BODY=$(printf '%s\n' \
+            "Automated fortnightly sync of upstream flespi-software/Tacho-Bridge-App ($BR @ $SHORT)." \
+            "" \
+            "flespi guard: $GUARD" \
+            "" \
+            "Conflicts to resolve:" \
+            "$CONFLICTS" \
+            "" \
+            "Resolve conflicts in OUR favour: keep src-tauri/src/websocket.rs and the DH FleetView server config; do NOT bring back MQTT (mqtt.rs / app_connect.rs / rumqttc). The guard (tacho-bridge-app/scripts/check-flespi.sh) must pass before merging. After merge, bump the version and push a tba-v* tag to build and deploy.")
+
+          gh pr create --base tacho-bridge-app --head "$BRANCH" \
+            --title "Upstream Tacho Bridge sync ($SHORT)" --body "$BODY" \
+            || echo "PR already exists for $BRANCH"
