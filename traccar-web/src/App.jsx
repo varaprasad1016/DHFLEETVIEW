@@ -13,6 +13,7 @@ import MotionController from './main/MotionController';
 import TermsDialog from './common/components/TermsDialog';
 import Loader from './common/components/Loader';
 import fetchOrThrow from './common/util/fetchOrThrow';
+import ErrorBoundary from './ErrorBoundary';
 
 const useStyles = makeStyles()((theme) => {
   const dark = theme.palette.mode === 'dark';
@@ -117,7 +118,9 @@ const App = () => {
       <UpdateController />
       <MotionController />
       <div className={classes.page}>
-        <Outlet />
+        <ErrorBoundary key={location.pathname}>
+          <Outlet />
+        </ErrorBoundary>
       </div>
       {location.pathname !== '/' && (
         <button

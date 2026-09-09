@@ -52,7 +52,11 @@ public final class UserUtil {
 
     public static TimeZone getTimezone(Server server, User user) {
         String timezone = lookupStringAttribute(server, user, "timezone", null);
-        return timezone != null ? TimeZone.getTimeZone(timezone) : TimeZone.getDefault();
+        // Default the whole application to UK time (Europe/London handles GMT/BST and
+        // DST automatically) so reports, exports and notifications are in London time
+        // even though the server box itself runs in a different zone. An explicit
+        // server/user "timezone" attribute (Settings > Server > Timezone) still wins.
+        return timezone != null ? TimeZone.getTimeZone(timezone) : TimeZone.getTimeZone("Europe/London");
     }
 
     public static String getLanguage(Server server, User user) {

@@ -59,6 +59,7 @@ const useStyles = makeStyles()((theme) => ({
     justifyContent: 'center',
     backgroundColor: '#000',
     minHeight: 240,
+    maxHeight: 'calc(100vh - 200px)',
     position: 'relative',
   },
   player: {
@@ -95,7 +96,7 @@ const useStyles = makeStyles()((theme) => ({
   grid: {
     flexGrow: 1,
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+    gridTemplateColumns: '1fr 1fr',
     gap: theme.spacing(1),
     padding: theme.spacing(1, 2),
     overflow: 'auto',
@@ -107,7 +108,8 @@ const useStyles = makeStyles()((theme) => ({
     backgroundColor: '#0a0a0a',
     borderRadius: 8,
     overflow: 'hidden',
-    aspectRatio: '16 / 9',
+    aspectRatio: '4 / 3',
+    cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -128,6 +130,16 @@ const useStyles = makeStyles()((theme) => ({
     fontWeight: 600,
     zIndex: 1,
     pointerEvents: 'none',
+  },
+  cellSelected: {
+    border: '2px solid #22c55e',
+  },
+  groupTabs: {
+    display: 'flex',
+    justifyContent: 'center',
+    gap: theme.spacing(1),
+    padding: theme.spacing(1, 2, 0),
+    flexWrap: 'wrap',
   },
   cellActions: {
     position: 'absolute',
@@ -178,15 +190,17 @@ async function createFlvPlayer(container, url, options = {}) {
   const Jessibuca = await loadJessibuca();
   const player = new Jessibuca({
     container,
-    videoBuffer: 0.6,
+    videoBuffer: options.videoBuffer ?? 0.2,
     decoder: '/decoder.js',
     hasAudio: options.hasAudio !== false,
     isFlv: true,
     useMSE: false,
+    useWCS: true,
     autoWasm: true,
-    debug: true,
+    debug: false,
     showBandwidth: false,
-    isResize: false,
+    // false = stretch to fill (grid tiles); true = keep aspect ratio (single view)
+    isResize: options.isResize ?? false,
     useWebFullScreen: false,
     timeout: options.timeout || 20,
     loadingTimeout: options.loadingTimeout || 30,
@@ -225,7 +239,7 @@ async function waitForStreamReady(deviceId, channel, timeoutMs, cancelFn) {
     } catch (e) {
       // keep polling while device starts pushing
     }
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 300));
   }
   return false;
 }
@@ -245,14 +259,21 @@ async function waitForStream(url, timeoutMs = 45000, cancelFn) {
     if (cancelFn && cancelFn()) return false;
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 2000);
+      const timer = setTimeout(() => controller.abort(), 1200);
       const res = await fetch(absolute, { signal: controller.signal, cache: 'no-store' });
       clearTimeout(timer);
-      if (res.ok) return true;
+      if (res.ok) {
+        // We only need to know the stream exists. Abort immediately so this probe
+        // does not hold a streaming connection open — otherwise N channels leak N
+        // connections and blow past the browser's ~6-per-host limit, leaving no
+        // sockets for the actual players (the "only 2 channels play" bug).
+        controller.abort();
+        return true;
+      }
     } catch (e) {
       // keep polling while device starts pushing
     }
-    await new Promise((resolve) => setTimeout(resolve, 750));
+    await new Promise((resolve) => setTimeout(resolve, 300));
   }
   return false;
 }
@@ -286,6 +307,9 @@ const Cmsv9VideoPage = () => {
   const [playerMsg, setPlayerMsg] = useState('');
 
   const [gridActive, setGridActive] = useState(false);
+  const [gridHd, setGridHd] = useState(false);
+  const [singleHd, setSingleHd] = useState(true);
+  const singleHdRef = useRef(true);
   const [gridErrors, setGridErrors] = useState({});
 
   const [from, setFrom] = useState(dayjs().subtract(1, 'hour'));
@@ -302,6 +326,21 @@ const Cmsv9VideoPage = () => {
     const n = config?.channels || Number(defaultChannels) || 4;
     return Array.from({ length: Math.min(Math.max(Number(n), 1), 16) }, (_, i) => i);
   }, [config, defaultChannels]);
+
+  // Show channels four-up (2x2), paged by CH1-4 / CH5-8 groups like the DVR app.
+  const channelGroups = useMemo(() => {
+    const groups = [];
+    for (let i = 0; i < channels.length; i += 4) {
+      groups.push(channels.slice(i, i + 4));
+    }
+    return groups.length ? groups : [[]];
+  }, [channels]);
+  const [activeGroup, setActiveGroup] = useState(0);
+  const visibleChannels = useMemo(
+    () => channelGroups[Math.min(activeGroup, channelGroups.length - 1)] || [],
+    [channelGroups, activeGroup],
+  );
+  const [selectedChannel, setSelectedChannel] = useState(null);
 
   const ensureConfig = useCallback(async () => {
     if (config) return config;
@@ -351,7 +390,7 @@ const Cmsv9VideoPage = () => {
     activeChannelRef.current = channel;
     setLoading(true);
     try {
-      const data = await cmsv9StartLive(deviceId, channel);
+      const data = await cmsv9StartLive(deviceId, channel, singleHdRef.current ? 0 : 1);
       if (data.errCode !== 0 && data.errCode !== -1) {
         throw new Error(data.resultMsg || 'Failed to start live');
       }
@@ -367,7 +406,7 @@ const Cmsv9VideoPage = () => {
         return;
       }
       if (!videoRef.current || cancelledRef.current) return;
-      const player = await createFlvPlayer(videoRef.current, flvUrl);
+      const player = await createFlvPlayer(videoRef.current, flvUrl, { isResize: true });
       if (!player) {
         setLiveError(true);
         setPlaying(false);
@@ -410,6 +449,21 @@ const Cmsv9VideoPage = () => {
     }
   }, [cmsv9DeviceId, channel, stopPlayback]);
 
+  // Switch the single-channel view between HD (DVR main stream) and SD (sub
+  // stream). A ref feeds startLive so the memoised callback always reads the
+  // latest choice; toggling while playing restarts the stream at the new quality.
+  const setSingleQuality = useCallback(
+    (hd) => {
+      setSingleHd(hd);
+      singleHdRef.current = hd;
+      if (playing) {
+        doStopLive();
+        setTimeout(() => startLive(), 350);
+      }
+    },
+    [playing, doStopLive, startLive],
+  );
+
   const unmountStateRef = useRef({ deviceId, cmsv9DeviceId });
   unmountStateRef.current = { deviceId, cmsv9DeviceId };
   useEffect(() => () => {
@@ -427,6 +481,12 @@ const Cmsv9VideoPage = () => {
   }, [stopPlayback]);
 
   const [pendingMaximize, setPendingMaximize] = useState(null);
+
+  useEffect(() => {
+    if (gridActive && visibleChannels.length && !visibleChannels.includes(selectedChannel)) {
+      setSelectedChannel(visibleChannels[0]);
+    }
+  }, [gridActive, visibleChannels, selectedChannel]);
 
   const stopGrid = useCallback(() => {
     cancelledRef.current = true;
@@ -470,21 +530,35 @@ const Cmsv9VideoPage = () => {
     setGridActive(true);
   }, [ensureConfig, cmsv9DeviceId]);
 
+  // Switch the grid between the DVR's main (HD) and sub (SD) streams. HD is
+  // heavier over the vehicle's cellular uplink, so a full grid may struggle;
+  // SD stays the default for reliable multi-channel. Toggling restarts the grid.
+  const setGridQuality = useCallback(
+    (hd) => {
+      setGridHd(hd);
+      if (gridActive) {
+        stopGrid();
+        setTimeout(() => startGrid(), 350);
+      }
+    },
+    [gridActive, stopGrid, startGrid],
+  );
+
   useEffect(() => {
     if (!gridActive || !config) return;
     const timers = [];
     const cancelled = new Set();
-    channels.forEach(async (ch, idx) => {
+    visibleChannels.forEach(async (ch, idx) => {
       const videoEl = gridPlayers.current[ch]?.videoEl;
       if (!videoEl || videoEl.dataset.attached) return;
       // Stagger startup: N tiles firing play-orders and spinning up N WASM
       // H.265 decoders at the same instant is what makes multi-channel struggle.
       if (idx > 0) {
-        await new Promise((resolve) => setTimeout(resolve, idx * 800));
+        await new Promise((resolve) => setTimeout(resolve, idx * 400));
         if (cancelledRef.current) return;
       }
       try {
-        const data = await cmsv9StartLive(deviceId, ch);
+        const data = await cmsv9StartLive(deviceId, ch, gridHd ? 0 : 1);
         if (data.errCode !== 0 && data.errCode !== -1) {
           setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
           return;
@@ -529,9 +603,9 @@ const Cmsv9VideoPage = () => {
     });
     return () => {
       cancelledRef.current = true;
-      channels.forEach((ch) => cancelled.add(ch));
+      visibleChannels.forEach((ch) => cancelled.add(ch));
       timers.forEach(clearTimeout);
-      channels.forEach((ch) => {
+      visibleChannels.forEach((ch) => {
         destroyFlvPlayer(gridPlayers.current[ch]?.player);
         if (gridPlayers.current[ch]?.videoEl) {
           delete gridPlayers.current[ch].videoEl.dataset.attached;
@@ -546,7 +620,7 @@ const Cmsv9VideoPage = () => {
         }
       });
     };
-  }, [gridActive, config, cmsv9DeviceId, deviceId, channels]);
+  }, [gridActive, config, cmsv9DeviceId, deviceId, visibleChannels]);
 
   const takeSnapshot = useCatch(
     async (player) => {
@@ -650,7 +724,7 @@ const Cmsv9VideoPage = () => {
           return;
         }
         if (!videoRef.current || cancelledRef.current) return;
-        const player = await createFlvPlayer(videoRef.current, flvUrl);
+        const player = await createFlvPlayer(videoRef.current, flvUrl, { isResize: true });
         flvPlayerRef.current = player;
         if (!player) {
           setLiveError(true);
@@ -742,6 +816,17 @@ const Cmsv9VideoPage = () => {
                 {playing ? t('sharedStop') : t('sharedPlay')}
               </Button>
             )}
+            {tab === 0 && (
+              <Button
+                variant={singleHd ? 'contained' : 'outlined'}
+                size="small"
+                onClick={() => setSingleQuality(!singleHd)}
+                sx={{ ml: 1 }}
+                title="Toggle live quality. HD uses the DVR main stream; SD is lighter on a weak connection."
+              >
+                {singleHd ? 'HD' : 'SD'}
+              </Button>
+            )}
             {tab === 1 && (
               <Button
                 variant="contained"
@@ -751,6 +836,17 @@ const Cmsv9VideoPage = () => {
                 onClick={() => (gridActive ? stopGrid() : startGrid())}
               >
                 {gridActive ? t('sharedStop') : t('cmsv9PlayAll')}
+              </Button>
+            )}
+            {tab === 1 && (
+              <Button
+                variant={gridHd ? 'contained' : 'outlined'}
+                size="small"
+                onClick={() => setGridQuality(!gridHd)}
+                sx={{ ml: 1 }}
+                title="Toggle live quality. HD uses the DVR main stream; SD (default) is lighter for multi-channel."
+              >
+                {gridHd ? 'HD' : 'SD'}
               </Button>
             )}
             {tab === 0 && (
@@ -797,12 +893,29 @@ const Cmsv9VideoPage = () => {
               )}
             </div>
           )}
+          {tab === 1 && channelGroups.length > 1 && (
+            <div className={classes.groupTabs}>
+              {channelGroups.map((grp, gi) => (
+                <Chip
+                  key={gi}
+                  label={`CH${grp[0] + 1}-${grp[grp.length - 1] + 1}`}
+                  color={activeGroup === gi ? 'primary' : 'default'}
+                  onClick={() => setActiveGroup(gi)}
+                  size="small"
+                />
+              ))}
+            </div>
+          )}
           {tab === 1 && (
             <div className={classes.grid}>
-              {channels.map((ch) => (
-                <div key={ch} className={classes.cell}>
+              {visibleChannels.map((ch) => (
+                <div
+                  key={ch}
+                  className={`${classes.cell}${selectedChannel === ch ? ` ${classes.cellSelected}` : ''}`}
+                  onClick={() => setSelectedChannel(ch)}
+                >
                   <Chip
-                    label={`${t('sharedChannel')} ${ch + 1}`}
+                    label={`${device?.name ? `${device.name} - ` : ''}CH${ch + 1}`}
                     size="small"
                     className={classes.cellLabel}
                   />

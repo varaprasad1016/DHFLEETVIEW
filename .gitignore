@@ -40,3 +40,7 @@ tools/ffmpeg.exe
 
 # jar backups from deploy cycles
 tracker-server.jar.backup-*
+
+# transient rollback backups + built installer (not source)
+_rollback-*/
+media/

@@ -14,6 +14,7 @@ import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -74,11 +75,12 @@ public class Cmsv9Resource extends BaseResource {
     @Consumes(MediaType.APPLICATION_JSON)
     public Map<String, Object> live(
             @PathParam("deviceId") long deviceId,
-            @PathParam("channel") int channel) throws Exception {
+            @PathParam("channel") int channel,
+            @QueryParam("stream") @DefaultValue("1") int streamType) throws Exception {
         String terminal = getCmsDeviceId(deviceId);
         int cnmsChannel = channel + 1;
 
-        cmsv9Manager.playLiveAsync(terminal, cnmsChannel);
+        cmsv9Manager.playLiveAsync(terminal, cnmsChannel, streamType);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("errCode", 0);

@@ -9,6 +9,12 @@ import { t } from '../common/components/LocalizationProvider';
 import PageLayout from '../common/components/PageLayout';
 import SettingsMenu from '../settings/components/SettingsMenu';
 import DownloadIcon from '@mui/icons-material/Download';
+import FactCheckIcon from '@mui/icons-material/FactCheck';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import EventAvailableIcon from '@mui/icons-material/EventAvailable';
+import AirIcon from '@mui/icons-material/Air';
+import DashboardCustomizeIcon from '@mui/icons-material/DashboardCustomize';
 import { useCatch, useCatchCallback } from '../reactHelper';
 import {
   tachoGetConfiguration, tachoSaveConfiguration, tachoRequestDownload,
@@ -103,6 +109,40 @@ const TachographPage = () => {
             <Card><CardContent><Typography variant="caption">Failed</Typography><Typography variant="h6">{stats.failed}</Typography></CardContent></Card>
           </Grid>
         </Grid>
+
+        <Paper sx={{ p: 2, mb: 3 }}>
+          <Typography variant="h6" gutterBottom>Compliance</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            UK fleet compliance tools, unlocked by the monthly phone licence.
+          </Typography>
+          <Grid container spacing={2}>
+            {[
+              { label: 'Compliance hub', desc: 'All tools & licence status', href: '/tacho/compliance', icon: <DashboardCustomizeIcon /> },
+              { label: 'Walkaround checks', desc: 'Driver daily vehicle check', href: '/tacho/walkaround', icon: <FactCheckIcon /> },
+              { label: 'Vehicle defects', desc: 'Defects & rectification log', href: '/tacho/defects', icon: <WarningAmberIcon /> },
+              { label: 'Tacho compliance', desc: "Drivers' hours & WTD, archive", href: '/tacho/hours', icon: <AccessTimeIcon /> },
+              { label: 'MOT & tax reminders', desc: 'DVLA MOT, tax & Euro status', href: '/tacho/reminders', icon: <EventAvailableIcon /> },
+              { label: 'Clean Air Zone', desc: 'ULEZ / CAZ charge exposure', href: '/tacho/caz', icon: <AirIcon /> },
+            ].map((tool) => (
+              <Grid item xs={12} sm={6} md={4} key={tool.href}>
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  startIcon={tool.icon}
+                  href={tool.href}
+                  target="_blank"
+                  rel="noopener"
+                  sx={{ justifyContent: 'flex-start', textAlign: 'left', p: 1.5, height: '100%' }}
+                >
+                  <Box>
+                    <Typography variant="subtitle2">{tool.label}</Typography>
+                    <Typography variant="caption" color="text.secondary">{tool.desc}</Typography>
+                  </Box>
+                </Button>
+              </Grid>
+            ))}
+          </Grid>
+        </Paper>
 
         <Paper sx={{ p: 2, mb: 3 }}>
           <Typography variant="h6" gutterBottom>Vehicle Configuration</Typography>

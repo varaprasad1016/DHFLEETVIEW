@@ -807,19 +807,19 @@ mod tests {
 
     #[test]
     fn split_host_to_parts_valid() {
-        let (host, port) = split_host_to_parts("mqtt.flespi.io:8883").expect("split");
-        assert_eq!(host, "mqtt.flespi.io");
+        let (host, port) = split_host_to_parts("mqtt.example.com:8883").expect("split");
+        assert_eq!(host, "mqtt.example.com");
         assert_eq!(port, 8883);
     }
 
     #[test]
     fn split_host_to_parts_missing_port() {
-        assert!(split_host_to_parts("mqtt.flespi.io").is_err());
+        assert!(split_host_to_parts("mqtt.example.com").is_err());
     }
 
     #[test]
     fn split_host_to_parts_bad_port() {
-        assert!(split_host_to_parts("mqtt.flespi.io:notaport").is_err());
+        assert!(split_host_to_parts("mqtt.example.com:notaport").is_err());
     }
 
     #[test]

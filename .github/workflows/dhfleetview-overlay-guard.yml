@@ -1,0 +1,22 @@
+# Guards that DH FleetView's customisations over upstream Traccar stay present.
+# Fast (file/grep checks only). Runs on the production branch and its PRs so a
+# careless edit — or a cherry-pick pulled from upstream Traccar — can never
+# silently revert our CNMS video / tacho / compliance / timezone / maps work.
+
+name: DH FleetView overlay guard
+
+on:
+  push:
+    branches: [ios-app-store-publishing]
+    paths: ['src/**', 'traccar-web/**', 'traccar-manager/**', 'scripts/check-overlay.sh']
+  pull_request:
+    branches: [ios-app-store-publishing]
+  workflow_dispatch:
+
+jobs:
+  overlay:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Overlay intact
+        run: bash scripts/check-overlay.sh

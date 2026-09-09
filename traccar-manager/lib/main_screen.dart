@@ -107,8 +107,13 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   bool _isDownloadable(Uri uri) {
+    final path = uri.path.toLowerCase();
     final lastSegment = uri.pathSegments.isNotEmpty ? uri.pathSegments.last.toLowerCase() : '';
-    return ['xlsx', 'kml', 'csv', 'gpx'].contains(lastSegment);
+    const exts = ['xlsx', 'kml', 'csv', 'gpx', 'mp4', 'ddd', 'exe', 'pdf', 'zip', 'kmz'];
+    return exts.contains(lastSegment)
+        || exts.any((e) => lastSegment.endsWith('.$e'))
+        || path.endsWith('/download')
+        || path.contains('/download/');
   }
 
   Future<void> _shareFile(String fileName, Uint8List bytes) async {
@@ -120,15 +125,25 @@ class _MainScreenState extends State<MainScreen> {
     await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
   }
 
+  String _fileNameFor(Uri uri, String? contentDisposition) {
+    if (contentDisposition != null) {
+      final match = RegExp('filename="?([^";]+)"?').firstMatch(contentDisposition);
+      if (match != null && match.group(1)!.trim().isNotEmpty) {
+        return match.group(1)!.trim();
+      }
+    }
+    final last = uri.pathSegments.isNotEmpty ? uri.pathSegments.last : 'download';
+    if (last.contains('.')) return last;
+    return '${DateTime.now().millisecondsSinceEpoch}_$last';
+  }
+
   Future<void> _downloadFile(Uri uri) async {
     try {
       final token = await _loginTokenStore.read(false);
       if (token == null) return;
       final response = await http.get(uri, headers: {'Authorization': 'Bearer $token'});
       if (response.statusCode == 200) {
-        final timestamp = DateTime.now().millisecondsSinceEpoch;
-        final extension = uri.pathSegments.last;
-        _shareFile('$timestamp.$extension', response.bodyBytes);
+        _shareFile(_fileNameFor(uri, response.headers['content-disposition']), response.bodyBytes);
       } else {
         developer.log('Failed file download request');
       }

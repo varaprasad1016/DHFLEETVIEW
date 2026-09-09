@@ -133,7 +133,9 @@ fn log_system_info() {
 }
 
 async fn check_latest_version() -> Result<(), reqwest::Error> {
-    let url = "https://api.github.com/repos/flespi-software/Tacho-Bridge-App/releases/latest";
+    // DH FleetView fork: only ever check OUR releases, never the upstream (flespi) repo.
+    let url = "https://api.github.com/repos/varaprasad1016/DHFLEETVIEW/releases/latest";
+    let download_page = "https://dhfleetview.co.uk";
     let client = reqwest::Client::new();
     let response = client
         .get(url)
@@ -146,6 +148,10 @@ async fn check_latest_version() -> Result<(), reqwest::Error> {
         // log::info!("Latest release info: {:?}", release);
 
         let latest_version = release.tag_name;
+        // Only react to this fork's Tacho Bridge releases (tagged tba-*).
+        if !latest_version.starts_with("tba") {
+            return Ok(());
+        }
         let current_version = env!("CARGO_PKG_VERSION");
 
         let latest_version_num = version_to_number(&latest_version);
@@ -159,15 +165,15 @@ async fn check_latest_version() -> Result<(), reqwest::Error> {
             );
         } else if current_version_num < latest_version_num {
             log::info!(
-                "Version (current: {}, latest: {}). New one is available, use the link to download: {}",
+                "Version (current: {}, latest: {}). New one is available, download from: {}",
                 current_version,
                 latest_version,
-                url
+                download_page
             );
 
             let payload = NotificationPayload {
                 notification_type: "version".to_string(),
-                message: format!("New version {} is available, use the link to download: {}", latest_version, url).into(),
+                message: format!("New version {} is available, download from: {}", latest_version, download_page).into(),
             };
             emit_notification_event("global-notification", payload);
         } else {
