@@ -4,7 +4,7 @@ version = "0.7.3"
 description = "Tachograph authentication application"
 authors = ["Shatilo Evgeny"]
 license = ""
-repository = "https://git.gurtam.net/shev/flespi_tca"
+repository = "https://github.com/varaprasad1016/DHFLEETVIEW"
 edition = "2021"
 rust-version = "1.84.0"
 
