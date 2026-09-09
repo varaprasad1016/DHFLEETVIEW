@@ -1,0 +1,64 @@
+# Watches upstream Traccar (backend, web, mobile) for new releases and opens a
+# tracking issue with the changelog + a cherry-pick checklist. It NEVER merges:
+# DH FleetView is a squashed, heavily-diverged fork with no shared git history
+# with upstream, so we pull fixes by deliberate cherry-pick, not a wholesale merge.
+
+name: Traccar upstream watch
+
+on:
+  schedule:
+    - cron: '0 7 * * 1'   # Mondays 07:00 UTC
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check upstream releases, open tracking issues
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -e
+          for UP in traccar/traccar traccar/traccar-web traccar/traccar-manager; do
+            # Prefer the latest published release; fall back to the latest tag.
+            TAG=$(gh api "repos/$UP/releases/latest" --jq '.tag_name' 2>/dev/null || true)
+            if [ -n "$TAG" ]; then
+              URL=$(gh api "repos/$UP/releases/latest" --jq '.html_url' 2>/dev/null || echo "https://github.com/$UP/releases")
+              NOTES=$(gh api "repos/$UP/releases/latest" --jq '.body' 2>/dev/null | head -c 4000 || true)
+            else
+              TAG=$(gh api "repos/$UP/tags?per_page=1" --jq '.[0].name' 2>/dev/null || true)
+              URL="https://github.com/$UP/tags"
+              NOTES=""
+            fi
+            [ -z "$TAG" ] && { echo "No release/tag for $UP"; continue; }
+
+            TITLE="Upstream $UP $TAG"
+            EXISTS=$(gh issue list --repo "$REPO" --state all --search "\"$TITLE\" in:title" --json title --jq 'length' 2>/dev/null || echo 0)
+            if [ "$EXISTS" != "0" ]; then
+              echo "Already tracked: $TITLE"; continue
+            fi
+
+            BODY=$(printf '%s\n' \
+              "Upstream **$UP** published **$TAG**." \
+              "" \
+              "Notes / diff: $URL" \
+              "" \
+              "$NOTES" \
+              "" \
+              "---" \
+              "### Cherry-pick checklist" \
+              "DH FleetView is a heavily-diverged production fork with no shared history with upstream — do NOT wholesale-merge." \
+              "- [ ] Review the changelog for security fixes / protocol additions / bug fixes worth pulling" \
+              "- [ ] Cherry-pick only the specific commits we want onto a branch" \
+              "- [ ] Keep our overlay intact (CNMS video, tacho, compliance, London timezone, Google-maps default) — the overlay guard must stay green" \
+              "- [ ] Build + test locally, then deploy manually" \
+              "- [ ] Close when handled (or note 'nothing to pull')")
+
+            gh issue create --repo "$REPO" --title "$TITLE" --body "$BODY" \
+              || echo "::warning::Could not open issue for $TITLE (are issues enabled?)"
+          done
