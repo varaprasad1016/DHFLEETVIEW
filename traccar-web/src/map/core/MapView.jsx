@@ -64,11 +64,11 @@ const MapView = ({ children }) => {
   const mapStyles = useMapStyles();
   const activeMapStyles = useAttributePreference(
     'activeMapStyles',
-    'locationIqStreets,locationIqDark,openFreeMap',
+    'googleRoad',
   );
   const [selectedStyleId, setSelectedStyleId] = usePersistedState(
     'selectedMapStyle',
-    usePreference('map', 'locationIqStreets'),
+    usePreference('map', 'googleRoad'),
   );
   const maxZoom = useAttributePreference('web.maxZoom');
 

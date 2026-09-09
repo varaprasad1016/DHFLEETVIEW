@@ -249,8 +249,13 @@ public class Cmsv9Manager {
     // --- WebSocket play/stop commands ---
 
     public boolean wsPlay(String terminal, int channel) {
+        return wsPlay(terminal, channel, 1);
+    }
+
+    // streamType 0 = main (HD), 1 = sub (SD). Content: host,port,0,channel,dataType(1=video),streamType
+    public boolean wsPlay(String terminal, int channel, int streamType) {
         return wsSendOrderOnce(terminal, "9101",
-                videoServerHost() + "," + videoServerPort() + ",0," + (channel) + ",1,1");
+                videoServerHost() + "," + videoServerPort() + ",0," + (channel) + ",1," + streamType);
     }
 
     /**
@@ -289,6 +294,7 @@ public class Cmsv9Manager {
                 return t;
             });
     private final Map<String, ScheduledFuture<?>> pendingStops = new ConcurrentHashMap<>();
+    private final Map<String, InputStream> keepAliveStreams = new ConcurrentHashMap<>();
 
     private static String streamKey(String terminal, int channel) {
         return terminal + "_" + channel;
@@ -300,6 +306,57 @@ public class Cmsv9Manager {
         if (pending != null) {
             pending.cancel(false);
         }
+        stopKeepAliveReader(terminal, channel);
+    }
+
+    /**
+     * Holds a background reader on the live stream during the keep-alive window.
+     * Without a consumer the media server (and the DVR push) can be torn down when
+     * the viewer disconnects - which is exactly what makes a quick stop/start
+     * struggle. Keeping a reader keeps the stream genuinely live so re-open reuses it.
+     */
+    private void startKeepAliveReader(String terminal, int channel) {
+        String key = streamKey(terminal, channel);
+        if (keepAliveStreams.containsKey(key)) {
+            return;
+        }
+        Thread reader = new Thread(() -> {
+            try {
+                InputStream in = openStream(liveStreamName(terminal, channel));
+                if (in == null) {
+                    return;
+                }
+                keepAliveStreams.put(key, in);
+                byte[] buffer = new byte[8192];
+                while (in.read(buffer) != -1) {
+                    // discard; being a reader keeps the stream and DVR push alive
+                }
+            } catch (Exception e) {
+                // stream closed or interrupted
+            } finally {
+                InputStream in = keepAliveStreams.remove(key);
+                if (in != null) {
+                    try {
+                        in.close();
+                    } catch (IOException ignored) {
+                        // already closed
+                    }
+                }
+            }
+        }, "cmsv9-keepalive-" + key);
+        reader.setDaemon(true);
+        reader.start();
+    }
+
+    private void stopKeepAliveReader(String terminal, int channel) {
+        InputStream in = keepAliveStreams.remove(streamKey(terminal, channel));
+        if (in != null) {
+            try {
+                in.close();
+            } catch (IOException ignored) {
+                // closing unblocks the read loop
+            }
+        }
     }
 
     /**
@@ -310,6 +367,10 @@ public class Cmsv9Manager {
      * and confirmed on the local media server.
      */
     public void playLiveAsync(String terminal, int channel) {
+        playLiveAsync(terminal, channel, 1);
+    }
+
+    public void playLiveAsync(String terminal, int channel, int streamType) {
         cancelPendingStop(terminal, channel);
         playExecutor.submit(() -> {
             try {
@@ -317,9 +378,13 @@ public class Cmsv9Manager {
                     String streamName = liveStreamName(terminal, channel);
                     if (!isStreamLive(streamName)) {
                         resetChannel(terminal, channel);
-                        wsPlay(terminal, channel);
-                        mediacontrol(terminal, channel, 0);
-                        waitForStreamLive(streamName, 45000);
+                        wsPlay(terminal, channel, streamType);
+                        mediacontrol(terminal, channel, 0, streamType);
+                        // Do NOT block here waiting for the stream to appear: this
+                        // task is fire-and-forget (the frontend polls readiness), and
+                        // holding the play lane for up to 45s per channel makes a
+                        // channel that can't establish stall every other channel in a
+                        // multi-view grid. Send the order and move on.
                     }
                 }
             } catch (Exception e) {
@@ -342,8 +407,10 @@ public class Cmsv9Manager {
         // Keep the stream warm for KEEP_ALIVE_MS so a quick re-open is instant.
         // A fresh close resets the timer; a re-open (playLiveAsync) cancels it.
         cancelPendingStop(terminal, channel);
+        startKeepAliveReader(terminal, channel);
         ScheduledFuture<?> pending = keepAliveExecutor.schedule(() -> {
             pendingStops.remove(streamKey(terminal, channel));
+            stopKeepAliveReader(terminal, channel);
             playExecutor.submit(() -> {
                 try {
                     synchronized (wsOrderLock) {
@@ -364,6 +431,10 @@ public class Cmsv9Manager {
      * command is delivered; the WebSocket order alone is not enough.
      */
     private void mediacontrol(String terminal, int channel, int type) {
+        mediacontrol(terminal, channel, type, 1);
+    }
+
+    private void mediacontrol(String terminal, int channel, int type, int streamType) {
         try {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("sign", "ifNTSJ5vmA");
@@ -372,7 +443,7 @@ public class Cmsv9Manager {
             body.put("id", String.valueOf(channel));
             body.put("protocol", 1);
             body.put("vedioType", 1);
-            body.put("streamType", 1);
+            body.put("streamType", streamType);
             String json = objectMapper.writeValueAsString(body);
             HttpRequest request = HttpRequest.newBuilder(
                             URI.create("http://127.0.0.1:9005/cmsapi/mediacontrol"))

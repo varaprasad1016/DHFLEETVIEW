@@ -1,26 +1,82 @@
 import React from 'react';
-import { Alert } from '@mui/material';
+import { Alert, Box, Button } from '@mui/material';
+
+// How many times to silently remount before showing the error card. A foldable
+// crossing a layout breakpoint can throw a one-frame render race deep in a store
+// subscription (react-redux useSyncExternalStore); those resolve on the next
+// paint, so we auto-recover instead of white-screening. A genuinely broken render
+// throws again immediately and, after MAX_RETRIES, we surface it.
+const MAX_RETRIES = 3;
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = {
-      error: null,
-    };
+    this.state = { error: null, retries: 0 };
+    this.retryTimer = null;
+    this.resetTimer = null;
+    this.handleResize = this.handleResize.bind(this);
   }
 
   static getDerivedStateFromError(error) {
     return { error };
   }
 
+  componentDidMount() {
+    // A fold/unfold settling is a good moment to try recovering.
+    window.addEventListener('resize', this.handleResize);
+    window.addEventListener('orientationchange', this.handleResize);
+  }
+
+  componentDidCatch(error) {
+    if (this.state.retries < MAX_RETRIES) {
+      clearTimeout(this.retryTimer);
+      // Remount on the next paint, once the layout transition has settled.
+      this.retryTimer = setTimeout(() => {
+        this.setState((s) => ({ error: null, retries: s.retries + 1 }));
+      }, 150);
+      // After a stable period, forget the retry count so later transients also recover.
+      clearTimeout(this.resetTimer);
+      this.resetTimer = setTimeout(() => this.setState({ retries: 0 }), 8000);
+    } else if (typeof console !== 'undefined') {
+      // eslint-disable-next-line no-console
+      console.error('ErrorBoundary: giving up after retries', error);
+    }
+  }
+
+  componentWillUnmount() {
+    window.removeEventListener('resize', this.handleResize);
+    window.removeEventListener('orientationchange', this.handleResize);
+    clearTimeout(this.retryTimer);
+    clearTimeout(this.resetTimer);
+  }
+
+  handleResize() {
+    if (this.state.error && this.state.retries < MAX_RETRIES) {
+      this.setState((s) => ({ error: null, retries: s.retries + 1 }));
+    }
+  }
+
   render() {
-    const { error } = this.state;
-    if (error) {
+    const { error, retries } = this.state;
+    if (error && retries >= MAX_RETRIES) {
       return (
-        <Alert severity="error">
-          <code style={{ whiteSpace: 'pre' }}>{error.stack}</code>
-        </Alert>
+        <Box sx={{ p: 2 }}>
+          <Alert
+            severity="error"
+            action={(
+              <Button color="inherit" size="small" onClick={() => window.location.reload()}>
+                Reload
+              </Button>
+            )}
+          >
+            <code style={{ whiteSpace: 'pre-wrap' }}>{error.stack}</code>
+          </Alert>
+        </Box>
       );
+    }
+    if (error) {
+      // Recovering: render nothing for a beat; componentDidCatch remounts shortly.
+      return null;
     }
     const { children } = this.props;
     return children;
