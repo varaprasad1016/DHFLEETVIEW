@@ -47,6 +47,22 @@ we relay APDUs to it over WebSocket/TCP.
   host with Docker/Postgres; every file is syntax-checked and the protocol is
   verified in-process, but the DB boot itself is unrun here).
 
+### Driver-card parser (Go integration)
+- `app/services/ddd_go.py` invokes the MIT `way-platform/tachograph-go` CLI and
+  adapts its JSON into the existing `Activity`, `PlaceEntry`, `VehiclePeriod`,
+  and `CardIncident` contract.
+- Upload, re-analysis, and report routes use the Go parser when the binary is
+  available. The Gen1 Python parser remains an explicit configurable fallback.
+- Set `TACHO_PARSER_BINARY` to an absolute path for a native install, or leave it
+  blank to discover `tachograph`/`dddparser` on `PATH`. Set
+  `TACHO_PARSER_AUTHENTICATE=true` to require signature authentication in the
+  CLI. Set  `TACHO_PARSER_FALLBACK=false` when unsupported or unauthenticated
+  files must be rejected rather than screened by the legacy reader. This is the
+  current default.
+
+- The Docker image installs the pinned `tachograph-go` v0.18.2 release for the
+  target architecture. Verify the upstream checksum before promoting a build.
+
 ### Persistence (done — code complete)
 - `app/models/` — all 12 tables (`core.py`, `operations.py`, `integrations.py`).
 - `alembic/` — async `env.py` + hand-written `0001_initial` migration.
