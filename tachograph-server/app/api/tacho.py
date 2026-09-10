@@ -158,6 +158,41 @@ async def analyze(body: AnalyzeIn, session: AsyncSession = Depends(get_session))
 
 @router.post("/upload", status_code=201)
 async def upload(body: UploadIn, session: AsyncSession = Depends(get_session)) -> dict:
+    filename = body.filename.strip()
+    if not filename:
+        raise HTTPException(status_code=400, detail="Filename is required.")
+
+    # The filename is the operator-facing identity of a card download. Do not
+    # archive or analyse the same named file twice; an operator re-selecting a
+    # file should get a clear confirmation rather than another upload result.
+    existing = (await session.execute(
+        select(TachoFile)
+        .where(
+            func.lower(TachoFile.filename) == filename.lower(),
+            TachoFile.parsed.is_(True),
+        )
+        .order_by(TachoFile.created_at.desc())
+        .limit(1)
+    )).scalars().first()
+    if existing is not None:
+        infringement_count = (await session.execute(
+            select(func.count()).select_from(Infringement).where(
+                Infringement.source_file_id == existing.id
+            )
+        )).scalar_one()
+        return {
+            "file_id": str(existing.id),
+            "filename": existing.filename,
+            "sha256": existing.sha256,
+            "size_bytes": existing.size_bytes,
+            "parsed": True,
+            "already_analyzed": True,
+            "message": "File already analysed.",
+            "driver_ref": existing.driver_ref,
+            "infringements_found": infringement_count,
+            "infringements_new": 0,
+        }
+
     try:
         data = base64.b64decode(body.content_base64, validate=True)
     except Exception:
@@ -165,9 +200,9 @@ async def upload(body: UploadIn, session: AsyncSession = Depends(get_session)) -
     if not data:
         raise HTTPException(status_code=400, detail="Empty file.")
 
-    meta = archive.store(body.filename, data)
+    meta = archive.store(filename, data)
     tf = TachoFile(
-        filename=body.filename, file_kind=body.file_kind,
+        filename=filename, file_kind=body.file_kind,
         driver_ref=body.driver_ref, vehicle_ref=body.vehicle_ref,
         size_bytes=meta["size_bytes"], sha256=meta["sha256"],
         storage_path=meta["storage_path"], source="upload",
