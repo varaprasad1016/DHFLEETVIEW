@@ -26,6 +26,7 @@
   .report-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
   .report-controls{align-items:flex-end;}
   .report-controls .note{max-width:340px;}
+  .report-controls select{min-width:220px;}
   th{color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.03em;}
   .tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;text-transform:uppercase;}
   .compliant{background:#0f2a1f;color:var(--ok);} .due_soon{background:#2a230f;color:var(--warn);}
@@ -40,8 +41,7 @@
     main{padding:0 12px 40px;}
     .card{padding:10px;}
     .report-controls{display:grid;grid-template-columns:1fr 1fr;align-items:end;}
-    .report-controls>div:nth-child(3){grid-column:1 / -1;}
-    .report-controls>div:nth-child(4){grid-column:1 / -1;max-width:none;}
+    .report-controls>div:nth-child(3),.report-controls>div:nth-child(4),.report-controls>div:nth-child(5){grid-column:1 / -1;max-width:none;}
     .report-controls .btn{padding:8px 10px;}
   }
   .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;text-align:center;}
@@ -193,6 +193,7 @@
           driver_ref:$('ref').value||null,vehicle_ref:$('kind').value==='vehicle_unit'?($('ref').value||null):null})});
       const d=await res.json();
       if(!res.ok){ m.className='msg bad'; m.textContent=(d.detail&&d.detail.message)||d.detail||'Upload failed.'; }
+      else if(d.already_analyzed){ m.className='msg ok'; m.textContent=`File already analysed. ${d.infringements_found||0} infringement(s) are already recorded.`; }
       else if(d.parsed){ m.className='msg ok'; m.textContent=`Archived & parsed (${d.days} day(s)). ${d.infringements_found} infringement(s) found, ${d.infringements_new} new.`; }
       else { m.className='msg ok'; m.textContent='Archived. '+(d.parse_error?('Not parsed: '+d.parse_error+' — file kept for the record.'):'Stored.'); }
       kpis(); listFiles();
@@ -200,11 +201,16 @@
     $('up').disabled=false;
   }
 
-  let repFrom='', repTo='';
+  let repFrom='', repTo='', repDriver='';
   async function renderReport(){
+    const files=await (await fetch('api/tacho/files',{cache:'no-store'})).json();
+    const drivers=[...new Set(files.filter(f=>f.file_kind==='driver_card'&&f.driver_ref).map(f=>f.driver_ref))].sort();
+    if(!repDriver && drivers.length===1)repDriver=drivers[0];
     const q=new URLSearchParams();
-    if(repFrom)q.set('start',repFrom); if(repTo)q.set('end',repTo);
+    if(repFrom)q.set('start',repFrom); if(repTo)q.set('end',repTo); if(repDriver)q.set('driver_ref',repDriver);
+    const driverControl=drivers.length>1?`<div><label>Driver</label><select id="rd"><option value="">Select driver</option>${drivers.map(d=>`<option value="${esc(d)}"${d===repDriver?' selected':''}>${esc(d)}</option>`).join('')}</select></div>`:'';
     let h=`<div class="card"><div class="row report-controls" style="margin-bottom:10px">
+      ${driverControl}
       <div><label>From</label><input type="date" id="rf" value="${repFrom}"></div>
       <div><label>To</label><input type="date" id="rt" value="${repTo}"></div>
       <div style="align-self:flex-end"><button class="btn small" id="rgo">Show</button>
@@ -212,7 +218,12 @@
       <div class="note" style="align-self:center">Leave the dates blank for everything the card holds.</div>
     </div><div id="rbody" class="empty">Loading…</div></div>`;
     $('view').innerHTML=h;
-    $('rgo').onclick=()=>{ repFrom=$('rf').value; repTo=$('rt').value; renderReport(); };
+    $('rgo').onclick=()=>{ repFrom=$('rf').value; repTo=$('rt').value; repDriver=$('rd')?.value||repDriver; renderReport(); };
+    if(drivers.length>1 && !repDriver){
+      $('rbody').textContent='Select a driver above, then press Show to load the report.';
+      $('rbody').className='note report-select-message';
+      return;
+    }
     let d;
     try{ const res=await fetch('api/tacho/report?'+q,{cache:'no-store'});
          d=await res.json();
