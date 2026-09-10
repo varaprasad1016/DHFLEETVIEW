@@ -8,14 +8,24 @@
   :root{color-scheme:dark;--bg:#0b1220;--card:#131c2e;--line:#22304a;--fg:#e6edf7;--mut:#8aa0c0;--acc:#38bdf8;--ok:#34d399;--warn:#f59e0b;--bad:#f87171;}
   *{box-sizing:border-box;}
   body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif;}
-  header{padding:16px;max-width:900px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;}
+  header{padding:16px;max-width:1400px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;}
   h1{font-size:19px;margin:0;} a.back{color:var(--acc);text-decoration:none;font-size:13px;}
-  main{padding:0 16px 60px;max-width:900px;margin:0 auto;}
+  main{padding:0 16px 60px;max-width:1400px;margin:0 auto;}
   .tabs{display:flex;gap:8px;margin:6px 0 14px;flex-wrap:wrap;}
   .tabs button{background:var(--card);border:1px solid var(--line);color:var(--mut);border-radius:999px;padding:7px 14px;font:inherit;cursor:pointer;}
   .tabs button.on{background:var(--acc);color:#04121f;font-weight:700;border-color:var(--acc);}
   table{width:100%;border-collapse:collapse;font-size:14px;}
   th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);}
+  .report-table-wrap{width:100%;overflow-x:auto;overflow-y:hidden;border:1px solid var(--line);border-radius:8px;}
+  .report-table{min-width:1180px;margin:0;}
+  .report-table th{white-space:normal;line-height:1.25;}
+  .report-table td{white-space:nowrap;}
+  .report-table th:first-child,.report-table td:first-child{position:sticky;left:0;background:var(--card);z-index:1;}
+  .report-table th:first-child{z-index:2;}
+  .report-table tr:last-child td{border-bottom:0;}
+  .report-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
+  .report-controls{align-items:flex-end;}
+  .report-controls .note{max-width:340px;}
   th{color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.03em;}
   .tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;text-transform:uppercase;}
   .compliant{background:#0f2a1f;color:var(--ok);} .due_soon{background:#2a230f;color:var(--warn);}
@@ -24,7 +34,16 @@
   .sev.serious{color:var(--warn);} .sev.very_serious{color:var(--bad);} .sev.minor{color:var(--acc);}
   .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px;}
   .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;}
-  @media(max-width:600px){.kpis{grid-template-columns:repeat(2,1fr);}}
+  @media(max-width:600px){
+    .kpis{grid-template-columns:repeat(2,1fr);}
+    header{padding:12px;}
+    main{padding:0 12px 40px;}
+    .card{padding:10px;}
+    .report-controls{display:grid;grid-template-columns:1fr 1fr;align-items:end;}
+    .report-controls>div:nth-child(3){grid-column:1 / -1;}
+    .report-controls>div:nth-child(4){grid-column:1 / -1;max-width:none;}
+    .report-controls .btn{padding:8px 10px;}
+  }
   .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;text-align:center;}
   .kpi b{display:block;font-size:22px;} .kpi span{color:var(--mut);font-size:12px;}
   .btn{background:var(--acc);color:#04121f;font-weight:700;border:none;border-radius:9px;padding:10px 16px;font:inherit;cursor:pointer;}
@@ -32,6 +51,7 @@
   input,select{background:#0d1526;border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:9px;font:inherit;}
   label{font-size:12px;color:var(--mut);display:block;margin:8px 0 3px;}
   .row{display:flex;gap:10px;flex-wrap:wrap;align-items:end;}
+  .row>div{min-width:0;}
   .msg{padding:10px;border-radius:9px;margin-top:8px;display:none;} .msg.ok{background:#0f2a1f;border:1px solid var(--ok);display:block;} .msg.bad{background:#2a1113;border:1px solid var(--bad);display:block;}
   .empty{color:var(--mut);padding:24px;text-align:center;}
   .lock{text-align:center;color:var(--mut);padding:40px 16px;} .lock a{color:var(--acc);}
@@ -184,7 +204,7 @@
   async function renderReport(){
     const q=new URLSearchParams();
     if(repFrom)q.set('start',repFrom); if(repTo)q.set('end',repTo);
-    let h=`<div class="card"><div class="row" style="margin-bottom:10px">
+    let h=`<div class="card"><div class="row report-controls" style="margin-bottom:10px">
       <div><label>From</label><input type="date" id="rf" value="${repFrom}"></div>
       <div><label>To</label><input type="date" id="rt" value="${repTo}"></div>
       <div style="align-self:flex-end"><button class="btn small" id="rgo">Show</button>
@@ -203,7 +223,7 @@
     let b=`<div class="note" style="margin-bottom:10px">${esc(d.driver.name||d.driver.ref||'')}${d.driver.card_number?' · card '+esc(d.driver.card_number):''}
       · card data covers ${dd(d.period.data_from)} to ${dd(d.period.data_to)} · times in ${esc(d.period.timezone)}</div>`;
     d.weeks.forEach(w=>{
-      b+=`<h3 style="margin:16px 0 6px">Week ${dd(w.start)} – ${dd(w.end)}</h3><table style="font-size:12px"><tr>${cols.map(c=>'<th>'+c+'</th>').join('')}</tr>`;
+      b+=`<h3 class="report-heading" style="margin:16px 0 6px"><span>Week ${dd(w.start)} – ${dd(w.end)}</span><span class="note">Swipe or scroll horizontally to see all columns</span></h3><div class="report-table-wrap"><table class="report-table" style="font-size:12px"><tr>${cols.map(c=>'<th>'+c+'</th>').join('')}</tr>`;
       w.days.forEach(r=>{
         if(r.no_data||r.rest_day){
           b+=`<tr><td>${dd(r.date)}</td><td colspan="14" class="note">${r.no_data?'No data':'Rest day'}</td>
@@ -218,7 +238,7 @@
       const t=w.totals;
       b+=`<tr style="font-weight:700"><td colspan="4">Week's total</td><td>${t.distance||0}</td><td colspan="3"></td>
         <td>${hrs(t.daily_rest)}</td><td>${hrs(t.drive)}</td><td>${hrs(t.work)}</td><td>${hrs(t.poa)}</td>
-        <td>${hrs(t['break'])}</td><td>${hrs(t.shift)}</td><td>${hrs(t.wtd)}</td><td colspan="2"></td></tr></table>`;
+        <td>${hrs(t['break'])}</td><td>${hrs(t.shift)}</td><td>${hrs(t.wtd)}</td><td colspan="2"></td></tr></table></div>`;
       const sect=(name,items,empty)=>{
         b+=`<div class="note" style="margin:10px 0 4px;font-weight:700">${name}</div>`;
         if(!items.length){ b+=`<div class="note">${empty}</div>`; return; }
