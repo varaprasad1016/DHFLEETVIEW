@@ -14,9 +14,10 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_license
+from app.config import settings
 from app.database import get_session
 from app.models.tacho import Infringement, TachoFile
-from app.services import archive, ddd_parser, tacho_compliance, tacho_pdf, tacho_report
+from app.services import archive, ddd_go, ddd_parser, tacho_compliance, tacho_pdf, tacho_report
 from app.services.tacho_rules import Activity, Infringement as RuleInfringement, analyse
 
 router = APIRouter(prefix="/api/tacho", tags=["tacho"], dependencies=[Depends(require_license)])
@@ -57,6 +58,36 @@ class ReanalyseIn(BaseModel):
 
 def _aware(dt: datetime) -> datetime:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _parse_driver_card(data: bytes) -> tuple[dict, str]:
+    """Parse with the maintained Go reader, falling back only when configured.
+
+    A failed Go parse is not silently hidden when fallback is disabled: the
+    caller records the error with the archived file. This makes deployments
+    able to enforce Gen2/signature-capable parsing rather than accidentally
+    accepting the old screening reader.
+    """
+    go_error: Exception | None = None
+    if ddd_go.available():
+        try:
+            return ddd_go.parse_driver_card(data), "tachograph-go"
+        except Exception as exc:
+            go_error = exc
+            if not settings.tacho_parser_fallback:
+                raise
+    elif not settings.tacho_parser_fallback:
+        raise ddd_go.GoParserUnavailable(
+            "tachograph-go parser is required but no runnable CLI was found")
+
+    try:
+        return ddd_parser.parse_driver_card(data), "builtin-gen1"
+    except Exception as fallback_error:
+        if go_error is not None:
+            raise ValueError(
+                f"tachograph-go parser failed: {go_error}; "
+                f"built-in parser failed: {fallback_error}") from fallback_error
+        raise
 
 
 async def _persist_infringements(session: AsyncSession, driver_ref: str, found: list,
@@ -149,7 +180,7 @@ async def upload(body: UploadIn, session: AsyncSession = Depends(get_session)) -
 
     if body.file_kind == "driver_card":
         try:
-            parsed = ddd_parser.parse_driver_card(data)
+            parsed, parser_name = _parse_driver_card(data)
             tf.parsed = True
             # Prefer what the caller said, then the card holder's own name or
             # card number, and only fall back to the file hash when the card
@@ -160,7 +191,7 @@ async def upload(body: UploadIn, session: AsyncSession = Depends(get_session)) -
             found = analyse(parsed["activities"], parsed.get("places"),
                             parsed.get("card_gaps"))
             added = await _persist_infringements(session, driver_ref, found, tf.id)
-            result.update(parsed=True, days=parsed["days"], driver_ref=driver_ref,
+            result.update(parsed=True, parser=parser_name, days=parsed["days"], driver_ref=driver_ref,
                           driver_name=parsed.get("driver_name"),
                           card_number=parsed.get("card_number"),
                           infringements_found=len(found), infringements_new=added)
@@ -191,7 +222,7 @@ async def reanalyse(body: ReanalyseIn, session: AsyncSession = Depends(get_sessi
     for tf in files:
         try:
             data = archive.read(tf.storage_path)
-            parsed = ddd_parser.parse_driver_card(data)
+            parsed, parser_name = _parse_driver_card(data)
         except Exception as e:                       # unreadable / not a card
             tf.parse_error = str(e)[:500]
             out["errors"].append({"file_id": str(tf.id), "filename": tf.filename,
@@ -224,7 +255,8 @@ async def reanalyse(body: ReanalyseIn, session: AsyncSession = Depends(get_sessi
         out["added"] += added
         out["kept_actioned"] += actioned
         out["drivers"].append({"file_id": str(tf.id), "driver_ref": driver_ref,
-                               "days": parsed["days"], "infringements": len(found)})
+                               "parser": parser_name, "days": parsed["days"],
+                               "infringements": len(found)})
     await session.commit()
     return out
 
@@ -249,7 +281,7 @@ async def _report_for(session: AsyncSession, file_id: uuid.UUID | None,
     tf = files[0]
 
     try:
-        parsed = ddd_parser.parse_driver_card(archive.read(tf.storage_path))
+        parsed, _parser_name = _parse_driver_card(archive.read(tf.storage_path))
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Could not read the card file: {e}")
 

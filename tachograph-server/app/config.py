@@ -29,6 +29,17 @@ class Settings(BaseSettings):
     driver_warning_days: int = 25
     vehicle_warning_days: int = 85
 
+    # --- Driver-card parsing -------------------------------------------------
+    # The MIT tachograph-go CLI is the preferred reader when installed. The
+    # built-in Gen1 reader remains a deliberately explicit fallback so an
+    # installation without the optional binary can still archive and analyse
+    # cards.
+    tacho_parser_enabled: bool = True
+    tacho_parser_binary: str = ""
+    tacho_parser_timeout: int = 30
+    tacho_parser_authenticate: bool = False
+    tacho_parser_fallback: bool = False
+
     # --- Tacho file archive (native deploy: local filesystem, not MinIO) ---
     archive_path: str = "data/archive"
     archive_retention_months: int = 12  # DVSA: keep card & VU data at least 12 months
