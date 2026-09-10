@@ -48,6 +48,7 @@
     <div class="tabs">
       <button data-t="compliance" class="on">Download status</button>
       <button data-t="infringements">Infringements</button>
+      <button data-t="report">Weekly report</button>
       <button data-t="files">Files &amp; upload</button>
     </div>
     <div id="view"></div>
@@ -83,18 +84,31 @@
     $('view').innerHTML=tbl('Driver cards',c.drivers,c.windows.driver_days)+tbl('Vehicle units',c.vehicles,c.windows.vehicle_days);
   }
 
+  let sevFilter='all';
   async function renderInfringements(){
-    const rows=await (await fetch('api/tacho/infringements?status=open',{cache:'no-store'})).json();
-    if(!rows.length){ $('view').innerHTML='<div class="empty">No open infringements. 🎉</div>'; return; }
-    let h='<div class="card"><table><tr><th>Driver</th><th>Infringement</th><th>When</th><th>Actual</th><th>Limit</th><th></th></tr>';
+    const all=await (await fetch('api/tacho/infringements?status=open',{cache:'no-store'})).json();
+    if(!all.length){ $('view').innerHTML='<div class="empty">No open infringements. 🎉</div>'; return; }
+    const counts={all:all.length,
+      serious:all.filter(r=>r.severity!=='minor').length,
+      minor:all.filter(r=>r.severity==='minor').length};
+    const rows=sevFilter==='all'?all:all.filter(r=>sevFilter==='serious'?r.severity!=='minor':r.severity==='minor');
+    let h=`<div class="card"><div class="row" style="margin-bottom:10px">
+      <div><button class="btn small" data-sev="all"${sevFilter==='all'?' style="background:var(--acc);color:#04121f"':''}>All (${counts.all})</button>
+      <button class="btn small" data-sev="serious"${sevFilter==='serious'?' style="background:var(--acc);color:#04121f"':''}>Serious &amp; above (${counts.serious})</button>
+      <button class="btn small" data-sev="minor"${sevFilter==='minor'?' style="background:var(--acc);color:#04121f"':''}>Minor (${counts.minor})</button></div>
+      <div class="note" style="align-self:center">Minor items are mostly record keeping, such as a missing country entry.</div>
+    </div>`;
+    if(!rows.length){ h+='<div class="empty">Nothing in this category.</div>'; }
+    else h+='<table><tr><th>Driver</th><th>Infringement</th><th>When</th><th>Actual</th><th>Limit</th><th></th></tr>';
     rows.forEach(r=>{ h+=`<tr>
       <td>${esc(r.driver_ref)}</td>
       <td><span class="sev ${r.severity}">${r.severity.replace('_',' ')}</span><br>${esc(r.title)}<div class="note">${esc(r.detail||'')}</div></td>
       <td>${dt(r.period_start)}</td><td>${hrs(r.actual_minutes)}</td><td>${hrs(r.limit_minutes)}</td>
       <td><button class="btn small" data-ack="${r.id}">Acknowledge</button> <button class="btn small" data-dis="${r.id}">Dismiss</button></td>
     </tr>`; });
-    h+='</table></div>';
+    h+=(rows.length?'</table>':'')+'</div>';
     $('view').innerHTML=h;
+    $('view').querySelectorAll('[data-sev]').forEach(b=>b.onclick=()=>{ sevFilter=b.dataset.sev; renderInfringements(); });
     $('view').querySelectorAll('[data-ack]').forEach(b=>b.onclick=()=>setStatus(b.dataset.ack,'acknowledged'));
     $('view').querySelectorAll('[data-dis]').forEach(b=>b.onclick=()=>setStatus(b.dataset.dis,'dismissed'));
   }
@@ -113,10 +127,30 @@
       </div>
       <div class="msg" id="upmsg"></div>
       <div class="note">Driver-card files are parsed and run through the drivers' hours / WTD engine. Files are archived and retained 12 months.</div>
+      <div class="row" style="margin-top:10px">
+        <div><button class="btn small" id="re">Re-analyse archived cards</button></div>
+        <div class="note" style="align-self:center">Rebuilds the infringement list from the archived files. Open items are replaced; ones you have acknowledged or dismissed are kept.</div>
+      </div>
+      <div class="msg" id="remsg"></div>
     </div><div class="card" id="filelist"></div>`;
     $('view').innerHTML=h;
     $('up').onclick=doUpload;
+    $('re').onclick=doReanalyse;
     listFiles();
+  }
+  async function doReanalyse(){
+    const m=$('remsg'); $('re').disabled=true;
+    m.className='msg'; m.textContent='Re-analysing…';
+    try{
+      const res=await fetch('api/tacho/reanalyse',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+      const d=await res.json();
+      if(!res.ok){ m.className='msg bad'; m.textContent=(d.detail&&d.detail.message)||d.detail||'Re-analysis failed.'; }
+      else{ m.className='msg ok';
+        m.textContent=`${d.files} file(s) re-analysed: ${d.removed} stale item(s) replaced by ${d.added} new, ${d.kept_actioned} acknowledged or dismissed item(s) kept.`
+          +(d.errors&&d.errors.length?` ${d.errors.length} file(s) could not be read.`:''); }
+      kpis(); listFiles();
+    }catch(e){ m.className='msg bad'; m.textContent='Network error.'; }
+    $('re').disabled=false;
   }
   async function listFiles(){
     const rows=await (await fetch('api/tacho/files',{cache:'no-store'})).json();
@@ -146,7 +180,58 @@
     $('up').disabled=false;
   }
 
-  function render(){ if(tab==='compliance')renderCompliance(); else if(tab==='infringements')renderInfringements(); else renderFiles(); }
+  let repFrom='', repTo='';
+  async function renderReport(){
+    const q=new URLSearchParams();
+    if(repFrom)q.set('start',repFrom); if(repTo)q.set('end',repTo);
+    let h=`<div class="card"><div class="row" style="margin-bottom:10px">
+      <div><label>From</label><input type="date" id="rf" value="${repFrom}"></div>
+      <div><label>To</label><input type="date" id="rt" value="${repTo}"></div>
+      <div style="align-self:flex-end"><button class="btn small" id="rgo">Show</button>
+      <a class="btn small" id="rpdf" href="api/tacho/report.pdf?${q}" style="text-decoration:none">Download PDF</a></div>
+      <div class="note" style="align-self:center">Leave the dates blank for everything the card holds.</div>
+    </div><div id="rbody" class="empty">Loading…</div></div>`;
+    $('view').innerHTML=h;
+    $('rgo').onclick=()=>{ repFrom=$('rf').value; repTo=$('rt').value; renderReport(); };
+    let d;
+    try{ const res=await fetch('api/tacho/report?'+q,{cache:'no-store'});
+         d=await res.json();
+         if(!res.ok){ $('rbody').textContent=(d.detail&&d.detail.message)||d.detail||'Could not build the report.'; return; }
+    }catch(e){ $('rbody').textContent='Network error.'; return; }
+    const cols=['Date','Reg','Finish odo','Start odo','Dist','Start duty','Drive start','End duty',
+                'Daily rest','Drive','Work','POA','Break','Shift','WTD','Fort drive','Prev rest'];
+    let b=`<div class="note" style="margin-bottom:10px">${esc(d.driver.name||d.driver.ref||'')}${d.driver.card_number?' · card '+esc(d.driver.card_number):''}
+      · card data covers ${dd(d.period.data_from)} to ${dd(d.period.data_to)} · times in ${esc(d.period.timezone)}</div>`;
+    d.weeks.forEach(w=>{
+      b+=`<h3 style="margin:16px 0 6px">Week ${dd(w.start)} – ${dd(w.end)}</h3><table style="font-size:12px"><tr>${cols.map(c=>'<th>'+c+'</th>').join('')}</tr>`;
+      w.days.forEach(r=>{
+        if(r.no_data||r.rest_day){
+          b+=`<tr><td>${dd(r.date)}</td><td colspan="14" class="note">${r.no_data?'No data':'Rest day'}</td>
+              <td>${hrs(r.fortnight_drive)}</td><td></td></tr>`; return; }
+        b+=`<tr><td>${dd(r.date)}</td><td>${esc(r.registration)}</td>
+          <td>${r.odometer_end?r.odometer_end.toLocaleString():''}</td>
+          <td>${r.odometer_start?r.odometer_start.toLocaleString():''}</td>
+          <td>${r.distance||''}</td><td>${r.start_duty}</td><td>${r.drive_start}</td><td>${r.end_duty}</td>
+          <td>${hrs(r.daily_rest)}</td><td>${hrs(r.drive)}</td><td>${hrs(r.work)}</td><td>${hrs(r.poa)}</td>
+          <td>${hrs(r.break)}</td><td>${hrs(r.shift)}</td><td>${hrs(r.wtd)}</td>
+          <td>${hrs(r.fortnight_drive)}</td><td>${hrs(r.previous_rest)}</td></tr>`; });
+      const t=w.totals;
+      b+=`<tr style="font-weight:700"><td colspan="4">Week's total</td><td>${t.distance||0}</td><td colspan="3"></td>
+        <td>${hrs(t.daily_rest)}</td><td>${hrs(t.drive)}</td><td>${hrs(t.work)}</td><td>${hrs(t.poa)}</td>
+        <td>${hrs(t['break'])}</td><td>${hrs(t.shift)}</td><td>${hrs(t.wtd)}</td><td colspan="2"></td></tr></table>`;
+      const sect=(name,items,empty)=>{
+        b+=`<div class="note" style="margin:10px 0 4px;font-weight:700">${name}</div>`;
+        if(!items.length){ b+=`<div class="note">${empty}</div>`; return; }
+        items.forEach(i=>{ b+=`<div class="note">${dd(i.date)} ${i.time||''} — <span class="sev ${i.severity||''}">${(i.severity||'').replace('_',' ')}</span>
+          <b>${esc(i.title||i.name)}</b> ${esc(i.detail||'')}</div>`; });
+      };
+      sect('Working time infringements',w.working_time_infringements,'No messages found');
+      sect('Infringements',w.infringements,'No messages found');
+      sect('Faults',w.faults,'No messages found');
+    });
+    $('rbody').className=''; $('rbody').innerHTML=b||'<div class="empty">Nothing in this period.</div>';
+  }
+  function render(){ if(tab==='compliance')renderCompliance(); else if(tab==='infringements')renderInfringements(); else if(tab==='report')renderReport(); else renderFiles(); }
   document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
     tab=b.dataset.t; document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); render();
   });

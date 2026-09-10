@@ -6,18 +6,18 @@ from __future__ import annotations
 
 import base64
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_license
 from app.database import get_session
 from app.models.tacho import Infringement, TachoFile
-from app.services import archive, ddd_parser, tacho_compliance
-from app.services.tacho_rules import Activity, analyse
+from app.services import archive, ddd_parser, tacho_compliance, tacho_pdf, tacho_report
+from app.services.tacho_rules import Activity, Infringement as RuleInfringement, analyse
 
 router = APIRouter(prefix="/api/tacho", tags=["tacho"], dependencies=[Depends(require_license)])
 
@@ -46,6 +46,11 @@ class UploadIn(BaseModel):
 
 class StatusIn(BaseModel):
     status: str = Field(pattern="^(open|acknowledged|dismissed)$")
+
+
+class ReanalyseIn(BaseModel):
+    file_id: uuid.UUID | None = None      # one file, or every archived card
+    replace_open: bool = True             # drop the previous run's open rows
 
 
 # --- helpers ----------------------------------------------------------------
@@ -146,10 +151,18 @@ async def upload(body: UploadIn, session: AsyncSession = Depends(get_session)) -
         try:
             parsed = ddd_parser.parse_driver_card(data)
             tf.parsed = True
-            driver_ref = body.driver_ref or f"file:{meta['sha256'][:8]}"
-            found = analyse(parsed["activities"])
+            # Prefer what the caller said, then the card holder's own name or
+            # card number, and only fall back to the file hash when the card
+            # carries no identification of its own.
+            driver_ref = (body.driver_ref or parsed.get("driver_ref")
+                          or f"file:{meta['sha256'][:8]}")[:40]
+            tf.driver_ref = driver_ref
+            found = analyse(parsed["activities"], parsed.get("places"),
+                            parsed.get("card_gaps"))
             added = await _persist_infringements(session, driver_ref, found, tf.id)
             result.update(parsed=True, days=parsed["days"], driver_ref=driver_ref,
+                          driver_name=parsed.get("driver_name"),
+                          card_number=parsed.get("card_number"),
                           infringements_found=len(found), infringements_new=added)
         except Exception as e:
             tf.parsed = False
@@ -157,6 +170,128 @@ async def upload(body: UploadIn, session: AsyncSession = Depends(get_session)) -
             result["parse_error"] = str(e)
     await session.commit()
     return result
+
+
+@router.post("/reanalyse")
+async def reanalyse(body: ReanalyseIn, session: AsyncSession = Depends(get_session)) -> dict:
+    """Re-run the rules over already-archived driver cards.
+
+    Infringements are derived data, so when the engine is corrected the stored
+    rows are stale and have to be rebuilt from the .ddd files. Rows a manager
+    has already acknowledged or dismissed are left alone: those record a human
+    decision, so they are reported back for review instead of being rewritten.
+    """
+    stmt = select(TachoFile).where(TachoFile.file_kind == "driver_card")
+    if body.file_id:
+        stmt = stmt.where(TachoFile.id == body.file_id)
+    files = (await session.execute(stmt)).scalars().all()
+
+    out = {"files": 0, "removed": 0, "found": 0, "added": 0,
+           "kept_actioned": 0, "errors": [], "drivers": []}
+    for tf in files:
+        try:
+            data = archive.read(tf.storage_path)
+            parsed = ddd_parser.parse_driver_card(data)
+        except Exception as e:                       # unreadable / not a card
+            tf.parse_error = str(e)[:500]
+            out["errors"].append({"file_id": str(tf.id), "filename": tf.filename,
+                                  "error": str(e)[:200]})
+            continue
+
+        driver_ref = (parsed.get("driver_ref") or tf.driver_ref
+                      or f"file:{(tf.sha256 or '')[:8]}")[:40]
+        tf.driver_ref = driver_ref
+        tf.parsed = True
+        tf.parse_error = None
+
+        actioned = (await session.execute(
+            select(func.count()).select_from(Infringement).where(
+                Infringement.source_file_id == tf.id,
+                Infringement.status != "open"))).scalar_one()
+        if body.replace_open:
+            removed = (await session.execute(
+                delete(Infringement).where(
+                    Infringement.source_file_id == tf.id,
+                    Infringement.status == "open"))).rowcount or 0
+            out["removed"] += removed
+            await session.flush()
+
+        found = analyse(parsed["activities"], parsed.get("places"),
+                        parsed.get("card_gaps"))
+        added = await _persist_infringements(session, driver_ref, found, tf.id)
+        out["files"] += 1
+        out["found"] += len(found)
+        out["added"] += added
+        out["kept_actioned"] += actioned
+        out["drivers"].append({"file_id": str(tf.id), "driver_ref": driver_ref,
+                               "days": parsed["days"], "infringements": len(found)})
+    await session.commit()
+    return out
+
+
+async def _report_for(session: AsyncSession, file_id: uuid.UUID | None,
+                      driver_ref: str | None, start: date | None,
+                      end: date | None) -> dict:
+    """Pick the card file the report is about, then build the report from it."""
+    stmt = select(TachoFile).where(TachoFile.file_kind == "driver_card")
+    if file_id:
+        stmt = stmt.where(TachoFile.id == file_id)
+    elif driver_ref:
+        stmt = stmt.where(TachoFile.driver_ref == driver_ref)
+    files = (await session.execute(
+        stmt.order_by(TachoFile.created_at.desc()))).scalars().all()
+    if not files:
+        raise HTTPException(status_code=404, detail="No driver-card file to report on.")
+    if not file_id and not driver_ref and len({f.driver_ref for f in files}) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail="More than one driver is archived; pass driver_ref or file_id.")
+    tf = files[0]
+
+    try:
+        parsed = ddd_parser.parse_driver_card(archive.read(tf.storage_path))
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Could not read the card file: {e}")
+
+    # Prefer the infringements on record, so anything a manager has already
+    # dismissed stays off the driver's report; fall back to analysing the file
+    # when it has never been run through the engine.
+    rows = (await session.execute(select(Infringement).where(
+        Infringement.source_file_id == tf.id,
+        Infringement.status != "dismissed"))).scalars().all()
+    if rows:
+        found = [RuleInfringement(
+            rule=r.rule, title=r.title, severity=r.severity,
+            start=r.period_start, end=r.period_end, detail=r.detail or "",
+            limit_minutes=r.limit_minutes, actual_minutes=r.actual_minutes)
+            for r in rows]
+    else:
+        found = analyse(parsed["activities"], parsed.get("places"),
+                        parsed.get("card_gaps"))
+
+    return tacho_report.build_report(
+        parsed, found, start=start, end=end,
+        driver_ref=tf.driver_ref or parsed.get("driver_ref"))
+
+
+@router.get("/report")
+async def report(file_id: uuid.UUID | None = None, driver_ref: str | None = None,
+                 start: date | None = None, end: date | None = None,
+                 session: AsyncSession = Depends(get_session)) -> dict:
+    return await _report_for(session, file_id, driver_ref, start, end)
+
+
+@router.get("/report.pdf")
+async def report_pdf(file_id: uuid.UUID | None = None, driver_ref: str | None = None,
+                     start: date | None = None, end: date | None = None,
+                     session: AsyncSession = Depends(get_session)) -> Response:
+    data = await _report_for(session, file_id, driver_ref, start, end)
+    who = (data["driver"].get("name") or data["driver"].get("ref") or "driver")
+    safe = "".join(c if c.isalnum() else "_" for c in who).strip("_") or "driver"
+    name = f"{safe}_{data['period']['from']}_{data['period']['to']}.pdf"
+    return Response(
+        content=tacho_pdf.render(data), media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
 @router.get("/infringements")
