@@ -44,10 +44,26 @@ async def compliance(session: AsyncSession, now: datetime | None = None) -> dict
     vehicle_files = await _latest_by(session, TachoFile.vehicle_ref, "vehicle_unit")
 
     # Known entities (so ones never downloaded still show as no_data/overdue).
-    known_drivers = {
-        (d.card_number or d.name): (d.name or d.card_number)
-        for d in (await session.execute(select(Driver))).scalars().all()
-    }
+    known_drivers: dict[str, str] = {}
+    alias: dict[str, str] = {}      # any identifier the driver goes by -> canonical
+    for d in (await session.execute(select(Driver))).scalars().all():
+        canonical = d.card_number or d.name
+        if not canonical:
+            continue
+        known_drivers[canonical] = d.name or d.card_number
+        for known_as in (d.card_number, d.name):
+            if known_as:
+                alias[known_as] = canonical
+    # A card file is filed under the holder's name, a driver record is usually
+    # keyed by card number. Fold one onto the other so the same person is one
+    # row and not two.
+    if alias:
+        folded: dict[str, datetime] = {}
+        for ref, ts in driver_files.items():
+            key = alias.get(ref, ref)
+            if key not in folded or ts > folded[key]:
+                folded[key] = ts
+        driver_files = folded
     known_vehicles = {
         d.vehicle_reg: d.vehicle_reg
         for d in (await session.execute(select(Device))).scalars().all() if d.vehicle_reg
