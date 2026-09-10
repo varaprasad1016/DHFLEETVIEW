@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Walkaround Check</title>
+<style>
+  :root { color-scheme: dark; --bg:#0b1220; --card:#131c2e; --line:#22304a; --fg:#e6edf7; --mut:#8aa0c0; --acc:#38bdf8; --ok:#34d399; --bad:#f87171; --warn:#f59e0b; }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif;}
+  header{padding:16px 16px 4px;max-width:720px;margin:0 auto;}
+  h1{font-size:19px;margin:0;} .sub{color:var(--mut);font-size:13px;}
+  main{padding:10px 16px 90px;max-width:720px;margin:0 auto;}
+  label{display:block;font-size:12px;color:var(--mut);margin:10px 0 4px;}
+  input,select,textarea{width:100%;background:#0d1526;border:1px solid var(--line);color:var(--fg);border-radius:9px;padding:11px;font:inherit;}
+  .row{display:flex;gap:10px;} .row>div{flex:1;}
+  .items{margin-top:14px;border:1px solid var(--line);border-radius:12px;overflow:hidden;}
+  .item{border-top:1px solid var(--line);padding:10px 12px;}
+  .item:first-child{border-top:none;}
+  .item .top{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .item .name{font-size:14px;}
+  .ctrls{display:flex;align-items:center;gap:8px;flex:none;}
+  .seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;}
+  .seg button{background:#0d1526;color:var(--mut);border:none;padding:7px 12px;font:inherit;cursor:pointer;}
+  .seg button.on-ok{background:var(--ok);color:#04121f;font-weight:700;}
+  .seg button.on-bad{background:var(--bad);color:#1a0606;font-weight:700;}
+  .photoBtn{margin:0;display:inline-flex;align-items:center;justify-content:center;width:38px;height:34px;border:1px solid var(--line);border-radius:8px;cursor:pointer;color:var(--mut);font-size:16px;background:#0d1526;}
+  .photoBtn.has{border-color:var(--acc);color:var(--acc);}
+  .thumb{margin-top:8px;max-height:120px;border-radius:8px;border:1px solid var(--line);}
+  .defect{margin-top:8px;display:none;} .defect.show{display:block;}
+  .defect select,.defect textarea{margin-top:4px;}
+  .sig{margin-top:16px;}
+  .sigPad{width:100%;height:160px;background:#fff;border-radius:10px;border:1px solid var(--line);touch-action:none;display:block;}
+  .sigRow{display:flex;justify-content:space-between;align-items:center;margin-top:6px;}
+  .clearBtn{background:transparent;color:var(--mut);border:1px solid var(--line);border-radius:8px;padding:6px 12px;font:inherit;cursor:pointer;}
+  .bar{position:fixed;left:0;right:0;bottom:0;background:#0d1526cc;backdrop-filter:blur(6px);border-top:1px solid var(--line);padding:12px 16px;}
+  .bar .inner{max-width:720px;margin:0 auto;display:flex;gap:10px;align-items:center;}
+  .btn{flex:1;background:var(--acc);color:#04121f;font-weight:800;border:none;border-radius:11px;padding:14px;font:inherit;cursor:pointer;}
+  .btn:disabled{opacity:.5;}
+  .count{color:var(--mut);font-size:13px;white-space:nowrap;}
+  .msg{padding:14px;border-radius:11px;margin-top:10px;display:none;}
+  .msg.ok{background:#0f2a1f;border:1px solid var(--ok);display:block;}
+  .msg.bad{background:#2a1113;border:1px solid var(--bad);display:block;}
+  .lock{text-align:center;padding:30px 16px;} .lock a{color:var(--acc);}
+  .hidden{display:none!important;}
+</style>
+</head>
+<body>
+<header><h1>Daily walkaround</h1><div class="sub">First-use vehicle check</div></header>
+<main>
+  <div id="lock" class="lock hidden">🔒 Compliance suite locked. <a href="approver">Approve this month's licence</a> on your phone.</div>
+
+  <form id="form" class="hidden">
+    <div class="row">
+      <div><label>Vehicle registration</label><input id="reg" autocapitalize="characters" placeholder="AB12 CDE" required></div>
+      <div><label>Type</label>
+        <select id="type">
+          <option value="hgv">HGV / LGV</option><option value="psv">PSV / Bus</option>
+          <option value="van">Van</option><option value="car">Car</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <div><label>Driver name</label><input id="driver" placeholder="Your name"></div>
+      <div><label>Odometer (km)</label><input id="odo" type="number" inputmode="numeric" placeholder="e.g. 128400"></div>
+    </div>
+    <label>Location (optional)</label><input id="loc" placeholder="Depot / yard">
+
+    <div class="items" id="items"></div>
+
+    <label>Additional notes</label><textarea id="notes" rows="2" placeholder="Anything else to record"></textarea>
+
+    <div class="sig">
+      <label>Driver signature</label>
+      <canvas class="sigPad" id="sigPad"></canvas>
+      <div class="sigRow"><span class="count" id="sigHint">Sign above to confirm this check</span>
+        <button type="button" class="clearBtn" id="sigClear">Clear</button></div>
+    </div>
+
+    <div class="msg" id="msg"></div>
+  </form>
+</main>
+
+<div class="bar" id="bar" style="display:none">
+  <div class="inner">
+    <span class="count" id="count">0 defects</span>
+    <button class="btn" id="submit" type="button">Submit check</button>
+  </div>
+</div>
+
+<script>
+  const $=(id)=>document.getElementById(id);
+  const state={items:[]};
+
+  // Downscale an image file to a data URL (max 1280px, JPEG) to keep uploads small.
+  function fileToDataUrl(file){
+    return new Promise((res,rej)=>{
+      const img=new Image(); const url=URL.createObjectURL(file);
+      img.onload=()=>{
+        const max=1280; let {width:w,height:h}=img;
+        if(w>max||h>max){ const s=Math.min(max/w,max/h); w=Math.round(w*s); h=Math.round(h*s); }
+        const c=document.createElement('canvas'); c.width=w; c.height=h;
+        c.getContext('2d').drawImage(img,0,0,w,h);
+        URL.revokeObjectURL(url);
+        res(c.toDataURL('image/jpeg',0.7));
+      };
+      img.onerror=rej; img.src=url;
+    });
+  }
+
+  async function loadItems(){
+    const type=$('type').value;
+    const data=await (await fetch('api/walkaround/items?check_type='+type,{cache:'no-store'})).json();
+    state.items=data.items.map((name)=>({name,status:null,severity:'major',description:'',photo:null}));
+    render();
+  }
+  function render(){
+    $('items').innerHTML='';
+    state.items.forEach((it)=>{
+      const el=document.createElement('div'); el.className='item';
+      el.innerHTML=`<div class="top"><div class="name">${it.name}</div>
+        <div class="ctrls">
+          <div class="seg"><button type="button" data-ok>OK</button><button type="button" data-bad>Defect</button></div>
+          <label class="photoBtn" title="Add photo (optional)">📷<input type="file" accept="image/*" capture="environment" hidden></label>
+        </div></div>
+        <img class="thumb" hidden>
+        <div class="defect">
+          <select data-sev>
+            <option value="dangerous">Dangerous — do not drive</option>
+            <option value="major" selected>Major</option>
+            <option value="minor">Minor</option>
+          </select>
+          <textarea data-desc rows="2" placeholder="Describe the defect"></textarea>
+        </div>`;
+      const ok=el.querySelector('[data-ok]'), bad=el.querySelector('[data-bad]'), def=el.querySelector('.defect');
+      const sev=el.querySelector('[data-sev]'), desc=el.querySelector('[data-desc]');
+      const photoLbl=el.querySelector('.photoBtn'), photoInp=photoLbl.querySelector('input'), thumb=el.querySelector('.thumb');
+      ok.onclick=()=>{it.status='ok';ok.className='on-ok';bad.className='';def.classList.remove('show');count();};
+      bad.onclick=()=>{it.status='bad';bad.className='on-bad';ok.className='';def.classList.add('show');count();};
+      sev.onchange=()=>{it.severity=sev.value;};
+      desc.oninput=()=>{it.description=desc.value;};
+      photoInp.onchange=async()=>{
+        if(!photoInp.files[0]) return;
+        try{ it.photo=await fileToDataUrl(photoInp.files[0]); thumb.src=it.photo; thumb.hidden=false; photoLbl.classList.add('has'); }
+        catch{ show('Could not read that photo.','bad'); }
+      };
+      $('items').appendChild(el);
+    });
+    count();
+  }
+  function count(){
+    const n=state.items.filter(it=>it.status==='bad').length;
+    $('count').textContent=n+' defect'+(n===1?'':'s');
+  }
+  $('type').onchange=loadItems;
+
+  // --- signature pad ---
+  let sigDrawn=false;
+  function initSig(){
+    const c=$('sigPad'); const ctx=c.getContext('2d');
+    const resize=()=>{ const r=c.getBoundingClientRect(); const d=window.devicePixelRatio||1;
+      c.width=r.width*d; c.height=r.height*d; ctx.scale(d,d); ctx.lineWidth=2.2; ctx.lineCap='round'; ctx.strokeStyle='#0b1220'; };
+    resize(); window.addEventListener('resize',()=>{const data=sigDrawn?c.toDataURL():null; resize(); if(data){const i=new Image();i.onload=()=>ctx.drawImage(i,0,0,c.width/(window.devicePixelRatio||1),c.height/(window.devicePixelRatio||1));i.src=data;}});
+    let drawing=false;
+    const pos=(e)=>{const r=c.getBoundingClientRect(); const t=e.touches?e.touches[0]:e; return {x:t.clientX-r.left,y:t.clientY-r.top};};
+    const start=(e)=>{drawing=true;sigDrawn=true;const p=pos(e);ctx.beginPath();ctx.moveTo(p.x,p.y);e.preventDefault();};
+    const move=(e)=>{if(!drawing)return;const p=pos(e);ctx.lineTo(p.x,p.y);ctx.stroke();e.preventDefault();};
+    const end=()=>{drawing=false;};
+    c.addEventListener('pointerdown',start); c.addEventListener('pointermove',move);
+    c.addEventListener('pointerup',end); c.addEventListener('pointerleave',end);
+    $('sigClear').onclick=()=>{ctx.clearRect(0,0,c.width,c.height);sigDrawn=false;};
+  }
+  function signatureDataUrl(){ return sigDrawn ? $('sigPad').toDataURL('image/png') : null; }
+
+  $('submit').onclick=async()=>{
+    const reg=$('reg').value.trim();
+    if(!reg){ show('Enter the vehicle registration.','bad'); return; }
+    const defects=state.items.filter(it=>it.status==='bad')
+      .map(it=>({item:it.name,severity:it.severity,description:it.description||null,photo:it.photo||null}));
+    const photos=state.items.filter(it=>it.status!=='bad'&&it.photo)
+      .map(it=>({item:it.name,image:it.photo}));
+    const dangerous=defects.some(d=>d.severity==='dangerous'||d.severity==='major');
+    $('submit').disabled=true;
+    try{
+      const res=await fetch('api/walkaround/checks',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({vehicle_reg:reg,driver_name:$('driver').value||null,check_type:$('type').value,
+          odometer_km:$('odo').value?parseInt($('odo').value):null,location:$('loc').value||null,
+          notes:$('notes').value||null,safe_to_drive:!dangerous,defects,photos,signature:signatureDataUrl()})});
+      if(res.status===403){ $('form').classList.add('hidden');$('bar').style.display='none';$('lock').classList.remove('hidden'); return; }
+      const d=await res.json();
+      if(!res.ok){ show((d.detail&&d.detail.message)||d.detail||'Submit failed.','bad'); $('submit').disabled=false; return; }
+      show('✓ Check recorded. '+d.advice,'ok');
+      state.items.forEach(it=>{it.status=null;it.description='';it.photo=null;}); render();
+      $('odo').value=''; $('notes').value=''; $('sigClear').click();
+      window.scrollTo(0,0);
+    }catch(e){ show('Network error.','bad'); }
+    $('submit').disabled=false;
+  };
+  function show(t,cls){ const m=$('msg'); m.textContent=t; m.className='msg '+cls; }
+
+  async function init(){
+    let s; try{ s=await (await fetch('api/license/status',{cache:'no-store'})).json(); }catch{}
+    if(!s || !s.licensed){ $('lock').classList.remove('hidden'); return; }
+    $('form').classList.remove('hidden'); $('bar').style.display='block';
+    await loadItems(); initSig();
+  }
+  init();
+</script>
+</body>
+</html>

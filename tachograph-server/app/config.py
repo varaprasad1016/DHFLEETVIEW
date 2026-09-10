@@ -29,6 +29,18 @@ class Settings(BaseSettings):
     driver_warning_days: int = 25
     vehicle_warning_days: int = 85
 
+    # --- Tacho file archive (native deploy: local filesystem, not MinIO) ---
+    archive_path: str = "data/archive"
+    archive_retention_months: int = 12  # DVSA: keep card & VU data at least 12 months
+
+    # --- DVLA / DVSA vehicle data (MOT, tax, Euro status by registration) ---
+    # Free DVLA Vehicle Enquiry Service (VES) API key; register at
+    # register-for-ves.driver-vehicle-licensing.api.gov.uk. Blank => feature shows
+    # "not configured" and never calls out.
+    dvla_ves_api_key: str = ""
+    dvla_ves_url: str = "https://driver-vehicle-licensing.api.gov.uk/vehicle-enquiry/v1/vehicles"
+    reminder_due_soon_days: int = 30   # flag MOT/tax due within this many days
+
     # --- Security ---
     jwt_secret: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"

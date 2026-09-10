@@ -20,6 +20,9 @@ from app.models.operations import (
     Schedule,
 )
 from app.models.licensing import LicenseState
+from app.models.walkaround import WalkaroundCheck, WalkaroundDefect, WalkaroundPhoto
+from app.models.tacho import TachoFile, Infringement
+from app.models.vehicle import VehicleStatus
 
 __all__ = [
     "Base",
@@ -36,4 +39,10 @@ __all__ = [
     "WebhookDelivery",
     "CardEvent",
     "LicenseState",
+    "WalkaroundCheck",
+    "WalkaroundDefect",
+    "WalkaroundPhoto",
+    "TachoFile",
+    "Infringement",
+    "VehicleStatus",
 ]

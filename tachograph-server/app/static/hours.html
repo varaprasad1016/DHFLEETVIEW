@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Tacho Compliance</title>
+<style>
+  :root{color-scheme:dark;--bg:#0b1220;--card:#131c2e;--line:#22304a;--fg:#e6edf7;--mut:#8aa0c0;--acc:#38bdf8;--ok:#34d399;--warn:#f59e0b;--bad:#f87171;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif;}
+  header{padding:16px;max-width:900px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;}
+  h1{font-size:19px;margin:0;} a.back{color:var(--acc);text-decoration:none;font-size:13px;}
+  main{padding:0 16px 60px;max-width:900px;margin:0 auto;}
+  .tabs{display:flex;gap:8px;margin:6px 0 14px;flex-wrap:wrap;}
+  .tabs button{background:var(--card);border:1px solid var(--line);color:var(--mut);border-radius:999px;padding:7px 14px;font:inherit;cursor:pointer;}
+  .tabs button.on{background:var(--acc);color:#04121f;font-weight:700;border-color:var(--acc);}
+  table{width:100%;border-collapse:collapse;font-size:14px;}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);}
+  th{color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.03em;}
+  .tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;text-transform:uppercase;}
+  .compliant{background:#0f2a1f;color:var(--ok);} .due_soon{background:#2a230f;color:var(--warn);}
+  .overdue{background:#2a1113;color:var(--bad);} .no_data{background:#1b2233;color:var(--mut);}
+  .sev{font-size:11px;font-weight:700;text-transform:uppercase;}
+  .sev.serious{color:var(--warn);} .sev.very_serious{color:var(--bad);} .sev.minor{color:var(--acc);}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px;}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;}
+  @media(max-width:600px){.kpis{grid-template-columns:repeat(2,1fr);}}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;text-align:center;}
+  .kpi b{display:block;font-size:22px;} .kpi span{color:var(--mut);font-size:12px;}
+  .btn{background:var(--acc);color:#04121f;font-weight:700;border:none;border-radius:9px;padding:10px 16px;font:inherit;cursor:pointer;}
+  .btn.small{padding:6px 10px;font-size:13px;background:transparent;color:var(--acc);border:1px solid var(--line);}
+  input,select{background:#0d1526;border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:9px;font:inherit;}
+  label{font-size:12px;color:var(--mut);display:block;margin:8px 0 3px;}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:end;}
+  .msg{padding:10px;border-radius:9px;margin-top:8px;display:none;} .msg.ok{background:#0f2a1f;border:1px solid var(--ok);display:block;} .msg.bad{background:#2a1113;border:1px solid var(--bad);display:block;}
+  .empty{color:var(--mut);padding:24px;text-align:center;}
+  .lock{text-align:center;color:var(--mut);padding:40px 16px;} .lock a{color:var(--acc);}
+  .note{color:var(--mut);font-size:12px;margin-top:6px;}
+  .hidden{display:none!important;}
+</style>
+</head>
+<body>
+<header><h1>Tacho compliance</h1><a class="back" href="compliance">← Compliance</a></header>
+<main>
+  <div id="lock" class="lock hidden">🔒 Locked. <a href="approver">Approve this month's licence</a> to open tacho compliance.</div>
+  <div id="app" class="hidden">
+    <div class="kpis" id="kpis"></div>
+    <div class="tabs">
+      <button data-t="compliance" class="on">Download status</button>
+      <button data-t="infringements">Infringements</button>
+      <button data-t="report">Weekly report</button>
+      <button data-t="files">Files &amp; upload</button>
+    </div>
+    <div id="view"></div>
+  </div>
+</main>
+<script>
+  const $=(id)=>document.getElementById(id); let tab='compliance';
+  const esc=s=>(s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const hrs=m=>m==null?'':Math.floor(m/60)+'h'+String(m%60).padStart(2,'0');
+  const dt=s=>s?new Date(s).toLocaleString('en-GB',{timeZone:'Europe/London'}):'';
+  const dd=s=>s?new Date(s).toLocaleDateString('en-GB',{timeZone:'Europe/London'}):'—';
+
+  async function kpis(){
+    const s=await (await fetch('api/tacho/summary',{cache:'no-store'})).json();
+    $('kpis').innerHTML=`
+      <div class="kpi"><b style="color:var(--bad)">${s.open_serious}</b><span>Serious infringements</span></div>
+      <div class="kpi"><b>${s.open_infringements}</b><span>Open infringements</span></div>
+      <div class="kpi"><b style="color:${(s.drivers_overdue+s.vehicles_overdue)?'var(--warn)':'var(--ok)'}">${s.drivers_overdue+s.vehicles_overdue}</b><span>Downloads overdue</span></div>
+      <div class="kpi"><b>${s.archived_files}</b><span>Archived files</span></div>`;
+  }
+
+  async function renderCompliance(){
+    const c=await (await fetch('api/tacho/compliance',{cache:'no-store'})).json();
+    const tbl=(title,rows,unit)=>{
+      let h=`<div class="card"><h3 style="margin:0 0 8px">${title} <span class="note">(window ${unit} days)</span></h3>`;
+      if(!rows.length){ return h+'<div class="empty">Nothing to show.</div></div>'; }
+      h+='<table><tr><th>Ref</th><th>Last download</th><th>Days</th><th>Status</th></tr>';
+      rows.forEach(r=>{ h+=`<tr><td>${esc(r.label)}</td><td>${dd(r.last_download)}</td>
+        <td>${r.days_since==null?'—':r.days_since}</td>
+        <td><span class="tag ${r.status}">${r.status.replace('_',' ')}</span></td></tr>`; });
+      return h+'</table></div>';
+    };
+    $('view').innerHTML=tbl('Driver cards',c.drivers,c.windows.driver_days)+tbl('Vehicle units',c.vehicles,c.windows.vehicle_days);
+  }
+
+  let sevFilter='all';
+  async function renderInfringements(){
+    const all=await (await fetch('api/tacho/infringements?status=open',{cache:'no-store'})).json();
+    if(!all.length){ $('view').innerHTML='<div class="empty">No open infringements. 🎉</div>'; return; }
+    const counts={all:all.length,
+      serious:all.filter(r=>r.severity!=='minor').length,
+      minor:all.filter(r=>r.severity==='minor').length};
+    const rows=sevFilter==='all'?all:all.filter(r=>sevFilter==='serious'?r.severity!=='minor':r.severity==='minor');
+    let h=`<div class="card"><div class="row" style="margin-bottom:10px">
+      <div><button class="btn small" data-sev="all"${sevFilter==='all'?' style="background:var(--acc);color:#04121f"':''}>All (${counts.all})</button>
+      <button class="btn small" data-sev="serious"${sevFilter==='serious'?' style="background:var(--acc);color:#04121f"':''}>Serious &amp; above (${counts.serious})</button>
+      <button class="btn small" data-sev="minor"${sevFilter==='minor'?' style="background:var(--acc);color:#04121f"':''}>Minor (${counts.minor})</button></div>
+      <div class="note" style="align-self:center">Minor items are mostly record keeping, such as a missing country entry.</div>
+    </div>`;
+    if(!rows.length){ h+='<div class="empty">Nothing in this category.</div>'; }
+    else h+='<table><tr><th>Driver</th><th>Infringement</th><th>When</th><th>Actual</th><th>Limit</th><th></th></tr>';
+    rows.forEach(r=>{ h+=`<tr>
+      <td>${esc(r.driver_ref)}</td>
+      <td><span class="sev ${r.severity}">${r.severity.replace('_',' ')}</span><br>${esc(r.title)}<div class="note">${esc(r.detail||'')}</div></td>
+      <td>${dt(r.period_start)}</td><td>${hrs(r.actual_minutes)}</td><td>${hrs(r.limit_minutes)}</td>
+      <td><button class="btn small" data-ack="${r.id}">Acknowledge</button> <button class="btn small" data-dis="${r.id}">Dismiss</button></td>
+    </tr>`; });
+    h+=(rows.length?'</table>':'')+'</div>';
+    $('view').innerHTML=h;
+    $('view').querySelectorAll('[data-sev]').forEach(b=>b.onclick=()=>{ sevFilter=b.dataset.sev; renderInfringements(); });
+    $('view').querySelectorAll('[data-ack]').forEach(b=>b.onclick=()=>setStatus(b.dataset.ack,'acknowledged'));
+    $('view').querySelectorAll('[data-dis]').forEach(b=>b.onclick=()=>setStatus(b.dataset.dis,'dismissed'));
+  }
+  async function setStatus(id,status){
+    await fetch('api/tacho/infringements/'+id+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
+    kpis(); renderInfringements();
+  }
+
+  async function renderFiles(){
+    let h=`<div class="card"><h3 style="margin:0 0 8px">Upload a download file (.ddd)</h3>
+      <div class="row">
+        <div><label>File</label><input type="file" id="f" accept=".ddd,.tgd,.v1b,.c1b"></div>
+        <div><label>Type</label><select id="kind"><option value="driver_card">Driver card</option><option value="vehicle_unit">Vehicle unit</option></select></div>
+        <div><label>Driver / vehicle ref</label><input id="ref" placeholder="card no. or reg"></div>
+        <div><button class="btn" id="up">Upload &amp; analyse</button></div>
+      </div>
+      <div class="msg" id="upmsg"></div>
+      <div class="note">Driver-card files are parsed and run through the drivers' hours / WTD engine. Files are archived and retained 12 months.</div>
+      <div class="row" style="margin-top:10px">
+        <div><button class="btn small" id="re">Re-analyse archived cards</button></div>
+        <div class="note" style="align-self:center">Rebuilds the infringement list from the archived files. Open items are replaced; ones you have acknowledged or dismissed are kept.</div>
+      </div>
+      <div class="msg" id="remsg"></div>
+    </div><div class="card" id="filelist"></div>`;
+    $('view').innerHTML=h;
+    $('up').onclick=doUpload;
+    $('re').onclick=doReanalyse;
+    listFiles();
+  }
+  async function doReanalyse(){
+    const m=$('remsg'); $('re').disabled=true;
+    m.className='msg'; m.textContent='Re-analysing…';
+    try{
+      const res=await fetch('api/tacho/reanalyse',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+      const d=await res.json();
+      if(!res.ok){ m.className='msg bad'; m.textContent=(d.detail&&d.detail.message)||d.detail||'Re-analysis failed.'; }
+      else{ m.className='msg ok';
+        m.textContent=`${d.files} file(s) re-analysed: ${d.removed} stale item(s) replaced by ${d.added} new, ${d.kept_actioned} acknowledged or dismissed item(s) kept.`
+          +(d.errors&&d.errors.length?` ${d.errors.length} file(s) could not be read.`:''); }
+      kpis(); listFiles();
+    }catch(e){ m.className='msg bad'; m.textContent='Network error.'; }
+    $('re').disabled=false;
+  }
+  async function listFiles(){
+    const rows=await (await fetch('api/tacho/files',{cache:'no-store'})).json();
+    let h='<h3 style="margin:0 0 8px">Archive</h3>';
+    if(!rows.length){ $('filelist').innerHTML=h+'<div class="empty">No files yet.</div>'; return; }
+    h+='<table><tr><th>File</th><th>Type</th><th>Ref</th><th>Parsed</th><th>Uploaded</th><th>Retain to</th></tr>';
+    rows.forEach(f=>{ h+=`<tr><td>${esc(f.filename)}</td><td>${f.file_kind}</td><td>${esc(f.driver_ref||f.vehicle_ref||'')}</td>
+      <td>${f.parsed?'✓':(f.parse_error?'<span style="color:var(--warn)">unparsed</span>':'—')}</td>
+      <td>${dd(f.created_at)}</td><td>${dd(f.retain_until)}</td></tr>`; });
+    $('filelist').innerHTML=h+'</table>';
+  }
+  async function doUpload(){
+    const file=$('f').files[0]; const m=$('upmsg');
+    if(!file){ m.className='msg bad'; m.textContent='Choose a file first.'; return; }
+    const b64=await new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result.split(',')[1]); r.onerror=rej; r.readAsDataURL(file); });
+    $('up').disabled=true;
+    try{
+      const res=await fetch('api/tacho/upload',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({filename:file.name,content_base64:b64,file_kind:$('kind').value,
+          driver_ref:$('ref').value||null,vehicle_ref:$('kind').value==='vehicle_unit'?($('ref').value||null):null})});
+      const d=await res.json();
+      if(!res.ok){ m.className='msg bad'; m.textContent=(d.detail&&d.detail.message)||d.detail||'Upload failed.'; }
+      else if(d.parsed){ m.className='msg ok'; m.textContent=`Archived & parsed (${d.days} day(s)). ${d.infringements_found} infringement(s) found, ${d.infringements_new} new.`; }
+      else { m.className='msg ok'; m.textContent='Archived. '+(d.parse_error?('Not parsed: '+d.parse_error+' — file kept for the record.'):'Stored.'); }
+      kpis(); listFiles();
+    }catch(e){ m.className='msg bad'; m.textContent='Network error.'; }
+    $('up').disabled=false;
+  }
+
+  let repFrom='', repTo='';
+  async function renderReport(){
+    const q=new URLSearchParams();
+    if(repFrom)q.set('start',repFrom); if(repTo)q.set('end',repTo);
+    let h=`<div class="card"><div class="row" style="margin-bottom:10px">
+      <div><label>From</label><input type="date" id="rf" value="${repFrom}"></div>
+      <div><label>To</label><input type="date" id="rt" value="${repTo}"></div>
+      <div style="align-self:flex-end"><button class="btn small" id="rgo">Show</button>
+      <a class="btn small" id="rpdf" href="api/tacho/report.pdf?${q}" style="text-decoration:none">Download PDF</a></div>
+      <div class="note" style="align-self:center">Leave the dates blank for everything the card holds.</div>
+    </div><div id="rbody" class="empty">Loading…</div></div>`;
+    $('view').innerHTML=h;
+    $('rgo').onclick=()=>{ repFrom=$('rf').value; repTo=$('rt').value; renderReport(); };
+    let d;
+    try{ const res=await fetch('api/tacho/report?'+q,{cache:'no-store'});
+         d=await res.json();
+         if(!res.ok){ $('rbody').textContent=(d.detail&&d.detail.message)||d.detail||'Could not build the report.'; return; }
+    }catch(e){ $('rbody').textContent='Network error.'; return; }
+    const cols=['Date','Reg','Finish odo','Start odo','Dist','Start duty','Drive start','End duty',
+                'Daily rest','Drive','Work','POA','Break','Shift','WTD','Fort drive','Prev rest'];
+    let b=`<div class="note" style="margin-bottom:10px">${esc(d.driver.name||d.driver.ref||'')}${d.driver.card_number?' · card '+esc(d.driver.card_number):''}
+      · card data covers ${dd(d.period.data_from)} to ${dd(d.period.data_to)} · times in ${esc(d.period.timezone)}</div>`;
+    d.weeks.forEach(w=>{
+      b+=`<h3 style="margin:16px 0 6px">Week ${dd(w.start)} – ${dd(w.end)}</h3><table style="font-size:12px"><tr>${cols.map(c=>'<th>'+c+'</th>').join('')}</tr>`;
+      w.days.forEach(r=>{
+        if(r.no_data||r.rest_day){
+          b+=`<tr><td>${dd(r.date)}</td><td colspan="14" class="note">${r.no_data?'No data':'Rest day'}</td>
+              <td>${hrs(r.fortnight_drive)}</td><td></td></tr>`; return; }
+        b+=`<tr><td>${dd(r.date)}</td><td>${esc(r.registration)}</td>
+          <td>${r.odometer_end?r.odometer_end.toLocaleString():''}</td>
+          <td>${r.odometer_start?r.odometer_start.toLocaleString():''}</td>
+          <td>${r.distance||''}</td><td>${r.start_duty}</td><td>${r.drive_start}</td><td>${r.end_duty}</td>
+          <td>${hrs(r.daily_rest)}</td><td>${hrs(r.drive)}</td><td>${hrs(r.work)}</td><td>${hrs(r.poa)}</td>
+          <td>${hrs(r.break)}</td><td>${hrs(r.shift)}</td><td>${hrs(r.wtd)}</td>
+          <td>${hrs(r.fortnight_drive)}</td><td>${hrs(r.previous_rest)}</td></tr>`; });
+      const t=w.totals;
+      b+=`<tr style="font-weight:700"><td colspan="4">Week's total</td><td>${t.distance||0}</td><td colspan="3"></td>
+        <td>${hrs(t.daily_rest)}</td><td>${hrs(t.drive)}</td><td>${hrs(t.work)}</td><td>${hrs(t.poa)}</td>
+        <td>${hrs(t['break'])}</td><td>${hrs(t.shift)}</td><td>${hrs(t.wtd)}</td><td colspan="2"></td></tr></table>`;
+      const sect=(name,items,empty)=>{
+        b+=`<div class="note" style="margin:10px 0 4px;font-weight:700">${name}</div>`;
+        if(!items.length){ b+=`<div class="note">${empty}</div>`; return; }
+        items.forEach(i=>{ b+=`<div class="note">${dd(i.date)} ${i.time||''} — <span class="sev ${i.severity||''}">${(i.severity||'').replace('_',' ')}</span>
+          <b>${esc(i.title||i.name)}</b> ${esc(i.detail||'')}</div>`; });
+      };
+      sect('Working time infringements',w.working_time_infringements,'No messages found');
+      sect('Infringements',w.infringements,'No messages found');
+      sect('Faults',w.faults,'No messages found');
+    });
+    $('rbody').className=''; $('rbody').innerHTML=b||'<div class="empty">Nothing in this period.</div>';
+  }
+  function render(){ if(tab==='compliance')renderCompliance(); else if(tab==='infringements')renderInfringements(); else if(tab==='report')renderReport(); else renderFiles(); }
+  document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
+    tab=b.dataset.t; document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); render();
+  });
+  async function init(){
+    let s; try{ s=await (await fetch('api/license/status',{cache:'no-store'})).json(); }catch{}
+    if(!s||!s.licensed){ $('lock').classList.remove('hidden'); return; }
+    $('app').classList.remove('hidden'); await kpis(); render();
+  }
+  init();
+</script>
+</body>
+</html>

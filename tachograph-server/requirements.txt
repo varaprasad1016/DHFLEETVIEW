@@ -13,9 +13,11 @@ websockets==13.*
 httpx==0.27.*
 python-jose[cryptography]==3.*
 passlib[bcrypt]==1.7.*
+reportlab==5.*            # the weekly driver report, rendered to PDF
 
 # --- dev / test ---
 pytest==8.*
 pytest-asyncio==0.24.*
 respx==0.21.*
 moto==5.*
+pypdf==6.*                # reads back the generated PDF in the report tests

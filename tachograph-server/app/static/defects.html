@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Vehicle Defects</title>
+<style>
+  :root{color-scheme:dark;--bg:#0b1220;--card:#131c2e;--line:#22304a;--fg:#e6edf7;--mut:#8aa0c0;--acc:#38bdf8;--ok:#34d399;--bad:#f87171;--warn:#f59e0b;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif;}
+  header{padding:16px;max-width:820px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;}
+  h1{font-size:19px;margin:0;}
+  main{padding:0 16px 60px;max-width:820px;margin:0 auto;}
+  .tabs{display:flex;gap:8px;margin:6px 0 14px;}
+  .tabs button{background:var(--card);border:1px solid var(--line);color:var(--mut);border-radius:999px;padding:7px 14px;font:inherit;cursor:pointer;}
+  .tabs button.on{background:var(--acc);color:#04121f;font-weight:700;border-color:var(--acc);}
+  .d{background:var(--card);border:1px solid var(--line);border-left-width:4px;border-radius:12px;padding:13px 14px;margin-bottom:10px;}
+  .d.dangerous{border-left-color:var(--bad);} .d.major{border-left-color:var(--warn);} .d.minor{border-left-color:var(--acc);}
+  .d .h{display:flex;justify-content:space-between;gap:10px;align-items:baseline;}
+  .reg{font-weight:700;font-size:16px;} .sev{font-size:11px;text-transform:uppercase;letter-spacing:.04em;}
+  .sev.dangerous{color:var(--bad);} .sev.major{color:var(--warn);} .sev.minor{color:var(--acc);}
+  .item{margin:2px 0;} .desc{color:var(--mut);font-size:13px;} .meta{color:var(--mut);font-size:12px;margin-top:4px;}
+  .act{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;}
+  .act input{flex:1;min-width:140px;background:#0d1526;border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:9px;font:inherit;}
+  .act button{background:var(--ok);color:#04121f;font-weight:700;border:none;border-radius:8px;padding:9px 14px;font:inherit;cursor:pointer;}
+  .act button.mon{background:var(--warn);}
+  .empty,.lock{text-align:center;color:var(--mut);padding:40px 16px;} .lock a{color:var(--acc);}
+  .hidden{display:none!important;}
+</style>
+</head>
+<body>
+<header><h1>Vehicle defects</h1><a href="compliance" style="color:var(--acc);text-decoration:none;font-size:13px;">← Compliance</a></header>
+<main>
+  <div id="lock" class="lock hidden">🔒 Locked. <a href="approver">Approve this month's licence</a> to view defects.</div>
+  <div id="app" class="hidden">
+    <div class="tabs">
+      <button data-f="open" class="on">Open</button>
+      <button data-f="monitoring">Monitoring</button>
+      <button data-f="rectified">Rectified</button>
+      <button data-f="all">All</button>
+    </div>
+    <div id="list"></div>
+  </div>
+</main>
+<script>
+  const $=(id)=>document.getElementById(id);
+  let filter='open';
+  function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+  async function load(){
+    let rows;
+    try{ const r=await fetch('api/walkaround/defects?status='+filter,{cache:'no-store'});
+      if(r.status===403){ $('app').classList.add('hidden'); $('lock').classList.remove('hidden'); return; }
+      rows=await r.json(); }
+    catch{ $('list').innerHTML='<div class="empty">Cannot reach service.</div>'; return; }
+    if(!rows.length){ $('list').innerHTML='<div class="empty">No '+filter+' defects.</div>'; return; }
+    $('list').innerHTML='';
+    rows.forEach(d=>{
+      const el=document.createElement('div'); el.className='d '+d.severity;
+      const when=d.created_at?new Date(d.created_at).toLocaleString('en-GB',{timeZone:'Europe/London'}):'';
+      let actions='';
+      if(d.status!=='rectified'){
+        actions=`<div class="act">
+          <input placeholder="Rectified by / notes" data-note>
+          <button data-rect>Mark rectified</button>
+          ${d.status==='open'?'<button class="mon" data-mon>Monitoring</button>':''}
+        </div>`;
+      } else {
+        actions=`<div class="meta">Rectified${d.rectified_by?' by '+esc(d.rectified_by):''}${d.rectified_at?' · '+new Date(d.rectified_at).toLocaleDateString('en-GB',{timeZone:'Europe/London'}):''}${d.rectification_notes?' — '+esc(d.rectification_notes):''}</div>`;
+      }
+      el.innerHTML=`<div class="h"><span class="reg">${esc(d.vehicle_reg)}</span><span class="sev ${d.severity}">${d.severity}</span></div>
+        <div class="item">${esc(d.item)}</div>
+        ${d.description?'<div class="desc">'+esc(d.description)+'</div>':''}
+        <div class="meta">Reported${d.reported_by?' by '+esc(d.reported_by):''}${when?' · '+when:''}</div>
+        ${actions}`;
+      const rect=el.querySelector('[data-rect]'), mon=el.querySelector('[data-mon]'), note=el.querySelector('[data-note]');
+      if(rect) rect.onclick=()=>update(d.id,'rectified',note.value);
+      if(mon) mon.onclick=()=>update(d.id,'monitoring',note.value);
+      $('list').appendChild(el);
+    });
+  }
+  async function update(id,status,notes){
+    const parts=(notes||'').split('—'); // allow "name — note" or just a name/note
+    await fetch('api/walkaround/defects/'+id+'/rectify',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({status,rectified_by:parts[0]?parts[0].trim():null,rectification_notes:notes||null})});
+    load();
+  }
+  document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
+    filter=b.dataset.f; document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); load();
+  });
+  async function init(){
+    let s; try{ s=await (await fetch('api/license/status',{cache:'no-store'})).json(); }catch{}
+    if(!s||!s.licensed){ $('lock').classList.remove('hidden'); return; }
+    $('app').classList.remove('hidden'); load();
+  }
+  init();
+</script>
+</body>
+</html>
