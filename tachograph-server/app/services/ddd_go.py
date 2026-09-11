@@ -8,7 +8,9 @@ cryptographic verification of the signatures on each block.
 It runs as a separate process and returns JSON, which this module maps onto the
 same dictionary the built-in parser returns, so the rules engine and the report
 never learn which reader produced their input. If the binary is not configured
-or fails, the caller falls back to the built-in reader.
+or fails, the caller falls back to the built-in reader for driver cards only.
+Vehicle-unit files are parsed by tachograph-go and are never sent to the
+card-only fallback.
 
 Note on licences: this is MIT, so it imposes nothing on the code around it. The
 better known kyburz/traconiq `tachoparser` is AGPL-3.0, which for a hosted
@@ -36,6 +38,21 @@ _ACTIVITY = {
     "WORK": "work",
     "DRIVING": "drive",
 }
+
+
+def _activity_kind(value) -> str | None:
+    """Map tachograph-go's enum name or numeric enum value to a kind."""
+    if isinstance(value, int):
+        return {2: "rest", 3: "available", 4: "work", 5: "drive"}.get(value)
+    if not isinstance(value, str):
+        return None
+    name = value.upper()
+    if name in _ACTIVITY:
+        return _ACTIVITY[name]
+    for suffix, kind in _ACTIVITY.items():
+        if name.endswith("_" + suffix):
+            return kind
+    return None
 # Values that mean the driver never actually entered a country.
 _NO_COUNTRY = {"", "NO_INFORMATION", "UNKNOWN", "RESERVED", "UNSPECIFIED",
                "NATION_UNSPECIFIED", "NATION_NO_INFORMATION"}
@@ -102,12 +119,30 @@ def _run(data: bytes) -> dict:
     return document
 
 
-def _time(value: str | None) -> datetime | None:
+def _time(value) -> datetime | None:
+    """Read a protojson Timestamp, ISO string, or protobuf-style timestamp."""
     if not value:
         return None
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, dict):
+        if value.get("value") is not None:
+            return _time(value["value"])
+        if value.get("seconds") is not None:
+            try:
+                parsed = datetime.fromtimestamp(
+                    int(value["seconds"]), tz=timezone.utc)
+                parsed += timedelta(microseconds=int(value.get("nanos", 0)) // 1000)
+            except (TypeError, ValueError, OverflowError):
+                return None
+        else:
+            return None
+    elif isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
         return None
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
@@ -237,6 +272,166 @@ def _incidents(events: dict, faults: dict) -> list:
                 registration=registration.strip()))
     out.sort(key=lambda e: e.start)
     return out
+
+
+def _json_value(value):
+    """Return a useful value from a protojson scalar wrapper."""
+    if isinstance(value, dict):
+        return value.get("value")
+    return value
+
+
+def _nested_raw(value: dict, *keys: str):
+    current = value
+    for key in keys:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
+
+
+def _nested_value(value: dict, *keys: str):
+    return _json_value(_nested_raw(value, *keys))
+
+
+def _vehicle_unit_root(document: dict) -> tuple[dict, dict, str]:
+    """Return (vehicleUnit, generation variant, generation label) from CLI JSON."""
+    root = document.get("vehicleUnit") or document.get("vehicle_unit")
+    if not isinstance(root, dict):
+        raise ValueError(f"not a vehicle-unit file (file type {document.get('type')!r})")
+    variants = (
+        ("gen1", "GENERATION_1"),
+        ("gen2V1", "GENERATION_2_VERSION_1"),
+        ("gen2_v1", "GENERATION_2_VERSION_1"),
+        ("gen2V2", "GENERATION_2_VERSION_2"),
+        ("gen2_v2", "GENERATION_2_VERSION_2"),
+    )
+    for key, label in variants:
+        variant = root.get(key)
+        if isinstance(variant, dict):
+            return root, variant, label
+    # Keep this tolerant of a future CLI spelling while refusing an empty VU.
+    for key, value in root.items():
+        if key.lower().startswith("gen") and isinstance(value, dict):
+            return root, value, key.upper()
+    raise ValueError("vehicle-unit file has no recognised generation data")
+
+
+def _vu_driver_ref(card: dict) -> str | None:
+    holder = card.get("cardHolderName") or card.get("card_holder_name") or {}
+    surname = _nested_value(holder, "holderSurname") or _nested_value(holder, "holder_surname") or ""
+    first = _nested_value(holder, "holderFirstNames") or _nested_value(holder, "holder_first_names") or ""
+    name = " ".join(part.strip() for part in (str(surname), str(first)) if str(part).strip())
+    number = card.get("fullCardNumber") or card.get("full_card_number") or {}
+    driver = number.get("driverIdentification") or number.get("driver_identification") or {}
+    card_number = "".join(str(_nested_value(driver, key) or "") for key in (
+        "driverIdentificationNumber", "cardReplacementIndex", "cardRenewalIndex"))
+    return name or card_number or None
+
+
+def _vu_activities(variant: dict) -> tuple[list[Activity], list[str | None]]:
+    """Flatten Gen1/Gen2 daily VU records into canonical spans.
+
+    VU files contain activity records for the vehicle, rather than one driver's
+    card. A VU card-insertion record is used when available to attach a driver
+    reference; spans without a matching insertion remain vehicle-only.
+    """
+    daily = variant.get("activities") or []
+    records = []
+    for record in daily:
+        day = _time(_nested_raw(record, "dateOfDay") or _nested_raw(record, "date_of_day"))
+        if day is None:
+            # ProtoJSON uses snake_case for fields emitted by protojson.Format;
+            # the camelCase form is accepted as well for fixtures/older CLIs.
+            day = _time(record.get("dateOfDay") or record.get("date_of_day"))
+        if day is None:
+            continue
+        changes = []
+        for change in record.get("activityChanges") or record.get("activity_changes") or []:
+            activity = change.get("activity")
+            kind = _activity_kind(activity)
+            if kind is None:
+                continue
+            minute = int(change.get("timeOfChangeMinutes") or change.get("time_of_change_minutes") or 0)
+            slot = change.get("slot")
+            if isinstance(slot, int) and slot not in (0, 1):
+                continue
+            if slot not in (None, 0, 1, 2, 3, "DRIVER_SLOT", "CO_DRIVER_SLOT",
+                            "CARD_SLOT_DRIVER", "CARD_SLOT_CO_DRIVER", "CARD_SLOT_1",
+                            "CARD_SLOT_2") or not 0 <= minute <= 1440:
+                continue
+            changes.append((minute, kind, not change.get("inserted", True)))
+        changes.sort(key=lambda item: item[0])
+        if changes:
+            records.append((day.replace(hour=0, minute=0, second=0, microsecond=0), changes))
+    records.sort(key=lambda item: item[0])
+
+    cards = []
+    for record in daily:
+        for card in (record.get("cardIwData") or record.get("card_iw_data") or []):
+            ref = _vu_driver_ref(card)
+            inserted = _time(_nested_raw(card, "cardInsertionTime") or _nested_raw(card, "card_insertion_time") or card.get("cardInsertionTime") or card.get("card_insertion_time"))
+            withdrawn = _time(_nested_raw(card, "cardWithdrawalTime") or _nested_raw(card, "card_withdrawal_time") or card.get("cardWithdrawalTime") or card.get("card_withdrawal_time"))
+            if ref and inserted:
+                cards.append((ref, inserted, withdrawn))
+
+    activities: list[Activity] = []
+    refs: list[str | None] = []
+    for index, (day, changes) in enumerate(records):
+        last_record = index == len(records) - 1
+        for position, (minute, kind, card_out) in enumerate(changes):
+            end_minute = changes[position + 1][0] if position + 1 < len(changes) else (None if last_record else 1440)
+            if end_minute is None or end_minute <= minute:
+                continue
+            start = day + timedelta(minutes=minute)
+            end = day + timedelta(minutes=end_minute)
+            activities.append(Activity(kind, start, end))
+            ref = next((driver for driver, inserted, withdrawn in cards
+                        if end > inserted and (withdrawn is None or start < withdrawn)), None)
+            refs.append(ref)
+    return activities, refs
+
+
+def parse_vehicle_unit(data: bytes) -> dict:
+    """Parse a VU download with the same tachograph-go CLI used for cards."""
+    document = _run(data)
+    root, variant, generation = _vehicle_unit_root(document)
+    overview = variant.get("overview") or {}
+    registration = _nested_value(overview, "vehicleRegistrationWithNation", "number")
+    if not registration:
+        registration = _nested_value(overview, "vehicleRegistrationIdentification", "number")
+    vin = _nested_value(overview, "vehicleIdentificationNumber")
+
+    technical = variant.get("technicalData") or variant.get("technical_data") or []
+    tachograph_serial = None
+    if technical:
+        identification = technical[0].get("vuIdentification") or technical[0].get("vu_identification") or {}
+        serial = (_nested_raw(identification, "serialNumber") or
+                  _nested_raw(identification, "serial_number"))
+        # ExtendedSerialNumber.serialNumber is a protobuf scalar, not a
+        # StringValue wrapper, so it is deliberately handled separately from
+        # the IA5/StringValue fields above.
+        if isinstance(serial, dict):
+            tachograph_serial = serial.get("serialNumber", serial.get("serial_number"))
+        else:
+            tachograph_serial = serial
+        if tachograph_serial is not None:
+            tachograph_serial = str(tachograph_serial)
+
+    activities, driver_refs = _vu_activities(variant)
+    drivers = sorted({ref for ref in driver_refs if ref})
+    return {
+        "activities": activities,
+        "activity_driver_refs": driver_refs,
+        "days": len({activity.start.date() for activity in activities}),
+        "vehicle_ref": str(registration).strip() if registration else None,
+        "vehicle_vin": str(vin).strip() if vin else None,
+        "tachograph_serial": tachograph_serial,
+        "drivers": drivers,
+        "generation": generation,
+        "parser": "tachograph-go",
+        "file_type": "vehicle_unit",
+    }
 
 
 def parse_driver_card(data: bytes) -> dict:

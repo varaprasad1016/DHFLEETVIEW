@@ -27,6 +27,9 @@
   .report-controls{align-items:flex-end;}
   .report-controls .note{max-width:340px;}
   .report-controls select{min-width:220px;}
+  .infringement-filters select{min-width:180px;}
+  .timeline-segment{display:block;min-width:90px;border:0;border-radius:6px;color:#04121f;text-align:left;padding:8px 10px;cursor:pointer;font:inherit;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
+  .timeline-segment:hover{filter:brightness(1.12);}
   th{color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.03em;}
   .tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;text-transform:uppercase;}
   .compliant{background:#0f2a1f;color:var(--ok);} .due_soon{background:#2a230f;color:var(--warn);}
@@ -43,6 +46,9 @@
     .report-controls{display:grid;grid-template-columns:1fr 1fr;align-items:end;}
     .report-controls>div:nth-child(3),.report-controls>div:nth-child(4),.report-controls>div:nth-child(5){grid-column:1 / -1;max-width:none;}
     .report-controls .btn{padding:8px 10px;}
+    .infringement-filters{display:grid;grid-template-columns:1fr 1fr;align-items:end;}
+    .infringement-filters>div:nth-child(3),.infringement-filters>div:nth-child(4){grid-column:1 / -1;}
+    .infringement-filters select{width:100%;min-width:0;}
   }
   .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;text-align:center;}
   .kpi b{display:block;font-size:22px;} .kpi span{color:var(--mut);font-size:12px;}
@@ -68,6 +74,7 @@
     <div class="tabs">
       <button data-t="compliance" class="on">Download status</button>
       <button data-t="infringements">Infringements</button>
+      <button data-t="timeline">Timeline</button>
       <button data-t="report">Weekly report</button>
       <button data-t="files">Files &amp; upload</button>
     </div>
@@ -104,30 +111,66 @@
     $('view').innerHTML=tbl('Driver cards',c.drivers,c.windows.driver_days)+tbl('Vehicle units',c.vehicles,c.windows.vehicle_days);
   }
 
-  let sevFilter='all';
+  let sevFilter='all', driverFilter='all', vehicleFilter='all';
+  let timelineDriver='', timelineVehicle='', timelineDate='';
+  async function renderTimeline(){
+    const files=await (await fetch('api/tacho/files',{cache:'no-store'})).json();
+    const drivers=[...new Set(files.filter(f=>f.driver_ref).map(f=>f.driver_ref))].sort();
+    const vehicles=[...new Set(files.filter(f=>f.vehicle_ref).map(f=>f.vehicle_ref))].sort();
+    if(!timelineDriver && drivers.length===1) timelineDriver=drivers[0];
+    let h=`<div class="card"><div class="row infringement-filters">
+      <div><label>Driver</label><select id="tl-driver"><option value="">All drivers</option>${drivers.map(d=>`<option value="${esc(d)}"${d===timelineDriver?' selected':''}>${esc(d)}</option>`).join('')}</select></div>
+      <div><label>Vehicle</label><select id="tl-vehicle"><option value="">All vehicles</option>${vehicles.map(v=>`<option value="${esc(v)}"${v===timelineVehicle?' selected':''}>${esc(v)}</option>`).join('')}</select></div>
+      <div><label>Date</label><input type="date" id="tl-date" value="${timelineDate}"></div>
+      <div><button class="btn small" id="tl-show">Show timeline</button></div>
+    </div><div class="note">Click an activity to inspect its source span and confidence.</div></div><div id="timeline-body" class="card"><div class="empty">Choose a driver or vehicle, then press Show timeline.</div></div>`;
+    $('view').innerHTML=h;
+    $('tl-show').onclick=()=>{ timelineDriver=$('tl-driver').value; timelineVehicle=$('tl-vehicle').value; timelineDate=$('tl-date').value; renderTimeline(); };
+    if(!timelineDriver&&!timelineVehicle) return;
+    const q=new URLSearchParams(); if(timelineDriver)q.set('driver_ref',timelineDriver); if(timelineVehicle)q.set('vehicle_ref',timelineVehicle);
+    if(timelineDate){q.set('start',timelineDate+'T00:00:00');q.set('end',timelineDate+'T23:59:59');}
+    const res=await fetch('api/tacho/timeline?'+q,{cache:'no-store'}); const rows=await res.json();
+    if(!rows.length){$('timeline-body').innerHTML='<div class="empty">No canonical activities match these filters.</div>';return;}
+    const colours={DRIVE:'#38bdf8',WORK:'#f59e0b',AVAILABLE:'#a78bfa',REST:'#34d399'};
+    const min=rows.reduce((m,r)=>Math.min(m,new Date(r.start).getTime()),Infinity), max=rows.reduce((m,r)=>Math.max(m,new Date(r.end).getTime()),-Infinity), span=Math.max(max-min,60000);
+    let b='<h3 style="margin-top:0">Activity timeline</h3><div style="display:grid;gap:8px">';
+    rows.forEach((r,i)=>{const left=((new Date(r.start).getTime()-min)/span*100).toFixed(2), width=Math.max((new Date(r.end).getTime()-new Date(r.start).getTime())/span*100,1).toFixed(2); b+=`<button class="timeline-segment" data-tl="${i}" style="margin-left:${left}%;width:${width}%;background:${colours[r.activity]||'var(--mut)'}"><b>${r.activity}</b> ${dt(r.start)} – ${dt(r.end)}</button>`;});
+    b+='</div><div id="timeline-detail" class="note" style="margin-top:14px">Select an activity.</div>';
+    $('timeline-body').innerHTML=b;
+    $('timeline-body').querySelectorAll('[data-tl]').forEach(btn=>btn.onclick=()=>{const r=rows[Number(btn.dataset.tl)];$('timeline-detail').innerHTML=`<b>${r.activity}</b><br>${dt(r.start)} – ${dt(r.end)}<br>Driver: ${esc(r.driver_ref||'—')} · Vehicle: ${esc(r.vehicle_ref||'—')}<br>Source: ${esc(r.source)} · Confidence: ${esc(r.confidence)}<br>Source file: ${esc(r.source_file_id)}`;});
+  }
   async function renderInfringements(){
     const all=await (await fetch('api/tacho/infringements?status=open',{cache:'no-store'})).json();
     if(!all.length){ $('view').innerHTML='<div class="empty">No open infringements. 🎉</div>'; return; }
-    const counts={all:all.length,
-      serious:all.filter(r=>r.severity!=='minor').length,
-      minor:all.filter(r=>r.severity==='minor').length};
-    const rows=sevFilter==='all'?all:all.filter(r=>sevFilter==='serious'?r.severity!=='minor':r.severity==='minor');
-    let h=`<div class="card"><div class="row" style="margin-bottom:10px">
-      <div><button class="btn small" data-sev="all"${sevFilter==='all'?' style="background:var(--acc);color:#04121f"':''}>All (${counts.all})</button>
+    const drivers=[...new Set(all.map(r=>r.driver_ref).filter(Boolean))].sort();
+    const vehicles=[...new Set(all.map(r=>r.vehicle_ref).filter(Boolean))].sort();
+    const selected=all.filter(r=>(driverFilter==='all'||r.driver_ref===driverFilter)
+      &&(vehicleFilter==='all'||(r.vehicle_ref||'unassigned')===vehicleFilter));
+    const counts={all:selected.length,
+      serious:selected.filter(r=>r.severity!=='minor').length,
+      minor:selected.filter(r=>r.severity==='minor').length};
+    const rows=sevFilter==='all'?selected:selected.filter(r=>sevFilter==='serious'?r.severity!=='minor':r.severity==='minor');
+    const option=(value,label,chosen)=>`<option value="${esc(value)}"${chosen===value?' selected':''}>${esc(label)}</option>`;
+    let h=`<div class="card"><div class="row infringement-filters" style="margin-bottom:10px">
+      <div><label>Driver</label><select id="if-driver">${option('all','All drivers',driverFilter)}${drivers.map(d=>option(d,d,driverFilter)).join('')}</select></div>
+      <div><label>Vehicle</label><select id="if-vehicle">${option('all','All vehicles',vehicleFilter)}${vehicles.map(v=>option(v,v,vehicleFilter)).join('')}${option('unassigned','Unassigned',vehicleFilter)}</select></div>
+      <div><label>Severity</label><button class="btn small" data-sev="all"${sevFilter==='all'?' style="background:var(--acc);color:#04121f"':''}>All (${counts.all})</button>
       <button class="btn small" data-sev="serious"${sevFilter==='serious'?' style="background:var(--acc);color:#04121f"':''}>Serious &amp; above (${counts.serious})</button>
       <button class="btn small" data-sev="minor"${sevFilter==='minor'?' style="background:var(--acc);color:#04121f"':''}>Minor (${counts.minor})</button></div>
-      <div class="note" style="align-self:center">Minor items are mostly record keeping, such as a missing country entry.</div>
+      <div class="note" style="align-self:center">Vehicle is taken from the assigned source download. Unassigned items have no vehicle link.</div>
     </div>`;
-    if(!rows.length){ h+='<div class="empty">Nothing in this category.</div>'; }
-    else h+='<table><tr><th>Driver</th><th>Infringement</th><th>When</th><th>Actual</th><th>Limit</th><th></th></tr>';
+    if(!rows.length){ h+='<div class="empty">Nothing matches these filters.</div>'; }
+    else h+='<div class="report-table-wrap"><table><tr><th>Driver</th><th>Vehicle</th><th>Infringement</th><th>When</th><th>Actual</th><th>Limit</th><th></th></tr>';
     rows.forEach(r=>{ h+=`<tr>
-      <td>${esc(r.driver_ref)}</td>
+      <td>${esc(r.driver_ref)}</td><td>${esc(r.vehicle_ref||'Unassigned')}</td>
       <td><span class="sev ${r.severity}">${r.severity.replace('_',' ')}</span><br>${esc(r.title)}<div class="note">${esc(r.detail||'')}</div></td>
       <td>${dt(r.period_start)}</td><td>${hrs(r.actual_minutes)}</td><td>${hrs(r.limit_minutes)}</td>
       <td><button class="btn small" data-ack="${r.id}">Acknowledge</button> <button class="btn small" data-dis="${r.id}">Dismiss</button></td>
     </tr>`; });
-    h+=(rows.length?'</table>':'')+'</div>';
+    h+=(rows.length?'</table></div>':'')+'</div>';
     $('view').innerHTML=h;
+    $('view').querySelector('#if-driver').onchange=e=>{ driverFilter=e.target.value; renderInfringements(); };
+    $('view').querySelector('#if-vehicle').onchange=e=>{ vehicleFilter=e.target.value; renderInfringements(); };
     $('view').querySelectorAll('[data-sev]').forEach(b=>b.onclick=()=>{ sevFilter=b.dataset.sev; renderInfringements(); });
     $('view').querySelectorAll('[data-ack]').forEach(b=>b.onclick=()=>setStatus(b.dataset.ack,'acknowledged'));
     $('view').querySelectorAll('[data-dis]').forEach(b=>b.onclick=()=>setStatus(b.dataset.dis,'dismissed'));
@@ -137,16 +180,46 @@
     kpis(); renderInfringements();
   }
 
+  async function loadUploadCustomers(){
+    try{
+      const res=await fetch('api/customers',{cache:'no-store'}); const rows=await res.json();
+      if(!res.ok||!Array.isArray(rows))return;
+      $('company').innerHTML='<option value="">Unassigned / choose later</option>'+
+        rows.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}${c.account_code?' · '+esc(c.account_code):''}</option>`).join('');
+    }catch(e){}
+  }
+  async function loadUploadVehicles(){
+    const company=$('company').value; const select=$('vehicle');
+    select.innerHTML='<option value="">Select vehicle</option>';
+    if(!company)return;
+    try{
+      const res=await fetch('api/customers/'+encodeURIComponent(company)+'/vehicles',{headers:{'X-Company-ID':company},cache:'no-store'});
+      const rows=await res.json(); if(!res.ok||!Array.isArray(rows))return;
+      select.innerHTML+='<option value="">All/unknown vehicle</option>'+rows.map(v=>`<option value="${esc(v.id)}">${esc(v.registration)}</option>`).join('');
+    }catch(e){}
+  }
+  function updateUploadKind(){
+    const vu=$('kind').value==='vehicle_unit';
+    $('vehicle-wrap').classList.toggle('hidden',!vu);
+    $('company').required=vu; $('vehicle').required=vu;
+    $('upload-help').textContent=vu
+      ? 'Vehicle-unit files must be assigned to the customer vehicle selected above. The parser reads the VU registration, VIN and tachograph serial and reports any registration mismatch.'
+      : 'Select one or more driver-card files. The tachograph-go parser identifies the driver; the optional customer keeps the activities and infringements tenant-scoped.';
+  }
+
   async function renderFiles(){
     let h=`<div class="card"><h3 style="margin:0 0 8px">Upload a download file (.ddd)</h3>
       <div class="row">
-        <div><label>File</label><input type="file" id="f" accept=".ddd,.tgd,.v1b,.c1b"></div>
+        <div><label>Files</label><input type="file" id="f" multiple accept=".ddd,.tgd,.v1b,.c1b"></div>
         <div><label>Type</label><select id="kind"><option value="driver_card">Driver card</option><option value="vehicle_unit">Vehicle unit</option></select></div>
-        <div><label>Driver / vehicle ref</label><input id="ref" placeholder="card no. or reg"></div>
+        <div><label>Customer</label><select id="company"><option value="">Unassigned / choose later</option></select></div>
+        <div id="vehicle-wrap" class="hidden"><label>Vehicle</label><select id="vehicle"><option value="">Select vehicle</option></select></div>
+        <div><label>Driver / vehicle ref</label><input id="ref" placeholder="optional card no. or reg"></div>
         <div><button class="btn" id="up">Upload &amp; analyse</button></div>
       </div>
+      <div class="note" id="upload-help">Select one or more files. Driver cards are parsed automatically. Vehicle-unit files must be assigned to a customer vehicle so the VU identity can be checked against the assigned registration.</div>
       <div class="msg" id="upmsg"></div>
-      <div class="note">Driver-card files are parsed and run through the drivers' hours / WTD engine. Files are archived and retained 12 months.</div>
+      <div class="note">Files are archived and retained for 12 months. Each file gets its own result below, so one bad file does not hide successful uploads.</div>
       <div class="row" style="margin-top:10px">
         <div><button class="btn small" id="re">Re-analyse archived cards</button></div>
         <div class="note" style="align-self:center">Rebuilds the infringement list from the archived files. Open items are replaced; ones you have acknowledged or dismissed are kept.</div>
@@ -155,8 +228,10 @@
     </div><div class="card" id="filelist"></div>`;
     $('view').innerHTML=h;
     $('up').onclick=doUpload;
+    $('kind').onchange=updateUploadKind;
+    $('company').onchange=loadUploadVehicles;
     $('re').onclick=doReanalyse;
-    listFiles();
+    updateUploadKind(); loadUploadCustomers(); listFiles();
   }
   async function doReanalyse(){
     const m=$('remsg'); $('re').disabled=true;
@@ -182,22 +257,39 @@
       <td>${dd(f.created_at)}</td><td>${dd(f.retain_until)}</td></tr>`; });
     $('filelist').innerHTML=h+'</table>';
   }
+  async function readFileBase64(file){
+    return await new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result.split(',')[1]); r.onerror=rej; r.readAsDataURL(file); });
+  }
   async function doUpload(){
-    const file=$('f').files[0]; const m=$('upmsg');
-    if(!file){ m.className='msg bad'; m.textContent='Choose a file first.'; return; }
-    const b64=await new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result.split(',')[1]); r.onerror=rej; r.readAsDataURL(file); });
-    $('up').disabled=true;
+    const files=[...$('f').files]; const m=$('upmsg'); const kind=$('kind').value;
+    if(!files.length){ m.className='msg bad'; m.textContent='Choose at least one file.'; return; }
+    const companyId=$('company').value||null, vehicleId=$('vehicle').value||null;
+    if(kind==='vehicle_unit'&&(!companyId||!vehicleId)){
+      m.className='msg bad'; m.textContent='Choose the customer and vehicle before uploading a vehicle-unit file.'; return;
+    }
+    $('up').disabled=true; m.className='msg'; m.textContent=`Reading ${files.length} file(s)…`;
     try{
-      const res=await fetch('api/tacho/upload',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({filename:file.name,content_base64:b64,file_kind:$('kind').value,
-          driver_ref:$('ref').value||null,vehicle_ref:$('kind').value==='vehicle_unit'?($('ref').value||null):null})});
-      const d=await res.json();
-      if(!res.ok){ m.className='msg bad'; m.textContent=(d.detail&&d.detail.message)||d.detail||'Upload failed.'; }
-      else if(d.already_analyzed){ m.className='msg ok'; m.textContent=`File already analysed. ${d.infringements_found||0} infringement(s) are already recorded.`; }
-      else if(d.parsed){ m.className='msg ok'; m.textContent=`Archived & parsed (${d.days} day(s)). ${d.infringements_found} infringement(s) found, ${d.infringements_new} new.`; }
-      else { m.className='msg ok'; m.textContent='Archived. '+(d.parse_error?('Not parsed: '+d.parse_error+' — file kept for the record.'):'Stored.'); }
+      const payload=await Promise.all(files.map(async file=>({filename:file.name,content_base64:await readFileBase64(file),file_kind:kind,
+        driver_ref:kind==='driver_card'?($('ref').value||null):null, vehicle_ref:kind==='vehicle_unit'?($('ref').value||null):null,
+        company_id:companyId,vehicle_id:vehicleId})));
+      const res=await fetch('api/tacho/upload-batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      const batch=await res.json();
+      if(!res.ok){ m.className='msg bad'; m.textContent=(batch.detail&&batch.detail.message)||batch.detail||'Upload failed.'; }
+      else{
+        const results=batch.files||[]; const parsed=results.filter(d=>d.parsed).length;
+        const failures=results.filter(d=>d.error||d.parse_error).length;
+        const details=results.map(d=>{
+          const name=esc(d.filename||d.file_id||'file');
+          if(d.error)return `<div>❌ ${name}: ${esc(String(d.error))}</div>`;
+          if(d.already_analyzed)return `<div>↺ ${name}: already analysed</div>`;
+          if(d.file_kind==='vehicle_unit'&&d.parsed)return `<div>✅ ${name}: VU parsed (${d.vehicle_ref||'registration not present'})${d.identity_mismatch?' — registration mismatch':''}</div>`;
+          if(d.parsed)return `<div>✅ ${name}: driver card parsed, ${d.infringements_found||0} infringement(s)</div>`;
+          return `<div>⚠ ${name}: archived but not parsed — ${esc(d.parse_error||'unknown error')}</div>`;
+        }).join('');
+        m.className=failures?'msg bad':'msg ok'; m.innerHTML=`${parsed}/${results.length} file(s) parsed.${failures?' '+failures+' file(s) need attention.':''}<div style="margin-top:6px">${details}</div>`;
+      }
       kpis(); listFiles();
-    }catch(e){ m.className='msg bad'; m.textContent='Network error.'; }
+    }catch(e){ m.className='msg bad'; m.textContent='Network error while uploading the batch.'; }
     $('up').disabled=false;
   }
 
@@ -262,7 +354,7 @@
     });
     $('rbody').className=''; $('rbody').innerHTML=b||'<div class="empty">Nothing in this period.</div>';
   }
-  function render(){ if(tab==='compliance')renderCompliance(); else if(tab==='infringements')renderInfringements(); else if(tab==='report')renderReport(); else renderFiles(); }
+  function render(){ if(tab==='compliance')renderCompliance(); else if(tab==='infringements')renderInfringements(); else if(tab==='timeline')renderTimeline(); else if(tab==='report')renderReport(); else renderFiles(); }
   document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
     tab=b.dataset.t; document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); render();
   });
