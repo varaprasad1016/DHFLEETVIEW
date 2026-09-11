@@ -2,11 +2,14 @@
 
 from app.database import Base
 from app.models.core import (
+    Company,
     CompanyCard,
     Device,
     Driver,
     DriverAssignment,
+    DriverCompany,
     TbaInstance,
+    Vehicle,
 )
 from app.models.integrations import (
     CardEvent,
@@ -21,14 +24,17 @@ from app.models.operations import (
 )
 from app.models.licensing import LicenseState
 from app.models.walkaround import WalkaroundCheck, WalkaroundDefect, WalkaroundPhoto
-from app.models.tacho import TachoFile, Infringement
+from app.models.tacho import TachoActivity, TachoFile, Infringement
 from app.models.vehicle import VehicleStatus
 
 __all__ = [
     "Base",
+    "Company",
     "Device",
+    "Vehicle",
     "Driver",
     "DriverAssignment",
+    "DriverCompany",
     "CompanyCard",
     "TbaInstance",
     "Schedule",
@@ -42,6 +48,7 @@ __all__ = [
     "WalkaroundCheck",
     "WalkaroundDefect",
     "WalkaroundPhoto",
+    "TachoActivity",
     "TachoFile",
     "Infringement",
     "VehicleStatus",

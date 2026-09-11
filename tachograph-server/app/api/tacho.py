@@ -8,7 +8,7 @@ import base64
 import uuid
 from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_license
 from app.config import settings
 from app.database import get_session
+from app.models.core import Company, Vehicle
+from app.models.tacho import TachoActivity
 from app.models.tacho import Infringement, TachoFile
 from app.services import archive, ddd_go, ddd_parser, tacho_compliance, tacho_pdf, tacho_report
 from app.services.tacho_rules import Activity, Infringement as RuleInfringement, analyse
@@ -43,6 +45,8 @@ class UploadIn(BaseModel):
     file_kind: str = Field(default="driver_card", pattern="^(driver_card|vehicle_unit|unknown)$")
     driver_ref: str | None = None
     vehicle_ref: str | None = None
+    company_id: uuid.UUID | None = None
+    vehicle_id: uuid.UUID | None = None
 
 
 class StatusIn(BaseModel):
@@ -90,8 +94,39 @@ def _parse_driver_card(data: bytes) -> tuple[dict, str]:
         raise
 
 
+def _vehicle_ref_for(parsed: dict, activity: Activity, fallback: str | None = None) -> str | None:
+    """Associate a span with the card's recorded vehicle spell when available."""
+    for vehicle in parsed.get("vehicles", []):
+        if vehicle.first_use and activity.end >= vehicle.first_use:
+            if vehicle.last_use is None or activity.start <= vehicle.last_use:
+                return vehicle.registration or fallback
+    return fallback
+
+
+async def _persist_activities(session: AsyncSession, parsed: dict, source_file_id: uuid.UUID,
+                              company_id: uuid.UUID | None = None, vehicle_id: uuid.UUID | None = None,
+                              vehicle_ref: str | None = None, driver_ref: str | None = None,
+                              activity_driver_refs: list[str | None] | None = None) -> None:
+    """Replace the canonical spans for one source file after a successful parse."""
+    await session.execute(delete(TachoActivity).where(TachoActivity.source_file_id == source_file_id))
+    for index, activity in enumerate(parsed.get("activities", [])):
+        activity_driver_ref = (
+            activity_driver_refs[index]
+            if activity_driver_refs is not None and index < len(activity_driver_refs)
+            else None
+        )
+        session.add(TachoActivity(
+            company_id=company_id, source_file_id=source_file_id,
+            driver_ref=activity_driver_ref or driver_ref or parsed.get("driver_ref"),
+            vehicle_id=vehicle_id,
+            vehicle_ref=_vehicle_ref_for(parsed, activity, vehicle_ref),
+            activity_type=activity.type, started_at=activity.start, ended_at=activity.end,
+            source="TACHOGRAPH", confidence="DIRECT"))
+    await session.flush()
+
+
 async def _persist_infringements(session: AsyncSession, driver_ref: str, found: list,
-                                 source_file_id: uuid.UUID | None) -> int:
+                                 source_file_id: uuid.UUID, company_id: uuid.UUID | None = None) -> int:
     if not found:
         return 0
     keys = [f"{driver_ref}|{i.rule}|{i.start.isoformat()}" for i in found]
@@ -106,7 +141,7 @@ async def _persist_infringements(session: AsyncSession, driver_ref: str, found: 
             driver_ref=driver_ref, rule=inf.rule, title=inf.title, severity=inf.severity,
             period_start=inf.start, period_end=inf.end, detail=inf.detail,
             limit_minutes=inf.limit_minutes, actual_minutes=inf.actual_minutes,
-            source_file_id=source_file_id, dedup_key=key))
+            source_file_id=source_file_id, company_id=company_id, dedup_key=key))
         existing.add(key)
         added += 1
     await session.commit()
@@ -157,8 +192,30 @@ async def analyze(body: AnalyzeIn, session: AsyncSession = Depends(get_session))
 
 
 @router.post("/upload", status_code=201)
-async def upload(body: UploadIn, session: AsyncSession = Depends(get_session)) -> dict:
+async def upload(body: UploadIn, session: AsyncSession = Depends(get_session),
+                 x_company_id: str | None = Header(default=None)) -> dict:
     filename = body.filename.strip()
+    company_id = body.company_id
+    if x_company_id:
+        try:
+            header_company_id = uuid.UUID(x_company_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="X-Company-ID is not a valid UUID.") from exc
+        if company_id and company_id != header_company_id:
+            raise HTTPException(status_code=403, detail="The selected customer does not match the upload.")
+        company_id = header_company_id
+    if company_id is not None and await session.get(Company, company_id) is None:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+    vehicle = None
+    if body.vehicle_id:
+        vehicle = await session.get(Vehicle, body.vehicle_id)
+        if vehicle is None:
+            raise HTTPException(status_code=404, detail="Vehicle not found.")
+        if company_id is not None and vehicle.company_id != company_id:
+            raise HTTPException(status_code=403, detail="Vehicle is assigned to another customer.")
+        company_id = vehicle.company_id
+    if body.file_kind == "vehicle_unit" and (company_id is None or vehicle is None):
+        raise HTTPException(status_code=400, detail="Vehicle-unit files require company_id and vehicle_id.")
     if not filename:
         raise HTTPException(status_code=400, detail="Filename is required.")
 
@@ -169,7 +226,10 @@ async def upload(body: UploadIn, session: AsyncSession = Depends(get_session)) -
         select(TachoFile)
         .where(
             func.lower(TachoFile.filename) == filename.lower(),
+            TachoFile.file_kind == body.file_kind,
             TachoFile.parsed.is_(True),
+            (TachoFile.company_id == company_id if company_id is not None
+             else TachoFile.company_id.is_(None)),
         )
         .order_by(TachoFile.created_at.desc())
         .limit(1)
@@ -203,7 +263,9 @@ async def upload(body: UploadIn, session: AsyncSession = Depends(get_session)) -
     meta = archive.store(filename, data)
     tf = TachoFile(
         filename=filename, file_kind=body.file_kind,
-        driver_ref=body.driver_ref, vehicle_ref=body.vehicle_ref,
+        company_id=company_id, vehicle_id=vehicle.id if vehicle else None,
+        driver_ref=body.driver_ref,
+        vehicle_ref=vehicle.registration if vehicle else body.vehicle_ref,
         size_bytes=meta["size_bytes"], sha256=meta["sha256"],
         storage_path=meta["storage_path"], source="upload",
         retain_until=meta["retain_until"])
@@ -223,9 +285,12 @@ async def upload(body: UploadIn, session: AsyncSession = Depends(get_session)) -
             driver_ref = (body.driver_ref or parsed.get("driver_ref")
                           or f"file:{meta['sha256'][:8]}")[:40]
             tf.driver_ref = driver_ref
+            await _persist_activities(session, parsed, tf.id, company_id,
+                                      vehicle.id if vehicle else None, vehicle.registration if vehicle else body.vehicle_ref,
+                                      driver_ref)
             found = analyse(parsed["activities"], parsed.get("places"),
                             parsed.get("card_gaps"))
-            added = await _persist_infringements(session, driver_ref, found, tf.id)
+            added = await _persist_infringements(session, driver_ref, found, tf.id, company_id)
             result.update(parsed=True, parser=parser_name, days=parsed["days"], driver_ref=driver_ref,
                           driver_name=parsed.get("driver_name"),
                           card_number=parsed.get("card_number"),
@@ -234,8 +299,103 @@ async def upload(body: UploadIn, session: AsyncSession = Depends(get_session)) -
             tf.parsed = False
             tf.parse_error = str(e)[:500]
             result["parse_error"] = str(e)
+    elif body.file_kind == "vehicle_unit":
+        try:
+            # Vehicle-unit files are not driver cards. They must go through the
+            # Go VU reader; the legacy card parser cannot understand TREP VU
+            # transfers and therefore used to leave these files merely archived.
+            parsed = ddd_go.parse_vehicle_unit(data)
+            tf.parsed = True
+            source_vehicle_ref = parsed.get("vehicle_ref")
+            assigned_vehicle_ref = vehicle.registration if vehicle else body.vehicle_ref
+            tf.vehicle_ref = assigned_vehicle_ref or source_vehicle_ref
+
+            identity_mismatch = bool(
+                assigned_vehicle_ref and source_vehicle_ref and
+                "".join(assigned_vehicle_ref.upper().split()) !=
+                "".join(source_vehicle_ref.upper().split())
+            )
+            if vehicle:
+                if parsed.get("vehicle_vin") and not vehicle.vin:
+                    vehicle.vin = parsed["vehicle_vin"]
+                if parsed.get("tachograph_serial") and not vehicle.tachograph_serial:
+                    vehicle.tachograph_serial = parsed["tachograph_serial"]
+
+            await _persist_activities(
+                session, parsed, tf.id, company_id, vehicle.id if vehicle else None,
+                tf.vehicle_ref, activity_driver_refs=parsed.get("activity_driver_refs"))
+            result.update(
+                parsed=True, parser=parsed.get("parser", "tachograph-go"),
+                days=parsed["days"], file_kind="vehicle_unit",
+                vehicle_ref=source_vehicle_ref, vehicle_vin=parsed.get("vehicle_vin"),
+                tachograph_serial=parsed.get("tachograph_serial"),
+                generation=parsed.get("generation"), drivers=parsed.get("drivers", []),
+                activities=len(parsed.get("activities", [])),
+                identity_mismatch=identity_mismatch,
+            )
+        except Exception as e:
+            tf.parsed = False
+            tf.parse_error = str(e)[:500]
+            result["parse_error"] = str(e)
     await session.commit()
     return result
+
+
+@router.post("/upload-batch")
+async def upload_batch(files: list[UploadIn], session: AsyncSession = Depends(get_session),
+                       x_company_id: str | None = Header(default=None)) -> dict:
+    """Upload several driver-card or VU files and return one result per file.
+
+    A bad file must not hide the result of the other files in the same picker
+    operation, so validation failures are returned alongside successful uploads.
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="At least one file is required.")
+    results = []
+    for item in files:
+        try:
+            results.append(await upload(item, session=session, x_company_id=x_company_id))
+        except HTTPException as exc:
+            results.append({"filename": item.filename, "parsed": False,
+                            "error": exc.detail, "status_code": exc.status_code})
+        except Exception as exc:
+            results.append({"filename": item.filename, "parsed": False,
+                            "error": str(exc)[:500]})
+    return {"files": results, "total": len(results),
+            "successful": sum(1 for item in results if "error" not in item)}
+
+
+@router.post("/files/{file_id}/assign")
+async def assign_file(file_id: uuid.UUID, company_id: uuid.UUID, vehicle_id: uuid.UUID | None = None,
+                      x_company_id: str | None = Header(default=None),
+                      session: AsyncSession = Depends(get_session)) -> dict:
+    """Explicitly assign an archived download to a customer and optional vehicle."""
+    if x_company_id:
+        try:
+            if uuid.UUID(x_company_id) != company_id:
+                raise HTTPException(status_code=403, detail="The selected customer does not match the assignment.")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="X-Company-ID is not a valid UUID.") from exc
+    if await session.get(Company, company_id) is None:
+        raise HTTPException(status_code=404, detail="Customer not found.")
+    file = await session.get(TachoFile, file_id)
+    if file is None:
+        raise HTTPException(status_code=404, detail="Tacho file not found.")
+    if file.company_id is not None and file.company_id != company_id:
+        raise HTTPException(status_code=409, detail="This file belongs to another customer.")
+    if vehicle_id:
+        vehicle = await session.get(Vehicle, vehicle_id)
+        if vehicle is None:
+            raise HTTPException(status_code=404, detail="Vehicle not found.")
+        if vehicle.company_id != company_id:
+            raise HTTPException(status_code=403, detail="Vehicle is assigned to another customer.")
+        file.vehicle_id = vehicle.id
+        file.vehicle_ref = vehicle.registration
+    file.company_id = company_id
+    await session.commit()
+    return {"file_id": str(file.id), "company_id": str(company_id),
+            "vehicle_id": str(file.vehicle_id) if file.vehicle_id else None,
+            "vehicle_ref": file.vehicle_ref, "assigned": True}
 
 
 @router.post("/reanalyse")
@@ -282,9 +442,11 @@ async def reanalyse(body: ReanalyseIn, session: AsyncSession = Depends(get_sessi
             out["removed"] += removed
             await session.flush()
 
+        await _persist_activities(session, parsed, tf.id, tf.company_id, tf.vehicle_id,
+                                  tf.vehicle_ref, driver_ref)
         found = analyse(parsed["activities"], parsed.get("places"),
                         parsed.get("card_gaps"))
-        added = await _persist_infringements(session, driver_ref, found, tf.id)
+        added = await _persist_infringements(session, driver_ref, found, tf.id, tf.company_id)
         out["files"] += 1
         out["found"] += len(found)
         out["added"] += added
@@ -341,6 +503,33 @@ async def _report_for(session: AsyncSession, file_id: uuid.UUID | None,
         driver_ref=tf.driver_ref or parsed.get("driver_ref"))
 
 
+@router.get("/timeline")
+async def timeline(driver_ref: str | None = None, vehicle_ref: str | None = None,
+                   start: datetime | None = None, end: datetime | None = None,
+                   company_id: uuid.UUID | None = None,
+                   session: AsyncSession = Depends(get_session)) -> list[dict]:
+    """Return canonical tachograph spans for an interactive driver/vehicle timeline."""
+    stmt = select(TachoActivity).order_by(TachoActivity.started_at)
+    if company_id:
+        stmt = stmt.where(TachoActivity.company_id == company_id)
+    if driver_ref:
+        stmt = stmt.where(TachoActivity.driver_ref == driver_ref)
+    if vehicle_ref:
+        stmt = stmt.where(TachoActivity.vehicle_ref == vehicle_ref)
+    if start:
+        stmt = stmt.where(TachoActivity.ended_at >= _aware(start))
+    if end:
+        stmt = stmt.where(TachoActivity.started_at <= _aware(end))
+    rows = (await session.execute(stmt.limit(10000))).scalars().all()
+    return [{"id": str(a.id), "company_id": str(a.company_id) if a.company_id else None,
+             "source_file_id": str(a.source_file_id), "driver_ref": a.driver_ref,
+             "vehicle_id": str(a.vehicle_id) if a.vehicle_id else None,
+             "vehicle_ref": a.vehicle_ref, "activity": a.activity_type.upper(),
+             "start": a.started_at.isoformat(), "end": a.ended_at.isoformat(),
+             "source": a.source, "confidence": a.confidence}
+            for a in rows]
+
+
 @router.get("/report")
 async def report(file_id: uuid.UUID | None = None, driver_ref: str | None = None,
                  start: date | None = None, end: date | None = None,
@@ -363,19 +552,25 @@ async def report_pdf(file_id: uuid.UUID | None = None, driver_ref: str | None = 
 
 @router.get("/infringements")
 async def list_infringements(status: str = "open", driver_ref: str | None = None,
+                             vehicle_ref: str | None = None,
                              session: AsyncSession = Depends(get_session)) -> list[dict]:
-    stmt = select(Infringement).order_by(Infringement.period_start.desc())
+    stmt = select(Infringement, TachoFile.vehicle_ref).outerjoin(
+        TachoFile, Infringement.source_file_id == TachoFile.id
+    ).order_by(Infringement.period_start.desc())
     if status != "all":
         stmt = stmt.where(Infringement.status == status)
     if driver_ref:
         stmt = stmt.where(Infringement.driver_ref == driver_ref)
-    rows = (await session.execute(stmt.limit(1000))).scalars().all()
+    if vehicle_ref:
+        stmt = stmt.where(TachoFile.vehicle_ref == vehicle_ref)
+    rows = (await session.execute(stmt.limit(1000))).all()
     return [{
-        "id": str(r.id), "driver_ref": r.driver_ref, "rule": r.rule, "title": r.title,
+        "id": str(r.id), "driver_ref": r.driver_ref, "vehicle_ref": vehicle,
+        "rule": r.rule, "title": r.title,
         "severity": r.severity, "status": r.status,
         "period_start": r.period_start.isoformat(), "period_end": r.period_end.isoformat(),
         "detail": r.detail, "limit_minutes": r.limit_minutes, "actual_minutes": r.actual_minutes,
-    } for r in rows]
+    } for r, vehicle in rows]
 
 
 @router.post("/infringements/{inf_id}/status")

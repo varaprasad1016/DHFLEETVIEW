@@ -17,11 +17,36 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
 
 
+class TachoActivity(Base):
+    """Canonical activity span used by the timeline and downstream analysis."""
+
+    __tablename__ = "tacho_activities"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    company_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id"))
+    source_file_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tacho_files.id", ondelete="CASCADE"), nullable=False)
+    driver_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("drivers.id"))
+    vehicle_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("vehicles.id"))
+    driver_ref: Mapped[str | None] = mapped_column(String(40))
+    vehicle_ref: Mapped[str | None] = mapped_column(String(20))
+    activity_type: Mapped[str] = mapped_column(String(16), nullable=False)  # drive|work|available|rest
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ended_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source: Mapped[str] = mapped_column(String(20), server_default=text("'TACHOGRAPH'"))
+    confidence: Mapped[str] = mapped_column(String(16), server_default=text("'DIRECT'"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class TachoFile(Base):
     __tablename__ = "tacho_files"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    company_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id"))
+    vehicle_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("vehicles.id"))
+    source_device_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("devices.id"))
     filename: Mapped[str] = mapped_column(String(200), nullable=False)
     file_kind: Mapped[str] = mapped_column(String(16), server_default=text("'unknown'"))  # driver_card|vehicle_unit|unknown
     driver_ref: Mapped[str | None] = mapped_column(String(40))   # card number or name
@@ -56,5 +81,6 @@ class Infringement(Base):
     status: Mapped[str] = mapped_column(String(14), server_default=text("'open'"))  # open|acknowledged|dismissed
     # Idempotency: a hash of (driver_ref, rule, period_start) so re-analysing the
     # same data does not duplicate infringements.
+    company_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("companies.id"))
     dedup_key: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
