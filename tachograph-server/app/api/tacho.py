@@ -64,6 +64,43 @@ def _aware(dt: datetime) -> datetime:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
+async def _account_company(session: AsyncSession, x_company_id: str | None = None) -> Company | None:
+    """Resolve the tenant from the account context, never from the upload form.
+
+    The authenticated account will eventually supply this context directly. For
+    the current single-deployment setup it is supplied by TACHO_ACCOUNT_COMPANY_ID;
+    if that is blank, one active company is an unambiguous safe default.
+    """
+    # The deployment/account configuration is the tenant boundary. The upload
+    # form and request headers cannot select another company.
+    raw = (settings.tacho_account_company_id or "").strip()
+    if raw:
+        try:
+            company_id = uuid.UUID(raw)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Account company ID is not a valid UUID.") from exc
+        company = await session.get(Company, company_id)
+        if company is None or not company.active:
+            raise HTTPException(status_code=404, detail="Account company not found or inactive.")
+        return company
+
+    companies = (await session.execute(
+        select(Company).where(Company.active.is_(True)).order_by(Company.created_at)
+    )).scalars().all()
+    if len(companies) == 1:
+        return companies[0]
+    if len(companies) > 1:
+        raise HTTPException(
+            status_code=409,
+            detail="This account is not linked to a single customer company. Configure TACHO_ACCOUNT_COMPANY_ID.",
+        )
+    return None
+
+
+def _same_registration(left: str | None, right: str | None) -> bool:
+    return bool(left and right and "".join(left.upper().split()) == "".join(right.upper().split()))
+
+
 def _parse_driver_card(data: bytes) -> tuple[dict, str]:
     """Parse with the maintained Go reader, falling back only when configured.
 
@@ -195,29 +232,26 @@ async def analyze(body: AnalyzeIn, session: AsyncSession = Depends(get_session))
 async def upload(body: UploadIn, session: AsyncSession = Depends(get_session),
                  x_company_id: str | None = Header(default=None)) -> dict:
     filename = body.filename.strip()
-    company_id = body.company_id
-    if x_company_id:
-        try:
-            header_company_id = uuid.UUID(x_company_id)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail="X-Company-ID is not a valid UUID.") from exc
-        if company_id and company_id != header_company_id:
-            raise HTTPException(status_code=403, detail="The selected customer does not match the upload.")
-        company_id = header_company_id
-    if company_id is not None and await session.get(Company, company_id) is None:
-        raise HTTPException(status_code=404, detail="Customer not found.")
+    if not filename:
+        raise HTTPException(status_code=400, detail="Filename is required.")
+
+    # Tenant ownership comes from the account context. The old form fields are
+    # retained for API compatibility, but a caller cannot move a file into a
+    # different company by posting another company_id.
+    account_company = await _account_company(session, x_company_id)
+    if account_company is None:
+        raise HTTPException(status_code=409, detail="This account is not linked to a customer company.")
+    company_id = account_company.id
+    if body.company_id is not None and body.company_id != company_id:
+        raise HTTPException(status_code=403, detail="Uploads belong to the company registered to this account.")
+
     vehicle = None
     if body.vehicle_id:
         vehicle = await session.get(Vehicle, body.vehicle_id)
         if vehicle is None:
             raise HTTPException(status_code=404, detail="Vehicle not found.")
-        if company_id is not None and vehicle.company_id != company_id:
+        if company_id is None or vehicle.company_id != company_id:
             raise HTTPException(status_code=403, detail="Vehicle is assigned to another customer.")
-        company_id = vehicle.company_id
-    if body.file_kind == "vehicle_unit" and (company_id is None or vehicle is None):
-        raise HTTPException(status_code=400, detail="Vehicle-unit files require company_id and vehicle_id.")
-    if not filename:
-        raise HTTPException(status_code=400, detail="Filename is required.")
 
     # The filename is the operator-facing identity of a card download. Do not
     # archive or analyse the same named file twice; an operator re-selecting a
@@ -301,25 +335,44 @@ async def upload(body: UploadIn, session: AsyncSession = Depends(get_session),
             result["parse_error"] = str(e)
     elif body.file_kind == "vehicle_unit":
         try:
-            # Vehicle-unit files are not driver cards. They must go through the
-            # Go VU reader; the legacy card parser cannot understand TREP VU
-            # transfers and therefore used to leave these files merely archived.
+            # Vehicle-unit files are not driver cards. Parse the VU identity
+            # first, then find (or create) the account's vehicle by the
+            # registration stored inside the DDD. No vehicle picker is needed.
             parsed = ddd_go.parse_vehicle_unit(data)
             tf.parsed = True
             source_vehicle_ref = parsed.get("vehicle_ref")
-            assigned_vehicle_ref = vehicle.registration if vehicle else body.vehicle_ref
-            tf.vehicle_ref = assigned_vehicle_ref or source_vehicle_ref
-
+            assigned_vehicle_ref = vehicle.registration if vehicle else None
             identity_mismatch = bool(
                 assigned_vehicle_ref and source_vehicle_ref and
-                "".join(assigned_vehicle_ref.upper().split()) !=
-                "".join(source_vehicle_ref.upper().split())
+                not _same_registration(assigned_vehicle_ref, source_vehicle_ref)
             )
+
+            if vehicle is None and source_vehicle_ref and company_id is not None:
+                registration = "".join(source_vehicle_ref.upper().split())
+                # Vehicle registrations are normalized by the customer API, so
+                # an exact tenant-scoped lookup avoids database-specific string
+                # functions and keeps the auto-match predictable.
+                vehicle = (await session.execute(select(Vehicle).where(
+                    Vehicle.company_id == company_id,
+                    Vehicle.registration == registration
+                ))).scalar_one_or_none()
+                if vehicle is None:
+                    vehicle = Vehicle(
+                        company_id=company_id, registration=registration,
+                        vin=parsed.get("vehicle_vin"),
+                        tachograph_serial=parsed.get("tachograph_serial"),
+                    )
+                    session.add(vehicle)
+                    await session.flush()
+                    result["vehicle_created"] = True
+
             if vehicle:
                 if parsed.get("vehicle_vin") and not vehicle.vin:
                     vehicle.vin = parsed["vehicle_vin"]
                 if parsed.get("tachograph_serial") and not vehicle.tachograph_serial:
                     vehicle.tachograph_serial = parsed["tachograph_serial"]
+            tf.vehicle_id = vehicle.id if vehicle else None
+            tf.vehicle_ref = vehicle.registration if vehicle else source_vehicle_ref
 
             await _persist_activities(
                 session, parsed, tf.id, company_id, vehicle.id if vehicle else None,
@@ -327,6 +380,7 @@ async def upload(body: UploadIn, session: AsyncSession = Depends(get_session),
             result.update(
                 parsed=True, parser=parsed.get("parser", "tachograph-go"),
                 days=parsed["days"], file_kind="vehicle_unit",
+                vehicle_id=str(vehicle.id) if vehicle else None,
                 vehicle_ref=source_vehicle_ref, vehicle_vin=parsed.get("vehicle_vin"),
                 tachograph_serial=parsed.get("tachograph_serial"),
                 generation=parsed.get("generation"), drivers=parsed.get("drivers", []),

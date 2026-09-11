@@ -397,10 +397,13 @@ def parse_vehicle_unit(data: bytes) -> dict:
     document = _run(data)
     root, variant, generation = _vehicle_unit_root(document)
     overview = variant.get("overview") or {}
-    registration = _nested_value(overview, "vehicleRegistrationWithNation", "number")
+    registration = (_nested_value(overview, "vehicleRegistrationWithNation", "number") or
+                    _nested_value(overview, "vehicle_registration_with_nation", "number"))
     if not registration:
-        registration = _nested_value(overview, "vehicleRegistrationIdentification", "number")
-    vin = _nested_value(overview, "vehicleIdentificationNumber")
+        registration = (_nested_value(overview, "vehicleRegistrationIdentification", "number") or
+                        _nested_value(overview, "vehicle_registration_identification", "number"))
+    vin = (_nested_value(overview, "vehicleIdentificationNumber") or
+           _nested_value(overview, "vehicle_identification_number"))
 
     technical = variant.get("technicalData") or variant.get("technical_data") or []
     tachograph_serial = None

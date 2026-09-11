@@ -2,11 +2,16 @@
 
 from datetime import datetime, timezone
 
-from app.api.tacho import _vehicle_ref_for
+from app.api.tacho import _same_registration, _vehicle_ref_for
 from app.services.ddd_parser import VehiclePeriod
 from app.services.tacho_rules import Activity
 
 UTC = timezone.utc
+
+
+def test_vu_registration_matching_ignores_spaces_and_case():
+    assert _same_registration("ab 12 cde", "AB12CDE")
+    assert not _same_registration("AB12CDE", "AB12CDF")
 
 
 def test_activity_uses_vehicle_spell_from_card():

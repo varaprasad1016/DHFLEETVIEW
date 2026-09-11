@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     tacho_parser_authenticate: bool = False
     tacho_parser_fallback: bool = False
 
+    # Uploads are assigned to the company belonging to the signed-in account.
+    # Until the account-authentication layer is connected, deployments can set
+    # this UUID explicitly; when it is blank, a single active company is used.
+    tacho_account_company_id: str = ""
+
     # --- Tacho file archive (native deploy: local filesystem, not MinIO) ---
     archive_path: str = "data/archive"
     archive_retention_months: int = 12  # DVSA: keep card & VU data at least 12 months
