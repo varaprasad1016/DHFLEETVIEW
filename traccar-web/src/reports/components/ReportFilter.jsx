@@ -11,7 +11,15 @@ import {
 } from '@mui/material';
 import { useSelector } from 'react-redux';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
+import customParseFormat from 'dayjs/plugin/customParseFormat';
+import { APP_TIME_ZONE } from '../../common/util/formatter';
 import { useTranslation } from '../../common/components/LocalizationProvider';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+dayjs.extend(customParseFormat);
 import useReportStyles from '../common/useReportStyles';
 import SplitButton from '../../common/components/SplitButton';
 import SelectField from '../../common/components/SelectField';
@@ -58,9 +66,11 @@ const ReportFilter = ({ children, onShow, onExport, onSchedule, deviceType, load
   const to = searchParams.get('to');
   const [period, setPeriod] = useState('today');
   const [customFrom, setCustomFrom] = useState(() =>
-    dayjs().subtract(1, 'hour').locale('en').format('YYYY-MM-DDTHH:mm'),
+    dayjs().tz(APP_TIME_ZONE).subtract(1, 'hour').locale('en').format('YYYY-MM-DDTHH:mm'),
   );
-  const [customTo, setCustomTo] = useState(() => dayjs().locale('en').format('YYYY-MM-DDTHH:mm'));
+  const [customTo, setCustomTo] = useState(() =>
+    dayjs().tz(APP_TIME_ZONE).locale('en').format('YYYY-MM-DDTHH:mm'),
+  );
   const [selectedOption, setSelectedOption] = useState('json');
 
   const [description, setDescription] = useState();
@@ -107,34 +117,37 @@ const ReportFilter = ({ children, onShow, onExport, onSchedule, deviceType, load
   const showReport = () => {
     let selectedFrom;
     let selectedTo;
+    // All periods are computed in London time so "today"/"this week" mean a UK day,
+    // regardless of the viewer's device timezone. toISOString() then sends UTC.
+    const now = dayjs().tz(APP_TIME_ZONE);
     switch (period) {
       case 'today':
-        selectedFrom = dayjs().startOf('day');
-        selectedTo = dayjs().endOf('day');
+        selectedFrom = now.startOf('day');
+        selectedTo = now.endOf('day');
         break;
       case 'yesterday':
-        selectedFrom = dayjs().subtract(1, 'day').startOf('day');
-        selectedTo = dayjs().subtract(1, 'day').endOf('day');
+        selectedFrom = now.subtract(1, 'day').startOf('day');
+        selectedTo = now.subtract(1, 'day').endOf('day');
         break;
       case 'thisWeek':
-        selectedFrom = dayjs().startOf('week');
-        selectedTo = dayjs().endOf('week');
+        selectedFrom = now.startOf('week');
+        selectedTo = now.endOf('week');
         break;
       case 'previousWeek':
-        selectedFrom = dayjs().subtract(1, 'week').startOf('week');
-        selectedTo = dayjs().subtract(1, 'week').endOf('week');
+        selectedFrom = now.subtract(1, 'week').startOf('week');
+        selectedTo = now.subtract(1, 'week').endOf('week');
         break;
       case 'thisMonth':
-        selectedFrom = dayjs().startOf('month');
-        selectedTo = dayjs().endOf('month');
+        selectedFrom = now.startOf('month');
+        selectedTo = now.endOf('month');
         break;
       case 'previousMonth':
-        selectedFrom = dayjs().subtract(1, 'month').startOf('month');
-        selectedTo = dayjs().subtract(1, 'month').endOf('month');
+        selectedFrom = now.subtract(1, 'month').startOf('month');
+        selectedTo = now.subtract(1, 'month').endOf('month');
         break;
       default:
-        selectedFrom = dayjs(customFrom, 'YYYY-MM-DDTHH:mm');
-        selectedTo = dayjs(customTo, 'YYYY-MM-DDTHH:mm');
+        selectedFrom = dayjs.tz(customFrom, 'YYYY-MM-DDTHH:mm', APP_TIME_ZONE);
+        selectedTo = dayjs.tz(customTo, 'YYYY-MM-DDTHH:mm', APP_TIME_ZONE);
         break;
     }
 

@@ -17,8 +17,11 @@ export const cmsv9GetConfig = async (deviceId) => {
   return response.json();
 };
 
-export const cmsv9StartLive = async (deviceId, channel) => {
-  const response = await fetch(`api/cmsv9/live/${deviceId}/${channel}`, {
+export const cmsv9StartLive = async (deviceId, channel, stream) => {
+  const url = stream === undefined
+    ? `api/cmsv9/live/${deviceId}/${channel}`
+    : `api/cmsv9/live/${deviceId}/${channel}?stream=${stream}`;
+  const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   });

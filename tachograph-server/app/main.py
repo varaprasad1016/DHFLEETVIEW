@@ -15,6 +15,7 @@ from app.api.walkaround import router as walkaround_router
 from app.api.tacho import router as tacho_router
 from app.api.reminders import router as reminders_router
 from app.api.caz import router as caz_router
+from app.api.customers import router as customers_router
 
 
 @asynccontextmanager
@@ -31,6 +32,7 @@ app.include_router(walkaround_router)
 app.include_router(tacho_router)
 app.include_router(reminders_router)
 app.include_router(caz_router)
+app.include_router(customers_router)
 
 
 _STATIC = Path(__file__).parent / "static"

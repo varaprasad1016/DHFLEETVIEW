@@ -1,42 +1,24 @@
 name: Build Mobile Apps
 
-# Builds and publishes the DH FleetView mobile apps from GitHub-hosted runners.
-# No local Mac is needed: the iOS job runs on a macOS runner.
-#
-#   Android -> Google Play, production track, draft status
-#   iOS     -> TestFlight
-#
-# The asymmetry is Apple's, not ours. Google Play accepts an upload straight
-# into a production draft that a human then rolls out. Apple requires review
-# before anything reaches the App Store, so the equivalent "uploaded but not
-# live" state is TestFlight. Promote a TestFlight build to the App Store from
-# App Store Connect when you actually want a release.
-#
-# Both publish jobs skip themselves cleanly when their secrets are absent, so
-# the workflow keeps producing downloadable artifacts before signing is set up.
-#
-# Setup: docs/IOS-PUBLISHING.md
+# Builds the DH FleetView Android AAB and iOS app on GitHub-hosted runners.
+# iOS requires a macOS runner (Xcode) - no local Mac needed.
+# Android AAB is signed with the upload keystore from repo secrets and,
+# auto-published to Google Play (production, draft) on every push to main,
+# tag, or manual dispatch.
 
 on:
   workflow_dispatch:        # manual trigger from the Actions tab
   push:
-    branches: [main, ios-app-store-publishing]
+    branches: [main]
     tags: ['v*']
 
-env:
-  # Every store upload needs a build number higher than the last one accepted.
-  # pubspec.yaml pins one, which is right for local builds and wrong for CI:
-  # a second push would re-upload the same number and be rejected. The run
-  # number is monotonic per repository; the offset clears build numbers already
-  # used by hand (1.0.3+4 at the time of writing).
-  BUILD_NUMBER_OFFSET: 100
+permissions:
+  contents: write
 
 jobs:
   ios:
     name: iOS (macOS runner)
     runs-on: macos-latest
-    outputs:
-      signed: ${{ steps.signing.outputs.signed }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -62,133 +44,38 @@ jobs:
         id: signing
         shell: bash
         env:
-          CERT: ${{ secrets.IOS_DIST_CERT_P12 }}
-          PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
-          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_KEY: ${{ secrets.APP_STORE_CONNECT_KEY }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
-          if [ -n "$CERT" ] && [ -n "$PROFILE" ] && [ -n "$TEAM_ID" ]; then
+          if [ -n "$ASC_KEY" ] && [ -n "$ASC_KEY_ID" ] && [ -n "$ASC_ISSUER_ID" ]; then
             echo "signed=true" >> "$GITHUB_OUTPUT"
-            echo "Signing secrets present; building a signed .ipa"
+            echo "App Store Connect API key present; building a signed .ipa (automatic signing)"
           else
             echo "signed=false" >> "$GITHUB_OUTPUT"
-            echo "Signing secrets absent; building unsigned. See docs/IOS-PUBLISHING.md"
+            echo "API key secrets absent; building unsigned."
           fi
 
-      # ---------------------------------------------------------------- signed
+      # -------- signed: App Store Connect API key + automatic signing --------
 
-      - name: Validate signing certificate bundle
+      - name: Set up App Store Connect API key
         if: steps.signing.outputs.signed == 'true'
         shell: bash
         env:
-          CERT_P12: ${{ secrets.IOS_DIST_CERT_P12 }}
-          CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+          ASC_KEY: ${{ secrets.APP_STORE_CONNECT_KEY }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
         run: |
-          # Decode the exact secret received by this runner. Removing whitespace
-          # makes the workflow tolerant of a wrapped Base64 value copied from a
-          # terminal or text editor.
-          printf '%s' "$CERT_P12" | tr -d '[:space:]' | base64 -d > /tmp/dist.p12
-
-          # Validate the password and PKCS#12 bundle before touching the keychain.
-          # This emits metadata only; it never prints the private key.
-          if ! openssl pkcs12 -info -in /tmp/dist.p12 -noout \
-            -passin env:CERT_PASSWORD >/tmp/pkcs12-info.txt 2>/tmp/pkcs12-error.txt; then
-            echo "IOS_DIST_CERT_P12 could not be opened with IOS_DIST_CERT_PASSWORD."
-            echo "Regenerate the Base64 value from the same .p12 and update both GitHub secrets."
-            cat /tmp/pkcs12-error.txt
-            exit 1
-          fi
-          grep -E 'MAC verified OK|MAC:|subject=' /tmp/pkcs12-info.txt || true
-
-          # Confirm the .p12 contains an Apple Distribution certificate and its
-          # matching private key; otherwise macOS imports zero code-signing IDs.
-          openssl pkcs12 -in /tmp/dist.p12 -passin env:CERT_PASSWORD \
-            -clcerts -nokeys -out /tmp/dist-cert-with-attrs.pem
-          openssl pkcs12 -in /tmp/dist.p12 -passin env:CERT_PASSWORD \
-            -nocerts -nodes -out /tmp/dist-key-with-attrs.pem
-          sed -n '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/p' \
-            /tmp/dist-cert-with-attrs.pem > /tmp/dist-cert.pem
-          sed -n '/-----BEGIN .*PRIVATE KEY-----/,/-----END .*PRIVATE KEY-----/p' \
-            /tmp/dist-key-with-attrs.pem > /tmp/dist-key.pem
-          CERT_SUBJECT=$(openssl x509 -in /tmp/dist-cert.pem -noout -subject)
-          CERT_PUBLIC_HASH=$(openssl x509 -in /tmp/dist-cert.pem -pubkey -noout \
-            | openssl pkey -pubin -outform DER | shasum -a 256 | awk '{print $1}')
-          KEY_PUBLIC_HASH=$(openssl pkey -in /tmp/dist-key.pem -pubout \
-            | openssl pkey -pubin -outform DER | shasum -a 256 | awk '{print $1}')
-          echo "$CERT_SUBJECT"
-          if ! printf '%s' "$CERT_SUBJECT" | grep -q 'Apple Distribution'; then
-            echo "IOS_DIST_CERT_P12 does not contain an Apple Distribution certificate."
-            exit 1
-          fi
-          if [ -z "$CERT_PUBLIC_HASH" ] || [ "$CERT_PUBLIC_HASH" != "$KEY_PUBLIC_HASH" ]; then
-            echo "The certificate and private key in IOS_DIST_CERT_P12 do not match."
-            exit 1
-          fi
-          rm -f /tmp/dist.p12 /tmp/dist-cert-with-attrs.pem /tmp/dist-key-with-attrs.pem \
-            /tmp/dist-cert.pem /tmp/dist-key.pem
-
-      - name: Import signing certificate
-        if: steps.signing.outputs.signed == 'true'
-        uses: apple-actions/import-codesign-certs@v7
-        with:
-          keychain: ${{ runner.temp }}/signing_temp
-          p12-file-base64: ${{ secrets.IOS_DIST_CERT_P12 }}
-          p12-password: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
-
-      - name: Verify signing identity
-        if: steps.signing.outputs.signed == 'true'
-        shell: bash
-        run: |
-          KEYCHAIN="$RUNNER_TEMP/signing_temp.keychain"
-          security find-identity -v -p codesigning "$KEYCHAIN"
-          IDENTITY_COUNT=$(security find-identity -v -p codesigning "$KEYCHAIN" \
-            | awk '/valid identities found/ {print $1}')
-          if [ "${IDENTITY_COUNT:-0}" -lt 1 ] || \
-            ! security find-identity -v -p codesigning "$KEYCHAIN" \
-              | grep -q 'Apple Distribution'; then
-            echo "No valid Apple Distribution identity with a private key was imported."
-            exit 1
-          fi
-          echo "IOS_BUILD_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
-
-      - name: Install provisioning profile
-        if: steps.signing.outputs.signed == 'true'
-        shell: bash
-        env:
-          PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
-          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          echo "$PROFILE" | base64 -d > /tmp/profile.mobileprovision
-
-          # Xcode finds profiles by UUID, and the export options need the name.
-          # Both live inside the profile, so read them rather than asking anyone
-          # to keep a second copy in sync.
-          security cms -D -i /tmp/profile.mobileprovision > /tmp/profile.plist
-          UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" /tmp/profile.plist)
-          NAME=$(/usr/libexec/PlistBuddy -c "Print :Name" /tmp/profile.plist)
-
-          cp /tmp/profile.mobileprovision \
-            ~/Library/MobileDevice/Provisioning\ Profiles/"$UUID".mobileprovision
-
-          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" /tmp/profile.plist)
-          GET_TASK_ALLOW=$(/usr/libexec/PlistBuddy -c "Print :Entitlements:get-task-allow" /tmp/profile.plist)
-          if [ "$BUNDLE_ID" != "${TEAM_ID}.com.dhgroup.fleetview" ] || [ "$GET_TASK_ALLOW" != "false" ]; then
-            echo "The provisioning profile is not an App Store profile for com.dhgroup.fleetview."
-            exit 1
-          fi
-
-          echo "PROFILE_NAME=$NAME" >> "$GITHUB_ENV"
-          echo "Installed provisioning profile: $NAME ($UUID)"
+          KEY_DIR="$RUNNER_TEMP/asc_private_keys"
+          mkdir -p "$KEY_DIR" ~/.appstoreconnect/private_keys
+          printf '%s\n' "$ASC_KEY" > "$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
+          cp "$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8" ~/.appstoreconnect/private_keys/
+          echo "ASC_KEY_PATH=$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8" >> "$GITHUB_ENV"
 
       - name: Write export options
         if: steps.signing.outputs.signed == 'true'
         shell: bash
-        env:
-          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          # method app-store-connect is the Xcode 15.3+ spelling. On an older
-          # Xcode this value must be "app-store" instead.
-          cat > traccar-manager/ios/ExportOptions.plist <<PLIST
+          cat > traccar-manager/ios/ExportOptions.plist <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
@@ -196,14 +83,9 @@ jobs:
             <key>method</key>
             <string>app-store-connect</string>
             <key>teamID</key>
-            <string>${TEAM_ID}</string>
+            <string>ZAWG6D59DU</string>
             <key>signingStyle</key>
-            <string>manual</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>com.dhgroup.fleetview</key>
-              <string>${PROFILE_NAME}</string>
-            </dict>
+            <string>automatic</string>
             <key>uploadSymbols</key>
             <true/>
             <key>stripSwiftSymbols</key>
@@ -217,9 +99,9 @@ jobs:
         if: steps.signing.outputs.signed == 'true'
         working-directory: traccar-manager
         env:
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
-          # Generate Flutter's iOS release artifacts without signing first.
           flutter build ios --release --no-codesign --build-number="$BUILD_NUMBER"
 
           rm -rf build/ios/archive build/ios/ipa
@@ -227,46 +109,72 @@ jobs:
           ARCHIVE_PATH="$PWD/build/ios/archive/Runner.xcarchive"
           EXPORT_PATH="$PWD/build/ios/ipa"
 
-          # Pass signing settings directly to xcodebuild. This prevents the
-          # checked-in development identity from overriding the CI identity.
           xcodebuild \
             -workspace ios/Runner.xcworkspace \
             -scheme Runner \
             -configuration Release \
             -archivePath "$ARCHIVE_PATH" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             archive \
-            CODE_SIGN_STYLE=Manual \
-            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
-            PRODUCT_BUNDLE_IDENTIFIER=com.dhgroup.fleetview \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
-            'CODE_SIGN_IDENTITY[sdk=iphoneos*]=Apple Distribution' \
-            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
-            CODE_SIGNING_REQUIRED=YES \
-            CODE_SIGNING_ALLOWED=YES \
-            OTHER_CODE_SIGN_FLAGS="--keychain $IOS_BUILD_KEYCHAIN"
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM=ZAWG6D59DU
 
           xcodebuild \
             -exportArchive \
             -archivePath "$ARCHIVE_PATH" \
             -exportPath "$EXPORT_PATH" \
-            -exportOptionsPlist ios/ExportOptions.plist
+            -exportOptionsPlist ios/ExportOptions.plist \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
 
-      - name: Upload signed .ipa
+      - name: Locate the signed .ipa
         if: steps.signing.outputs.signed == 'true'
+        run: echo "IPA_PATH=$(ls traccar-manager/build/ios/ipa/*.ipa | head -1)" >> "$GITHUB_ENV"
+
+      - name: Publish .ipa to a GitHub Release (downloadable for device testing)
+        if: steps.signing.outputs.signed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create ios-ipa-latest \
+            --repo "${{ github.repository }}" \
+            --title "DH FleetView iOS .ipa (latest)" \
+            --notes "Signed .ipa for on-device testing (BrowserStack / LambdaTest / Appetize)." 2>/dev/null || true
+          gh release upload ios-ipa-latest "$IPA_PATH" --repo "${{ github.repository }}" --clobber
+          echo "Uploaded $IPA_PATH to release ios-ipa-latest"
+
+      - name: Upload to TestFlight
+        if: steps.signing.outputs.signed == 'true'
+        uses: apple-actions/upload-testflight-build@v3
+        with:
+          app-path: ${{ env.IPA_PATH }}
+          issuer-id: ${{ secrets.ASC_ISSUER_ID }}
+          api-key-id: ${{ secrets.ASC_KEY_ID }}
+          api-private-key: ${{ secrets.APP_STORE_CONNECT_KEY }}
+
+      - name: Upload signed .ipa (best effort; skipped when artifact storage is full)
+        if: steps.signing.outputs.signed == 'true'
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: DH-FleetView-iOS
           path: traccar-manager/build/ios/ipa/*.ipa
           if-no-files-found: error
+          retention-days: 5
 
       # -------------------------------------------------------------- unsigned
 
       - name: Build iOS (unsigned)
         if: steps.signing.outputs.signed != 'true'
         working-directory: traccar-manager
-        run: flutter build ios --release --no-codesign --build-number="$BUILD_NUMBER"
+        run: flutter build ios --release --no-codesign
 
-      - name: Package unsigned .ipa
+      - name: Package .ipa
         if: steps.signing.outputs.signed != 'true'
         working-directory: traccar-manager
         run: |
@@ -275,13 +183,14 @@ jobs:
           zip -r DH-FleetView.ipa Payload
           rm -rf Payload
 
-      - name: Upload unsigned .ipa
+      - name: Upload .ipa
         if: steps.signing.outputs.signed != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: DH-FleetView-iOS-unsigned
+          name: DH-FleetView-iOS
           path: traccar-manager/DH-FleetView.ipa
           if-no-files-found: error
+          retention-days: 5
 
   android:
     name: Android (AAB)
@@ -299,10 +208,6 @@ jobs:
       - name: Get dependencies
         working-directory: traccar-manager
         run: flutter pub get
-
-      - name: Compute build number
-        shell: bash
-        run: echo "BUILD_NUMBER=$(( ${{ github.run_number }} + BUILD_NUMBER_OFFSET ))" >> "$GITHUB_ENV"
 
       - name: Verify signing secrets
         shell: bash
@@ -334,7 +239,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           STORE_FILE: ${{ github.workspace }}/environment/dhfleetview.keystore
-        run: flutter build appbundle --release --build-number="$BUILD_NUMBER"
+        run: flutter build appbundle --release
 
       - name: Build APK (release, sideload)
         working-directory: traccar-manager
@@ -343,7 +248,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           STORE_FILE: ${{ github.workspace }}/environment/dhfleetview.keystore
-        run: flutter build apk --release --build-number="$BUILD_NUMBER"
+        run: flutter build apk --release
 
       - name: Upload AAB
         uses: actions/upload-artifact@v4
@@ -351,6 +256,7 @@ jobs:
           name: DH-FleetView-Android
           path: traccar-manager/build/app/outputs/bundle/release/app-release.aab
           if-no-files-found: error
+          retention-days: 5
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -358,6 +264,7 @@ jobs:
           name: DH-FleetView-Android-APK
           path: traccar-manager/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
+          retention-days: 5
 
   publish-play:
     name: Publish to Google Play
@@ -389,55 +296,3 @@ jobs:
           releaseFiles: app-release.aab
           track: production
           status: draft
-
-  publish-testflight:
-    name: Publish to TestFlight
-    runs-on: macos-latest
-    needs: ios
-    if: >-
-      needs.ios.outputs.signed == 'true' &&
-      (github.ref == 'refs/heads/main' ||
-       github.ref == 'refs/heads/ios-app-store-publishing' ||
-       github.ref_type == 'tag' ||
-       github.event_name == 'workflow_dispatch')
-    steps:
-      - name: Check publishing configured
-        shell: bash
-        run: |
-          if [ -z "${{ secrets.APPSTORE_ISSUER_ID }}" ] \
-            || [ -z "${{ secrets.APPSTORE_KEY_ID }}" ] \
-            || [ -z "${{ secrets.APPSTORE_PRIVATE_KEY }}" ]; then
-            echo "App Store Connect API key secrets not configured; skipping publish"
-            echo "SKIP=1" >> "$GITHUB_ENV"
-          fi
-
-      - name: Download .ipa
-        if: env.SKIP != '1'
-        uses: actions/download-artifact@v4
-        with:
-          name: DH-FleetView-iOS
-          path: ipa
-
-      - name: Locate the .ipa
-        if: env.SKIP != '1'
-        shell: bash
-        run: |
-          # The file is named after the Xcode product, currently "Runner". That
-          # is a project setting somebody may reasonably rename, so find it
-          # rather than hard-coding a name the build would silently outgrow.
-          IPA=$(find ipa -name '*.ipa' | head -1)
-          if [ -z "$IPA" ]; then
-            echo "No .ipa found in the downloaded artifact" >&2
-            exit 1
-          fi
-          echo "IPA_PATH=$IPA" >> "$GITHUB_ENV"
-          echo "Uploading $IPA"
-
-      - name: Upload to TestFlight
-        if: env.SKIP != '1'
-        uses: apple-actions/upload-testflight-build@v3
-        with:
-          app-path: ${{ env.IPA_PATH }}
-          issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
-          api-key-id: ${{ secrets.APPSTORE_KEY_ID }}
-          api-private-key: ${{ secrets.APPSTORE_PRIVATE_KEY }}

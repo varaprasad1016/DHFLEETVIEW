@@ -71,14 +71,21 @@ class Activity:
 
 @dataclass
 class PlaceEntry:
-    """A place the driver entered at the start or end of a daily work period."""
+    """A place the driver entered at the start or end of a daily work period.
+
+    ``country`` is the legacy NationNumeric value used by the Gen1 reader.
+    ``country_name`` lets the Go reader preserve its richer enum/string value;
+    the compliance rule considers either representation a valid entry.
+    """
     time: datetime
     kind: str              # begin | end
     country: int = 0       # NationNumeric; 0 means nothing was entered
+    country_name: str = ""
 
     @property
     def has_country(self) -> bool:
-        return self.country not in (0x00, 0xFD, 0xFE, 0xFF)
+        return (self.country not in (0x00, 0xFD, 0xFE, 0xFF)
+                or bool(self.country_name))
 
 
 @dataclass

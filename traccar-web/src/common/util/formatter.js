@@ -32,11 +32,17 @@ export const formatVoltage = (value, t) => `${value.toFixed(2)} ${t('sharedVoltA
 export const formatConsumption = (value, t) =>
   `${value.toFixed(2)} ${t('sharedLiterPerHourAbbreviation')}`;
 
+// The whole application displays times in London (Europe/London handles GMT/BST
+// and DST automatically). Times are stored in UTC; this only affects display, so
+// every viewer sees UK time regardless of their device's own timezone.
+export const APP_TIME_ZONE = 'Europe/London';
+
 export const formatTime = (value, format) => {
   if (value) {
     const d = dayjs(value).toDate();
-    const dateConfig = { year: 'numeric', month: '2-digit', day: '2-digit' };
-    const minuteConfig = { hour: '2-digit', minute: '2-digit' };
+    const timeZone = APP_TIME_ZONE;
+    const dateConfig = { year: 'numeric', month: '2-digit', day: '2-digit', timeZone };
+    const minuteConfig = { hour: '2-digit', minute: '2-digit', timeZone };
     const secondConfig = { ...minuteConfig, second: '2-digit' };
     switch (format) {
       case 'date':
