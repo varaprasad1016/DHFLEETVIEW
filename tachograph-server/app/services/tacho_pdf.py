@@ -326,7 +326,7 @@ def render(report: dict, generated: datetime | None = None) -> bytes:
     who = driver.get("name") or driver.get("ref") or "Unknown driver"
     card = driver.get("card_number")
 
-    company = report.get("company_name") or "DH FleetView"
+    company = report.get("company_name") or "${title}"
     story: list = []
     for index, week in enumerate(report.get("weeks", [])):
         if index:

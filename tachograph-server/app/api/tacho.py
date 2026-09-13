@@ -196,7 +196,7 @@ async def company_name(session: AsyncSession = Depends(get_session)) -> dict:
         .order_by(TachoFile.created_at.desc())
         .limit(1)
     )).scalar_one_or_none()
-    return {"name": name or "DH FleetView"}
+    return {"name": name or "${title}"}
 
 
 @router.get("/summary")

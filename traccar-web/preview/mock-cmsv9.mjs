@@ -1,5 +1,5 @@
 /*
- * Mock CMSV9 / 808gps server for testing the DH FleetView video integration.
+ * Mock CMSV9 / 808gps server for testing the ${title} video integration.
  *
  * Implements the platform's open-API surface decoded from webApi.html:
  *   - JSONP login:  /StandardApiAction_loginEx.action?account=..&password=..&callback=..

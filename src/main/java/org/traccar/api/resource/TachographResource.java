@@ -161,7 +161,7 @@ public class TachographResource extends BaseResource {
                 .map(TachographFile::getCompanyName)
                 .filter(value -> value != null && !value.isBlank())
                 .findFirst()
-                .orElse("DH FleetView");
+                .orElse("${title}");
         return Map.of("name", name);
     }
 

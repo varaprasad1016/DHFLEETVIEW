@@ -1,6 +1,6 @@
 # ============================================================
-# DH FleetView - Production Deployment Script
-# Run this in an elevated PowerShell on 109.228.53.195
+# ${title} - Production Deployment Script
+# Run this in an elevated PowerShell on the production server
 # ============================================================
 #Requires -RunAsAdministrator
 
@@ -11,7 +11,7 @@ $WebPort = 8082
 
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Cyan
-Write-Host "   DH FleetView - Production Deployment" -ForegroundColor Cyan
+Write-Host "   ${title} - Production Deployment" -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -84,7 +84,7 @@ New-Item -ItemType Directory -Force -Path "$InstallDir\web" | Out-Null
 Write-Host "  Created $InstallDir" -ForegroundColor Green
 
 # ── Step 4: Clone the repo and get the web build ────────────
-Write-Host "[4/7] Fetching DH FleetView from GitHub..." -ForegroundColor Yellow
+Write-Host "[4/7] Fetching ${title} from GitHub..." -ForegroundColor Yellow
 
 # Download the web build zip from the repo
 $repoUrl = "https://github.com/varaprasad1016/DHFLEETVIEW"
@@ -148,20 +148,20 @@ Write-Host "  Config written to $InstallDir\traccar.xml" -ForegroundColor Green
 Write-Host "[6/7] Configuring Windows Firewall..." -ForegroundColor Yellow
 
 # Remove existing rule if any
-Remove-NetFirewallRule -DisplayName "DH FleetView (8082)" -ErrorAction SilentlyContinue
+Remove-NetFirewallRule -DisplayName "${title} (8082)" -ErrorAction SilentlyContinue
 
 # Add inbound rule
-New-NetFirewallRule -DisplayName "DH FleetView (8082)" `
+New-NetFirewallRule -DisplayName "${title} (8082)" `
     -Direction Inbound `
     -Protocol TCP `
     -LocalPort $ServerPort `
     -Action Allow `
     -Profile Any `
-    -Description "DH FleetView Traccar web server"
+    -Description "${title} web server"
 Write-Host "  Firewall rule added: TCP $ServerPort inbound ALLOW" -ForegroundColor Green
 
 # ── Step 7: Pull Traccar image and run container ────────────
-Write-Host "[7/7] Starting DH FleetView container..." -ForegroundColor Yellow
+Write-Host "[7/7] Starting ${title} container..." -ForegroundColor Yellow
 
 # Stop and remove old container if exists
 docker stop dhfleetview 2>$null
@@ -196,7 +196,7 @@ $containerStatus = docker inspect dhfleetview --format '{{.State.Status}}' 2>$nu
 if ($containerStatus -eq "running") {
     Write-Host ""
     Write-Host "============================================" -ForegroundColor Green
-    Write-Host "   DH FleetView is LIVE!" -ForegroundColor Green
+    Write-Host "   ${title} is LIVE!" -ForegroundColor Green
     Write-Host "============================================" -ForegroundColor Green
     Write-Host ""
     Write-Host "  URL:      http://109.228.53.195:${ServerPort}" -ForegroundColor Cyan

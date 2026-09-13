@@ -85,7 +85,7 @@ const RegisterPage = () => {
           <CheckCircleRoundedIcon className={classes.successIcon} />
           <span className={classes.successTitle}>Enquiry received</span>
           <span className={classes.successText}>
-            Thank you for your interest in DH FleetView. Our team will review your
+            Thank you for your interest in ${title}. Our team will review your
             enquiry and be in touch with you shortly.
           </span>
           <Button

@@ -284,7 +284,7 @@ class _MainScreenState extends State<MainScreen> {
           ),
           const SizedBox(height: 24),
           const Text(
-            'DH FleetView',
+            '${title}',
             style: TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.w700,

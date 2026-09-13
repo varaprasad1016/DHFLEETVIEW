@@ -13,8 +13,8 @@ const getCompanyName = async () => {
   if (!companyNamePromise) {
     companyNamePromise = fetch('/api/tachograph/company')
       .then((response) => (response.ok ? response.json() : {}))
-      .then((data) => data.name || 'DH FleetView')
-      .catch(() => 'DH FleetView');
+      .then((data) => data.name || window.title || '${title}')
+      .catch(() => window.title || '${title}');
   }
   return companyNamePromise;
 };
