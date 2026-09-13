@@ -26,6 +26,7 @@ class TachoFile(Base):
     file_kind: Mapped[str] = mapped_column(String(16), server_default=text("'unknown'"))  # driver_card|vehicle_unit|unknown
     driver_ref: Mapped[str | None] = mapped_column(String(40))   # card number or name
     vehicle_ref: Mapped[str | None] = mapped_column(String(20))  # registration/VRM
+    company_name: Mapped[str | None] = mapped_column(String(128))  # VU overview operator/company
     size_bytes: Mapped[int | None] = mapped_column(Integer)
     sha256: Mapped[str | None] = mapped_column(String(64))
     storage_path: Mapped[str] = mapped_column(String(500), nullable=False)

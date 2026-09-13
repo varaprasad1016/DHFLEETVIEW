@@ -107,30 +107,75 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   bool _isDownloadable(Uri uri) {
+    final path = uri.path.toLowerCase();
     final lastSegment = uri.pathSegments.isNotEmpty ? uri.pathSegments.last.toLowerCase() : '';
-    return ['xlsx', 'kml', 'csv', 'gpx'].contains(lastSegment);
+    final extension = lastSegment.contains('.') ? lastSegment.split('.').last : '';
+    final downloadQuery = uri.queryParameters['download'] == 'true'
+        || uri.queryParameters['format'] != null && ['csv', 'gpx', 'kml', 'kmz', 'xlsx', 'pdf'].contains(uri.queryParameters['format']!.toLowerCase());
+    return ['xlsx', 'kml', 'kmz', 'csv', 'gpx', 'pdf', 'exe', 'ddd'].contains(extension)
+        || lastSegment == 'download'
+        || downloadQuery
+        || path.contains('/export/');
   }
 
-  Future<void> _shareFile(String fileName, Uint8List bytes) async {
-    final directory = Platform.isAndroid
-      ? await getExternalStorageDirectory()
-      : await getApplicationDocumentsDirectory();
-    final file = File('${directory!.path}/$fileName');
-    await file.writeAsBytes(bytes);
-    await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
+  String _safeFileName(String value) {
+    final cleaned = value.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+    return cleaned.isEmpty ? 'download' : cleaned;
   }
 
-  Future<void> _downloadFile(Uri uri) async {
+  String _extensionForMime(String? mimeType) {
+    switch (mimeType?.toLowerCase()) {
+      case 'application/pdf':
+        return 'pdf';
+      case 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
+        return 'xlsx';
+      case 'text/csv':
+        return 'csv';
+      case 'application/gpx+xml':
+        return 'gpx';
+      case 'application/vnd.google-earth.kml+xml':
+        return 'kml';
+      case 'application/vnd.google-earth.kmz':
+        return 'kmz';
+      case 'application/octet-stream':
+        return 'bin';
+      default:
+        return 'download';
+    }
+  }
+
+  Future<void> _saveDownloadedBytes(
+    Uint8List bytes, {
+    String? fileName,
+    String? mimeType,
+  }) async {
+    final name = _safeFileName(fileName ?? '${DateTime.now().millisecondsSinceEpoch}.${_extensionForMime(mimeType)}');
+    await _shareFile(name, bytes);
+  }
+
+  Future<void> _downloadFile(
+    Uri uri, {
+    String? suggestedFileName,
+    String? mimeType,
+  }) async {
     try {
       final token = await _loginTokenStore.read(false);
       if (token == null) return;
       final response = await http.get(uri, headers: {'Authorization': 'Bearer $token'});
       if (response.statusCode == 200) {
-        final timestamp = DateTime.now().millisecondsSinceEpoch;
-        final extension = uri.pathSegments.last;
-        _shareFile('$timestamp.$extension', response.bodyBytes);
+        final disposition = response.headers['content-disposition'] ?? '';
+        final match = RegExp(r'''filename\*?=(?:UTF-8''|utf-8'')?"?([^";]+)"?''').firstMatch(disposition);
+        final headerFileName = match?.group(1);
+        final fileName = headerFileName != null && headerFileName.isNotEmpty
+            ? Uri.decodeComponent(headerFileName)
+            : suggestedFileName;
+        await _saveDownloadedBytes(
+          response.bodyBytes,
+          fileName: fileName,
+          mimeType: mimeType ?? response.headers['content-type'],
+        );
       } else {
-        developer.log('Failed file download request');
+        developer.log('Failed file download request: ${response.statusCode}');
       }
     } catch (e) {
       developer.log('Failed to download file', error: e);
@@ -187,7 +232,20 @@ class _MainScreenState extends State<MainScreen> {
         await _loginTokenStore.delete();
       case 'download':
         try {
-          _shareFile('report.xlsx', base64Decode(parts[1]));
+          if (parts.length >= 4) {
+            await _saveDownloadedBytes(
+              base64Decode(parts[3]),
+              fileName: parts[2],
+              mimeType: parts[1],
+            );
+          } else if (parts.length > 1) {
+            // Backwards-compatible format used by older injected pages.
+            await _saveDownloadedBytes(
+              base64Decode(parts[1]),
+              fileName: 'report.xlsx',
+              mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            );
+          }
         } catch (e) {
           developer.log('Failed to save downloaded file', error: e);
         }
@@ -319,18 +377,34 @@ class _MainScreenState extends State<MainScreen> {
                       }
                     }
                   };
-                  const excelType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
                   const originalCreateObjectURL = URL.createObjectURL;
+                  const downloadableBlobs = new Map();
                   URL.createObjectURL = function(object) {
-                    if (object instanceof Blob && object.type === excelType) {
-                      const reader = new FileReader();
-                      reader.onload = () => {
-                        window.appInterface.postMessage('download|' + reader.result.split(',')[1]);
-                      };
-                      reader.readAsDataURL(object);
+                    const url = originalCreateObjectURL.apply(this, arguments);
+                    if (object instanceof Blob) {
+                      downloadableBlobs.set(url, object);
                     }
-                    return originalCreateObjectURL.apply(this, arguments);
+                    return url;
                   };
+                  document.addEventListener('click', function(event) {
+                    const anchor = event.target && event.target.closest
+                      ? event.target.closest('a[download]')
+                      : null;
+                    if (!anchor) return;
+                    const blob = downloadableBlobs.get(anchor.href);
+                    if (!blob) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      const encodedName = (anchor.download || 'download').replace(/\|/g, '_');
+                      window.appInterface.postMessage(
+                        'download|' + (blob.type || 'application/octet-stream')
+                        + '|' + encodedName + '|' + reader.result.split(',')[1],
+                      );
+                    };
+                    reader.readAsDataURL(blob);
+                  }, true);
                   window.addEventListener('flutterInAppWebViewPlatformReady', function() {
                     if (window.__traccarMessageQueue && window.flutter_inappwebview && window.flutter_inappwebview.callHandler) {
                       window.__traccarMessageQueue.forEach(function(message) {
@@ -378,10 +452,18 @@ class _MainScreenState extends State<MainScreen> {
                 return NavigationActionPolicy.CANCEL;
               }
               if (_isDownloadable(uri)) {
-                _downloadFile(uri);
+                await _downloadFile(uri);
                 return NavigationActionPolicy.CANCEL;
               }
               return NavigationActionPolicy.ALLOW;
+            },
+            onDownloadStartRequest: (controller, request) async {
+              final uri = Uri.parse(request.url.toString());
+              await _downloadFile(
+                uri,
+                suggestedFileName: request.suggestedFilename,
+                mimeType: request.mimeType,
+              );
             },
             onReceivedError: (controller, request, error) {
               if (request.isForMainFrame == true) {

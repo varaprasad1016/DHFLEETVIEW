@@ -46,6 +46,7 @@ public class TachographFile extends BaseModel {
     private String vehicleRegistration;
     private String vehicleIdentification;
     private String vehicleUnitSerial;
+    private String companyName;
     private String cardNumber;
     private Date periodFrom;
     private Date periodTo;
@@ -175,6 +176,15 @@ public class TachographFile extends BaseModel {
 
     public void setVehicleUnitSerial(String vehicleUnitSerial) {
         this.vehicleUnitSerial = vehicleUnitSerial;
+    }
+
+    /** Company/operator name recorded in the vehicle-unit overview. */
+    public String getCompanyName() {
+        return companyName;
+    }
+
+    public void setCompanyName(String companyName) {
+        this.companyName = companyName;
     }
 
     public String getCardNumber() {

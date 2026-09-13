@@ -36,6 +36,7 @@ public class DddMetadata {
     private Integer vehicleRegistrationNation;
     private String vehicleUnitSerialNumber;
     private String vehicleUnitManufacturer;
+    private String companyName;
     private String cardNumber;
     private String cardHolderName;
     private Date currentDateTime;
@@ -90,6 +91,14 @@ public class DddMetadata {
 
     public void setVehicleUnitManufacturer(String vehicleUnitManufacturer) {
         this.vehicleUnitManufacturer = vehicleUnitManufacturer;
+    }
+
+    public String getCompanyName() {
+        return companyName;
+    }
+
+    public void setCompanyName(String companyName) {
+        this.companyName = companyName;
     }
 
     public String getCardNumber() {

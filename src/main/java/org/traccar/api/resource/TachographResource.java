@@ -151,6 +151,20 @@ public class TachographResource extends BaseResource {
                 || TachographDownloadJob.STATUS_PROCESSING.equals(status);
     }
 
+    /** Returns the company/operator name read from the latest visible vehicle-unit file. */
+    @GET
+    @Path("company")
+    public Map<String, String> companyName() throws StorageException {
+        List<TachographFile> files = tachographManager.getFiles(
+                getUserId(), isAdministrator(), null, TachographFile.TYPE_VEHICLE, 500);
+        String name = files.stream()
+                .map(TachographFile::getCompanyName)
+                .filter(value -> value != null && !value.isBlank())
+                .findFirst()
+                .orElse("DH FleetView");
+        return Map.of("name", name);
+    }
+
     // -----------------------------------------------------------------------
     // Configuration
     // -----------------------------------------------------------------------

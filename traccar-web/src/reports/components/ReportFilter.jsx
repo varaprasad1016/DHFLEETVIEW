@@ -27,7 +27,7 @@ export const updateReportParams = (searchParams, setSearchParams, key, values) =
   setSearchParams(newParams, { replace: true });
 };
 
-const ReportFilter = ({ children, onShow, onExport, onSchedule, deviceType, loading, formats }) => {
+const ReportFilter = ({ children, onShow, onExport, onSchedule, deviceType, loading, formats = [] }) => {
   const { classes } = useReportStyles();
   const t = useTranslation();
 
@@ -146,6 +146,7 @@ const ReportFilter = ({ children, onShow, onExport, onSchedule, deviceType, load
 
   const onSelected = (type) => {
     switch (type) {
+      case 'pdf':
       case 'xlsx':
       case 'csv':
       case 'gpx':
