@@ -124,8 +124,8 @@ const TachographPage = () => {
               { label: 'Vehicle defects', desc: 'Defects & rectification log', href: '/tacho/defects', icon: <WarningAmberIcon /> },
               { label: 'Tacho compliance', desc: "Drivers' hours & WTD, archive", href: '/tacho/hours', icon: <AccessTimeIcon /> },
               { label: 'Driver Shifts', desc: 'Clock in/out & shift tracking', href: '/driver-shift', icon: <LoginIcon /> },
-              { label: 'Job Management', desc: 'Send & manage driver jobs', href: '/tacho/jobs', icon: <AssignmentIcon /> },
-              { label: 'Shift Reports', desc: 'View shift history & photos', href: '/tacho/shifts', icon: <AccessTimeIcon /> },
+              { label: 'Job Management', desc: 'Send & manage driver jobs', href: '/jobs', icon: <AssignmentIcon /> },
+              { label: 'Shift Reports', desc: 'View shift history & photos', href: '/shifts', icon: <AccessTimeIcon /> },
               { label: 'MOT & tax reminders', desc: 'DVLA MOT, tax & Euro status', href: '/tacho/reminders', icon: <EventAvailableIcon /> },
               { label: 'Clean Air Zone', desc: 'ULEZ / CAZ charge exposure', href: '/tacho/caz', icon: <AirIcon /> },
             ].map((tool) => (

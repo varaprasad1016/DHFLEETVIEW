@@ -91,7 +91,7 @@
 </div>
 
 <script>
-const API = '/api/shifts';
+const API = location.port === '8000' ? '/api/shifts' : location.protocol + '//' + location.hostname + ':8000/api/shifts';
 let jobs = [];
 let filter = 'all';
 const filters = ['all','pending','accepted','denied','completed','cancelled'];

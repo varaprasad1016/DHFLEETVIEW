@@ -137,7 +137,7 @@
   </div>
 </main>
 <script>
-const API = '/api/shifts';
+const API = location.port === '8000' ? '/api/shifts' : location.protocol + '//' + location.hostname + ':8000/api/shifts';
 let activeShift = null;
 let pollTimer = null;
 

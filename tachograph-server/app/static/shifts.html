@@ -59,7 +59,7 @@
   <div class="detail-box" id="detailBox" onclick="event.stopPropagation()"></div>
 </div>
 <script>
-const API = '/api/shifts';
+const API = location.port === '8000' ? '/api/shifts' : location.protocol + '//' + location.hostname + ':8000/api/shifts';
 let activeShifts = [];
 let historyShifts = [];
 let currentTab = 'active';
