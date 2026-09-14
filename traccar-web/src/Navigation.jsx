@@ -64,6 +64,9 @@ const StreamPage = lazy(() => import('./other/StreamPage'));
 const Cmsv9VideoPage = lazy(() => import('./other/Cmsv9VideoPage'));
 const TachographPage = lazy(() => import('./other/TachographPage'));
 const AuditPage = lazy(() => import('./reports/AuditPage'));
+const DriverShiftPage = lazy(() => import('./tachograph/DriverShiftPage'));
+const JobsTab = lazy(() => import('./tachograph/JobsTab'));
+const ShiftsReportTab = lazy(() => import('./tachograph/ShiftsReportTab'));
 
 const Navigation = () => {
   const dispatch = useDispatch();
@@ -140,6 +143,9 @@ const Navigation = () => {
           <Route path="stream" element={<StreamPage />} />
           <Route path="cmsv9-video" element={<Cmsv9VideoPage />} />
           <Route path="tachograph" element={<TachographPage />} />
+          <Route path="driver-shift" element={<DriverShiftPage />} />
+          <Route path="tacho/jobs" element={<JobsTab />} />
+          <Route path="tacho/shifts" element={<ShiftsReportTab />} />
 
           <Route path="settings">
             <Route path="tachograph" element={<TachographPage />} />

@@ -26,6 +26,7 @@ from app.models.licensing import LicenseState
 from app.models.walkaround import WalkaroundCheck, WalkaroundDefect, WalkaroundPhoto
 from app.models.tacho import TachoActivity, TachoFile, Infringement
 from app.models.vehicle import VehicleStatus
+from app.models.shifts import Shift, ShiftPhoto, Job, ShiftJob
 
 __all__ = [
     "Base",
@@ -52,4 +53,8 @@ __all__ = [
     "TachoFile",
     "Infringement",
     "VehicleStatus",
+    "Shift",
+    "ShiftPhoto",
+    "Job",
+    "ShiftJob",
 ]
