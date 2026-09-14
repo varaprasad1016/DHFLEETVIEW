@@ -9,12 +9,13 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import get_session
 from app.models.shifts import Shift, ShiftPhoto, Job, ShiftJob
 from app.services import media_store
@@ -72,6 +73,26 @@ def _store(data_url: str) -> dict:
         raise HTTPException(status_code=400, detail=f"Bad image: {e}")
 
 
+def _store_upload(file: UploadFile) -> dict:
+    """Save an uploaded file via multipart form."""
+    import base64, uuid as _uuid
+    from pathlib import Path
+    raw = file.file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(raw) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large (max 5 MB)")
+    ext = "jpg"
+    ct = file.content_type or "image/jpeg"
+    if "png" in ct:
+        ext = "png"
+    root = Path(settings.archive_path).parent / "walkaround"
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / f"{_uuid.uuid4().hex}.{ext}"
+    path.write_bytes(raw)
+    return {"storage_path": str(path), "content_type": ct}
+
+
 # ======================================================================
 #  Fixed-string routes MUST come before parameterised ones ({shift_id}).
 #  FastAPI matches top-to-bottom; /jobs was being swallowed by /{shift_id}.
@@ -120,6 +141,30 @@ async def clock_in(body: ClockInRequest, session: AsyncSession = Depends(get_ses
         "vehicle_reg": shift.vehicle_reg,
         "clocked_in_at": shift.clocked_in_at.isoformat() if shift.clocked_in_at else None,
     }
+
+
+@router.post("/{shift_id}/photos")
+async def upload_photos(
+    shift_id: uuid.UUID,
+    photo_type: str = Query(..., pattern="^(odometer|fuel|adblue)_(in|out)$"),
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Upload a clock-in/out photo as multipart form data (avoids 502 from large JSON bodies)."""
+    shift = (await session.execute(
+        select(Shift).where(Shift.id == shift_id)
+    )).scalar_one_or_none()
+    if shift is None:
+        raise HTTPException(status_code=404, detail="Shift not found.")
+    meta = _store_upload(file)
+    session.add(ShiftPhoto(
+        shift_id=shift.id,
+        photo_type=photo_type,
+        content_type=meta["content_type"],
+        storage_path=meta["storage_path"],
+    ))
+    await session.commit()
+    return {"ok": True, "photo_type": photo_type}
 
 
 # --- Query endpoints (before /{shift_id}) ---

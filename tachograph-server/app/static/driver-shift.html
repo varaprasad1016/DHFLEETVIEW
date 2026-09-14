@@ -209,29 +209,34 @@ async function doClockIn(){
   const btn = $('clockInBtn');
   btn.disabled = true; btn.textContent = 'Starting…';
   try {
-    const photos = [];
-    for(const [type, inputId] of [['odometer','photoOdometer'],['fuel','photoFuel'],['adblue','photoAdblue']]){
-      const file = $(inputId).files[0];
-      if(file){
-        const dataUrl = await readFileAsDataURL(file);
-        photos.push({ photo_type: type, image: dataUrl });
-      }
-    }
+    // Step 1: Clock in WITHOUT photos (small JSON body, avoids 502)
     const data = await api('POST', '/clock-in', {
       driver_name: name,
       vehicle_reg: $('vehicleReg').value.trim() || null,
       odometer_km: $('odometerIn').value ? parseInt($('odometerIn').value) : null,
       fuel_level_pct: $('fuelIn').value ? parseInt($('fuelIn').value) : null,
       adblue_level_pct: $('adblueIn').value ? parseInt($('adblueIn').value) : null,
-      photos,
+      photos: [],
     });
     localStorage.setItem('shift_driver', name);
     activeShift = data;
+    // Step 2: Upload photos separately via multipart (small files, no 502)
+    for(const [type, inputId] of [['odometer_in','photoOdometer'],['fuel_in','photoFuel'],['adblue_in','photoAdblue']]){
+      const file = $(inputId).files[0];
+      if(file) await uploadPhoto(data.id, type, file);
+    }
     toast('Clocked in!');
     updateUI();
     startPolling();
   } catch(e){ toast(e.message, false); }
   finally { btn.disabled = false; btn.textContent = '▶ Start Shift'; }
+}
+
+async function uploadPhoto(shiftId, photoType, file){
+  const fd = new FormData();
+  fd.append('file', file);
+  const res = await fetch(`${API}/${shiftId}/photos?photo_type=${photoType}`, { method: 'POST', body: fd });
+  if(!res.ok) console.warn('Photo upload failed:', photoType, await res.text());
 }
 
 // --- Break ---
@@ -250,20 +255,18 @@ async function doClockOut(){
   if(!activeShift) return;
   if(!confirm('End your shift?')) return;
   try {
-    const photos = [];
-    for(const [type, inputId] of [['odometer','photoOdometerOut'],['fuel','photoFuelOut'],['adblue','photoAdblueOut']]){
-      const file = $(inputId).files[0];
-      if(file){
-        const dataUrl = await readFileAsDataURL(file);
-        photos.push({ photo_type: type, image: dataUrl });
-      }
-    }
+    // Step 1: Clock out WITHOUT photos
     await api('POST', `/${activeShift.id}/clock-out`, {
       odometer_out_km: $('odometerOut').value ? parseInt($('odometerOut').value) : null,
       fuel_level_out_pct: $('fuelOut').value ? parseInt($('fuelOut').value) : null,
       adblue_level_out_pct: $('adblueOut').value ? parseInt($('adblueOut').value) : null,
-      photos,
+      photos: [],
     });
+    // Step 2: Upload photos separately
+    for(const [type, inputId] of [['odometer_out','photoOdometerOut'],['fuel_out','photoFuelOut'],['adblue_out','photoAdblueOut']]){
+      const file = $(inputId).files[0];
+      if(file) await uploadPhoto(activeShift.id, type, file);
+    }
     activeShift = null;
     toast('Shift ended!');
     updateUI();
