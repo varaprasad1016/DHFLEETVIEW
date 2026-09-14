@@ -374,18 +374,15 @@ public class Cmsv9Manager {
         cancelPendingStop(terminal, channel);
         playExecutor.submit(() -> {
             try {
-                synchronized (wsOrderLock) {
-                    String streamName = liveStreamName(terminal, channel);
-                    if (!isStreamLive(streamName)) {
-                        resetChannel(terminal, channel);
+                String streamName = liveStreamName(terminal, channel);
+                if (!isStreamLive(streamName)) {
+                    // Reset under the WS lock, then issue the play order.
+                    synchronized (wsOrderLock) {
+                        wsStop(terminal, channel);
                         wsPlay(terminal, channel, streamType);
-                        mediacontrol(terminal, channel, 0, streamType);
-                        // Do NOT block here waiting for the stream to appear: this
-                        // task is fire-and-forget (the frontend polls readiness), and
-                        // holding the play lane for up to 45s per channel makes a
-                        // channel that can't establish stall every other channel in a
-                        // multi-view grid. Send the order and move on.
                     }
+                    // mediacontrol is a local HTTP call — no WS lock needed.
+                    mediacontrol(terminal, channel, 0, streamType);
                 }
             } catch (Exception e) {
                 LOG.warn("Live play failed for {}/{}: {}", terminal, channel, e.getMessage());
@@ -397,7 +394,7 @@ public class Cmsv9Manager {
         wsStop(terminal, channel);
         mediacontrol(terminal, channel, 1);
         try {
-            Thread.sleep(400);
+            Thread.sleep(200);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
