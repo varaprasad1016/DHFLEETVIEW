@@ -68,6 +68,18 @@
         <h3>Tacho compliance <span class="pill" id="tachoPill">—</span></h3>
         <p>Drivers' hours &amp; WTD infringements, downloads, archive.</p>
       </a>
+      <a class="card" href="/driver-shift">
+        <h3>Driver Shifts <span class="pill">new</span></h3>
+        <p>Clock in/out with odometer, fuel &amp; AdBlue photo capture.</p>
+      </a>
+      <a class="card" href="/tacho/jobs">
+        <h3>Job Management <span class="pill" id="jobsPill">—</span></h3>
+        <p>Send &amp; manage driver job assignments — accept/deny workflow.</p>
+      </a>
+      <a class="card" href="/tacho/shifts">
+        <h3>Shift Reports</h3>
+        <p>View active shifts, history &amp; clock-in/out photos.</p>
+      </a>
       <a class="card soon" href="#">
         <h3>Earned Recognition <span class="pill">soon</span></h3>
         <p>DVSA KPI dashboard for the Earned Recognition scheme.</p>
@@ -101,6 +113,9 @@
         $('motPill').textContent = (r.overdue+r.due_soon) + ((r.overdue)? ' ⚠':''); } catch {}
       try { const z = await (await fetch('api/caz/summary',{cache:'no-store'})).json();
         $('cazPill').textContent = (z.non_compliant||0) + (z.non_compliant? ' ⚠':''); } catch {}
+      try { const j = await (await fetch('api/shifts/jobs?status=pending',{cache:'no-store'})).json();
+        const pending = Array.isArray(j) ? j.length : 0;
+        if (pending > 0) { $('jobsPill').textContent = pending + ' pending'; } else { $('jobsPill').textContent = '0'; } } catch {}
     } else {
       $('dot').className='dot bad';
       $('stTitle').textContent = s.paired ? 'Licence lapsed' : 'Not paired';
