@@ -47,7 +47,13 @@ async def approver() -> str:
 
 
 def _page(name: str) -> str:
-    return (_STATIC / name).read_text(encoding="utf-8")
+    html = (_STATIC / name).read_text(encoding="utf-8")
+    # Substitute white-label placeholders same as Traccar OverrideTextFilter
+    from app.config import settings as _cfg
+    title = getattr(_cfg, 'white_label_title', None) or 'DH FleetView'
+    description = getattr(_cfg, 'white_label_description', None) or 'Fleet tracking & compliance'
+    color_primary = getattr(_cfg, 'white_label_color_primary', None) or '#0b1220'
+    return html.replace('${title}', title).replace('${description}', description).replace('${colorPrimary}', color_primary)
 
 
 @app.get("/compliance", response_class=HTMLResponse)

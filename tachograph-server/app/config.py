@@ -57,6 +57,11 @@ class Settings(BaseSettings):
     dvla_ves_url: str = "https://driver-vehicle-licensing.api.gov.uk/vehicle-enquiry/v1/vehicles"
     reminder_due_soon_days: int = 30   # flag MOT/tax due within this many days
 
+    # --- White-label branding (substituted into static HTML pages) ---
+    white_label_title: str = "DH FleetView"
+    white_label_description: str = "Fleet tracking & compliance"
+    white_label_color_primary: str = "#0b1220"
+
     # --- Security ---
     jwt_secret: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
