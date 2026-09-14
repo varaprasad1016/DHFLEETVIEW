@@ -165,13 +165,30 @@ function previewPhoto(input, imgId){
   reader.readAsDataURL(file);
 }
 
-async function readFileAsDataURL(file){
+// Resize & compress to max 800px wide, JPEG quality 0.6 — keeps payload < 100KB
+function compressImage(file){
   return new Promise((resolve) => {
-    if(!file){ resolve(null); return; }
-    const r = new FileReader();
-    r.onload = () => resolve(r.result);
-    r.readAsDataURL(file);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxW = 800;
+        const ratio = Math.min(maxW / img.width, 1, maxW / img.height);
+        canvas.width = img.width * ratio;
+        canvas.height = img.height * ratio;
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.6));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
   });
+}
+
+async function readFileAsDataURL(file){
+  if(!file) return null;
+  return compressImage(file);
 }
 
 async function api(method, path, body){
