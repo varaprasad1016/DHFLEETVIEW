@@ -72,12 +72,16 @@ def _store(data_url: str) -> dict:
         raise HTTPException(status_code=400, detail=f"Bad image: {e}")
 
 
-# --- Clock In/Out endpoints ---
+# ======================================================================
+#  Fixed-string routes MUST come before parameterised ones ({shift_id}).
+#  FastAPI matches top-to-bottom; /jobs was being swallowed by /{shift_id}.
+# ======================================================================
+
+# --- Clock In ---
 
 @router.post("/clock-in", status_code=201)
 async def clock_in(body: ClockInRequest, session: AsyncSession = Depends(get_session)) -> dict:
     """Driver clocks in with vehicle readings and photos."""
-    # Check for active shift
     existing = (await session.execute(
         select(Shift).where(
             Shift.driver_name == body.driver_name,
@@ -99,7 +103,6 @@ async def clock_in(body: ClockInRequest, session: AsyncSession = Depends(get_ses
     session.add(shift)
     await session.flush()
 
-    # Store photos
     for p in body.photos:
         meta = _store(p.image)
         session.add(ShiftPhoto(
@@ -116,6 +119,223 @@ async def clock_in(body: ClockInRequest, session: AsyncSession = Depends(get_ses
         "driver_name": shift.driver_name,
         "vehicle_reg": shift.vehicle_reg,
         "clocked_in_at": shift.clocked_in_at.isoformat() if shift.clocked_in_at else None,
+    }
+
+
+# --- Query endpoints (before /{shift_id}) ---
+
+@router.get("/active")
+async def active_shifts(session: AsyncSession = Depends(get_session)) -> list[dict]:
+    """List all currently active shifts."""
+    rows = (await session.execute(
+        select(Shift).where(
+            Shift.status.in_(["clocked_in", "on_break", "active"])
+        ).order_by(Shift.clocked_in_at.desc())
+    )).scalars().all()
+    return [_shift_summary(s) for s in rows]
+
+
+@router.get("/history")
+async def shift_history(
+    limit: int = 100,
+    driver_name: str | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    """List completed shifts."""
+    stmt = select(Shift).where(Shift.status == "clocked_out")
+    if driver_name:
+        stmt = stmt.where(Shift.driver_name.ilike(f"%{driver_name}%"))
+    rows = (await session.execute(
+        stmt.order_by(Shift.clocked_out_at.desc()).limit(min(limit, 500))
+    )).scalars().all()
+    return [_shift_summary(s) for s in rows]
+
+
+# --- Job endpoints (before /{shift_id}) ---
+
+@router.post("/jobs", status_code=201)
+async def create_job(body: JobCreateRequest, session: AsyncSession = Depends(get_session)) -> dict:
+    """Owner/admin sends a job to a driver."""
+    job = Job(
+        driver_name=body.driver_name,
+        vehicle_reg=body.vehicle_reg,
+        title=body.title,
+        description=body.description,
+        pickup_location=body.pickup_location,
+        dropoff_location=body.dropoff_location,
+        priority=body.priority,
+        status="pending",
+    )
+    session.add(job)
+    await session.commit()
+    return _job_summary(job)
+
+
+@router.get("/jobs")
+async def list_jobs(
+    status: str | None = None,
+    driver_name: str | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    """List all jobs, optionally filtered by status or driver."""
+    stmt = select(Job)
+    if status:
+        stmt = stmt.where(Job.status == status)
+    if driver_name:
+        stmt = stmt.where(Job.driver_name.ilike(f"%{driver_name}%"))
+    rows = (await session.execute(
+        stmt.order_by(Job.created_at.desc()).limit(200)
+    )).scalars().all()
+    return [_job_summary(j) for j in rows]
+
+
+@router.get("/jobs/{job_id}")
+async def get_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> dict:
+    """Get full job details."""
+    job = (await session.execute(
+        select(Job).where(Job.id == job_id)
+    )).scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    return {
+        **_job_summary(job),
+        "description": job.description,
+        "pickup_location": job.pickup_location,
+        "dropoff_location": job.dropoff_location,
+        "assigned_by": job.assigned_by,
+        "deny_reason": job.deny_reason,
+    }
+
+
+@router.post("/jobs/{job_id}/accept")
+async def accept_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> dict:
+    """Driver accepts a job."""
+    job = (await session.execute(
+        select(Job).where(Job.id == job_id)
+    )).scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    if job.status != "pending":
+        raise HTTPException(status_code=400, detail=f"Job is already {job.status}.")
+
+    job.status = "accepted"
+    job.accepted_at = datetime.now(timezone.utc)
+
+    shift = (await session.execute(
+        select(Shift).where(
+            Shift.driver_name == job.driver_name,
+            Shift.status.in_(["clocked_in", "on_break", "active"])
+        )
+    )).scalar_one_or_none()
+    if shift:
+        session.add(ShiftJob(shift_id=shift.id, job_id=job.id))
+
+    await session.commit()
+    return _job_summary(job)
+
+
+@router.post("/jobs/{job_id}/deny")
+async def deny_job(
+    job_id: uuid.UUID, body: JobActionRequest,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Driver denies a job with an optional reason."""
+    job = (await session.execute(
+        select(Job).where(Job.id == job_id)
+    )).scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    if job.status != "pending":
+        raise HTTPException(status_code=400, detail=f"Job is already {job.status}.")
+
+    job.status = "denied"
+    job.denied_at = datetime.now(timezone.utc)
+    job.deny_reason = body.reason
+
+    await session.commit()
+    return _job_summary(job)
+
+
+@router.post("/jobs/{job_id}/complete")
+async def complete_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> dict:
+    """Mark a job as completed."""
+    job = (await session.execute(
+        select(Job).where(Job.id == job_id)
+    )).scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    if job.status != "accepted":
+        raise HTTPException(status_code=400, detail=f"Job must be accepted first (currently {job.status}).")
+
+    job.status = "completed"
+    job.completed_at = datetime.now(timezone.utc)
+
+    await session.commit()
+    return _job_summary(job)
+
+
+@router.post("/jobs/{job_id}/cancel")
+async def cancel_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> dict:
+    """Owner cancels a job."""
+    job = (await session.execute(
+        select(Job).where(Job.id == job_id)
+    )).scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    if job.status in ("completed", "cancelled"):
+        raise HTTPException(status_code=400, detail=f"Job is already {job.status}.")
+
+    job.status = "cancelled"
+
+    await session.commit()
+    return _job_summary(job)
+
+
+# --- Photo endpoint (before /{shift_id}) ---
+
+@router.get("/photos/{photo_id}")
+async def get_photo(photo_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> Response:
+    p = (await session.execute(
+        select(ShiftPhoto).where(ShiftPhoto.id == photo_id)
+    )).scalar_one_or_none()
+    if p is None:
+        raise HTTPException(status_code=404, detail="Photo not found.")
+    try:
+        return Response(content=media_store.read(p.storage_path), media_type=p.content_type)
+    except OSError:
+        raise HTTPException(status_code=404, detail="Photo file missing.")
+
+
+# --- Parameterised shift endpoints (LAST) ---
+
+@router.get("/{shift_id}")
+async def get_shift(shift_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> dict:
+    """Get full shift details including photos and jobs."""
+    shift = (await session.execute(
+        select(Shift).where(Shift.id == shift_id)
+    )).scalar_one_or_none()
+    if shift is None:
+        raise HTTPException(status_code=404, detail="Shift not found.")
+
+    photos = (await session.execute(
+        select(ShiftPhoto).where(ShiftPhoto.shift_id == shift_id)
+    )).scalars().all()
+
+    job_links = (await session.execute(
+        select(ShiftJob).where(ShiftJob.shift_id == shift_id)
+    )).scalars().all()
+    job_ids = [jl.job_id for jl in job_links]
+    jobs = []
+    if job_ids:
+        job_rows = (await session.execute(
+            select(Job).where(Job.id.in_(job_ids))
+        )).scalars().all()
+        jobs = [_job_summary(j) for j in job_rows]
+
+    return {
+        **_shift_summary(shift),
+        "photos": [{"id": str(p.id), "photo_type": p.photo_type} for p in photos],
+        "jobs": jobs,
     }
 
 
@@ -186,218 +406,6 @@ async def toggle_break(
 
     await session.commit()
     return {"id": str(shift.id), "status": shift.status}
-
-
-@router.get("/active")
-async def active_shifts(session: AsyncSession = Depends(get_session)) -> list[dict]:
-    """List all currently active shifts (clocked in or on break)."""
-    rows = (await session.execute(
-        select(Shift).where(
-            Shift.status.in_(["clocked_in", "on_break", "active"])
-        ).order_by(Shift.clocked_in_at.desc())
-    )).scalars().all()
-    return [_shift_summary(s) for s in rows]
-
-
-@router.get("/history")
-async def shift_history(
-    limit: int = 100,
-    driver_name: str | None = None,
-    session: AsyncSession = Depends(get_session),
-) -> list[dict]:
-    """List completed shifts."""
-    stmt = select(Shift).where(Shift.status == "clocked_out")
-    if driver_name:
-        stmt = stmt.where(Shift.driver_name.ilike(f"%{driver_name}%"))
-    rows = (await session.execute(
-        stmt.order_by(Shift.clocked_out_at.desc()).limit(min(limit, 500))
-    )).scalars().all()
-    return [_shift_summary(s) for s in rows]
-
-
-@router.get("/{shift_id}")
-async def get_shift(shift_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> dict:
-    """Get full shift details including photos and jobs."""
-    shift = (await session.execute(
-        select(Shift).where(Shift.id == shift_id)
-    )).scalar_one_or_none()
-    if shift is None:
-        raise HTTPException(status_code=404, detail="Shift not found.")
-
-    photos = (await session.execute(
-        select(ShiftPhoto).where(ShiftPhoto.shift_id == shift_id)
-    )).scalars().all()
-
-    job_links = (await session.execute(
-        select(ShiftJob).where(ShiftJob.shift_id == shift_id)
-    )).scalars().all()
-    job_ids = [jl.job_id for jl in job_links]
-    jobs = []
-    if job_ids:
-        job_rows = (await session.execute(
-            select(Job).where(Job.id.in_(job_ids))
-        )).scalars().all()
-        jobs = [_job_summary(j) for j in job_rows]
-
-    return {
-        **_shift_summary(shift),
-        "photos": [{"id": str(p.id), "photo_type": p.photo_type} for p in photos],
-        "jobs": jobs,
-    }
-
-
-@router.get("/photos/{photo_id}")
-async def get_photo(photo_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> Response:
-    p = (await session.execute(
-        select(ShiftPhoto).where(ShiftPhoto.id == photo_id)
-    )).scalar_one_or_none()
-    if p is None:
-        raise HTTPException(status_code=404, detail="Photo not found.")
-    try:
-        return Response(content=media_store.read(p.storage_path), media_type=p.content_type)
-    except OSError:
-        raise HTTPException(status_code=404, detail="Photo file missing.")
-
-
-# --- Job endpoints ---
-
-@router.post("/jobs", status_code=201)
-async def create_job(body: JobCreateRequest, session: AsyncSession = Depends(get_session)) -> dict:
-    """Owner/admin sends a job to a driver."""
-    job = Job(
-        driver_name=body.driver_name,
-        vehicle_reg=body.vehicle_reg,
-        title=body.title,
-        description=body.description,
-        pickup_location=body.pickup_location,
-        dropoff_location=body.dropoff_location,
-        priority=body.priority,
-        status="pending",
-    )
-    session.add(job)
-    await session.commit()
-    return _job_summary(job)
-
-
-@router.get("/jobs")
-async def list_jobs(
-    status: str | None = None,
-    driver_name: str | None = None,
-    session: AsyncSession = Depends(get_session),
-) -> list[dict]:
-    """List all jobs, optionally filtered by status or driver."""
-    stmt = select(Job)
-    if status:
-        stmt = stmt.where(Job.status == status)
-    if driver_name:
-        stmt = stmt.where(Job.driver_name.ilike(f"%{driver_name}%"))
-    rows = (await session.execute(
-        stmt.order_by(Job.created_at.desc()).limit(200)
-    )).scalars().all()
-    return [_job_summary(j) for j in rows]
-
-
-@router.get("/jobs/{job_id}")
-async def get_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> dict:
-    """Get full job details."""
-    job = (await session.execute(
-        select(Job).where(Job.id == job_id)
-    )).scalar_one_or_none()
-    if job is None:
-        raise HTTPException(status_code=404, detail="Job not found.")
-    return {
-        **_job_summary(job),
-        "description": job.description,
-        "pickup_location": job.pickup_location,
-        "dropoff_location": job.dropoff_location,
-        "assigned_by": job.assigned_by,
-        "deny_reason": job.deny_reason,
-    }
-
-
-@router.post("/jobs/{job_id}/accept")
-async def accept_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> dict:
-    """Driver accepts a job."""
-    job = (await session.execute(
-        select(Job).where(Job.id == job_id)
-    )).scalar_one_or_none()
-    if job is None:
-        raise HTTPException(status_code=404, detail="Job not found.")
-    if job.status != "pending":
-        raise HTTPException(status_code=400, detail=f"Job is already {job.status}.")
-
-    job.status = "accepted"
-    job.accepted_at = datetime.now(timezone.utc)
-
-    # Link to active shift if driver has one
-    shift = (await session.execute(
-        select(Shift).where(
-            Shift.driver_name == job.driver_name,
-            Shift.status.in_(["clocked_in", "on_break", "active"])
-        )
-    )).scalar_one_or_none()
-    if shift:
-        session.add(ShiftJob(shift_id=shift.id, job_id=job.id))
-
-    await session.commit()
-    return _job_summary(job)
-
-
-@router.post("/jobs/{job_id}/deny")
-async def deny_job(
-    job_id: uuid.UUID, body: JobActionRequest,
-    session: AsyncSession = Depends(get_session),
-) -> dict:
-    """Driver denies a job with an optional reason."""
-    job = (await session.execute(
-        select(Job).where(Job.id == job_id)
-    )).scalar_one_or_none()
-    if job is None:
-        raise HTTPException(status_code=404, detail="Job not found.")
-    if job.status != "pending":
-        raise HTTPException(status_code=400, detail=f"Job is already {job.status}.")
-
-    job.status = "denied"
-    job.denied_at = datetime.now(timezone.utc)
-    job.deny_reason = body.reason
-
-    await session.commit()
-    return _job_summary(job)
-
-
-@router.post("/jobs/{job_id}/complete")
-async def complete_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> dict:
-    """Mark a job as completed."""
-    job = (await session.execute(
-        select(Job).where(Job.id == job_id)
-    )).scalar_one_or_none()
-    if job is None:
-        raise HTTPException(status_code=404, detail="Job not found.")
-    if job.status != "accepted":
-        raise HTTPException(status_code=400, detail=f"Job must be accepted first (currently {job.status}).")
-
-    job.status = "completed"
-    job.completed_at = datetime.now(timezone.utc)
-
-    await session.commit()
-    return _job_summary(job)
-
-
-@router.post("/jobs/{job_id}/cancel")
-async def cancel_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> dict:
-    """Owner cancels a job."""
-    job = (await session.execute(
-        select(Job).where(Job.id == job_id)
-    )).scalar_one_or_none()
-    if job is None:
-        raise HTTPException(status_code=404, detail="Job not found.")
-    if job.status in ("completed", "cancelled"):
-        raise HTTPException(status_code=400, detail=f"Job is already {job.status}.")
-
-    job.status = "cancelled"
-
-    await session.commit()
-    return _job_summary(job)
 
 
 # --- Helpers ---
