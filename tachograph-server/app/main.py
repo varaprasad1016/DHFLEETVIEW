@@ -85,6 +85,21 @@ async def caz_page() -> str:
     return _page("caz.html")
 
 
+@app.get("/driver-shift", response_class=HTMLResponse)
+async def driver_shift_page() -> str:
+    return _page("driver-shift.html")
+
+
+@app.get("/jobs", response_class=HTMLResponse)
+async def jobs_page() -> str:
+    return _page("jobs.html")
+
+
+@app.get("/shifts", response_class=HTMLResponse)
+async def shifts_page() -> str:
+    return _page("shifts.html")
+
+
 @app.get("/approver/manifest.webmanifest")
 async def approver_manifest() -> JSONResponse:
     icon = (
