@@ -19,6 +19,7 @@ service reaches much further, and is deliberately not used here.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import shutil
@@ -392,9 +393,149 @@ def _vu_activities(variant: dict) -> tuple[list[Activity], list[str | None]]:
     return activities, refs
 
 
-def parse_vehicle_unit(data: bytes) -> dict:
-    """Parse a VU download with the same tachograph-go CLI used for cards."""
-    document = _run(data)
+def _run_raw(data: bytes) -> dict:
+    """Return the CLI's raw VU records when semantic parsing rejects optional metadata."""
+    if not settings.tacho_parser_enabled:
+        raise GoParserUnavailable("tachograph-go parser is disabled")
+    exe = binary_path()
+    if not exe:
+        raise GoParserUnavailable("no tachograph CLI configured or on PATH")
+    with tempfile.TemporaryDirectory(prefix="ddd-") as tmp:
+        card = Path(tmp) / "card.ddd"
+        card.write_bytes(data)
+        try:
+            proc = subprocess.run(
+                [exe, "parse", str(card), "--raw"], capture_output=True,
+                timeout=settings.tacho_parser_timeout, check=False)
+        except FileNotFoundError as exc:
+            raise GoParserUnavailable(f"tachograph CLI is not runnable: {exc}") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise GoParserUnavailable(
+                f"tachograph CLI timed out after {settings.tacho_parser_timeout}s") from exc
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"tachograph CLI raw parse exited {proc.returncode}: "
+            f"{proc.stderr.decode('utf-8', 'replace')[:300]}")
+    try:
+        document = json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("tachograph CLI raw parse returned invalid JSON") from exc
+    if not isinstance(document, dict):
+        raise RuntimeError("tachograph CLI raw parse returned a JSON value, not an object")
+    return document
+
+
+def _raw_time(value: bytes) -> datetime | None:
+    if not value:
+        return None
+    seconds = int.from_bytes(value, "big")
+    if not seconds or seconds >= 0xFFFFFFFF:
+        return None
+    return datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=seconds)
+
+
+def _raw_text(value: bytes) -> str:
+    if not value:
+        return ""
+    return value[1:].decode("latin-1", "replace").replace("\\x00", " ").strip()
+
+
+def _parse_raw_vehicle_unit(document: dict) -> dict:
+    """Parse Gen1 VU records while ignoring an unsupported control-card type.
+
+    The control-card field in the overview is optional metadata. The raw CLI
+    decoder has already validated the TV framing and signatures, so the useful
+    overview/activity records can be safely mapped without guessing that field.
+    """
+    if document.get("type") != "VEHICLE_UNIT":
+        raise ValueError(f"not a vehicle-unit file (file type {document.get('type')!r})")
+    records = (document.get("vehicleUnit") or {}).get("records") or []
+    overview_record = next((r for r in records if r.get("type") == "OVERVIEW_GEN1"), None)
+    if overview_record is None:
+        raise ValueError("raw vehicle-unit file has no Gen1 overview")
+    overview = base64.b64decode(overview_record.get("value", ""))
+    if len(overview) < 420:
+        raise ValueError("raw vehicle-unit overview is incomplete")
+
+    vehicle_vin = overview[388:405].decode("latin-1", "replace").strip()
+    vehicle_ref = overview[407:420].decode("latin-1", "replace").strip()
+    activities: list[Activity] = []
+    activity_refs: list[str | None] = []
+    card_spells = []
+    activity_records = [r for r in records if r.get("type") == "ACTIVITIES_GEN1"]
+    for record_index, record in enumerate(activity_records):
+        raw = base64.b64decode(record.get("value", ""))
+        if len(raw) < 9:
+            continue
+        day = _raw_time(raw[:4])
+        if day is None:
+            continue
+        card_count = int.from_bytes(raw[7:9], "big")
+        offset = 9
+        for _ in range(card_count):
+            if offset + 129 > len(raw):
+                break
+            card = raw[offset:offset + 129]
+            surname = _raw_text(card[0:36])
+            first_names = _raw_text(card[36:72])
+            driver_ref = " ".join(p for p in (surname, first_names) if p) or None
+            inserted = _raw_time(card[94:98])
+            slot = card[98] & 0x01
+            withdrawn = _raw_time(card[99:103])
+            if driver_ref and inserted:
+                card_spells.append((slot, driver_ref, inserted, withdrawn))
+            offset += 129
+        if offset + 2 > len(raw):
+            continue
+        change_count = int.from_bytes(raw[offset:offset + 2], "big")
+        offset += 2
+        by_slot: dict[int, list[tuple[int, str]]] = {0: [], 1: []}
+        for index in range(change_count):
+            if offset + 2 > len(raw):
+                break
+            word = int.from_bytes(raw[offset:offset + 2], "big")
+            offset += 2
+            slot = (word >> 15) & 0x01
+            kind = {0: "rest", 1: "available", 2: "work", 3: "drive"}.get((word >> 11) & 0x03)
+            minute = word & 0x07FF
+            if kind is not None and minute <= 1440:
+                by_slot[slot].append((minute, kind))
+        for slot, changes in by_slot.items():
+            changes.sort()
+            for index, (minute, kind) in enumerate(changes):
+                if index + 1 < len(changes):
+                    end_minute = changes[index + 1][0]
+                elif record_index == len(activity_records) - 1:
+                    continue
+                else:
+                    end_minute = 1440
+                if end_minute <= minute:
+                    continue
+                start = day.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(minutes=minute)
+                end = day.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(minutes=end_minute)
+                activities.append(Activity(kind, start, end))
+                ref = next((driver for card_slot, driver, inserted, withdrawn in card_spells
+                            if card_slot == slot and end > inserted
+                            and (withdrawn is None or start < withdrawn)), None)
+                activity_refs.append(ref)
+
+    if not activities:
+        raise ValueError("raw vehicle-unit file has no readable activity records")
+    return {
+        "activities": activities,
+        "activity_driver_refs": activity_refs,
+        "days": len({activity.start.date() for activity in activities}),
+        "vehicle_ref": vehicle_ref or None,
+        "vehicle_vin": vehicle_vin or None,
+        "tachograph_serial": None,
+        "drivers": sorted({ref for ref in activity_refs if ref}),
+        "generation": "GENERATION_1",
+        "parser": "tachograph-go-raw",
+        "file_type": "vehicle_unit",
+    }
+
+
+def _parse_vehicle_unit_document(document: dict) -> dict:
     root, variant, generation = _vehicle_unit_root(document)
     overview = variant.get("overview") or {}
     registration = (_nested_value(overview, "vehicleRegistrationWithNation", "number") or
@@ -432,10 +573,19 @@ def parse_vehicle_unit(data: bytes) -> dict:
         "tachograph_serial": tachograph_serial,
         "drivers": drivers,
         "generation": generation,
-        "parser": "tachograph-go",
-        "file_type": "vehicle_unit",
+        "parser": "tachograph-go",        "file_type": "vehicle_unit",
     }
 
+
+def parse_vehicle_unit(data: bytes) -> dict:
+    """Parse a VU, falling back only for the known optional card-type issue."""
+    try:
+        document = _run(data)
+    except RuntimeError as exc:
+        if "unsupported card type" not in str(exc).lower():
+            raise
+        return _parse_raw_vehicle_unit(_run_raw(data))
+    return _parse_vehicle_unit_document(document)
 
 def parse_driver_card(data: bytes) -> dict:
     """Same contract as the built-in parser: raises ValueError on unusable data."""

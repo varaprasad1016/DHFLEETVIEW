@@ -15,6 +15,15 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import ensure_own, require_driver_or_manager, require_license, require_manager
+from app.config import settings
+from app.database import get_session
+from app.models.shifts import Shift, ShiftPhoto, Job, JobMessage, ShiftJob
+from app.services import media_store
+from app.services.auth import Principal
+
+router = APIRouter(prefix="/api/shifts", tags=["shifts"], dependencies=[Depends(require_license)])
+MANAGER = [Depends(require_manager)]
 from app.config import settings
 from app.database import get_session
 from app.models.shifts import Shift, ShiftPhoto, Job, ShiftJob
@@ -213,6 +222,11 @@ async def create_job(body: JobCreateRequest, session: AsyncSession = Depends(get
     )
     session.add(job)
     await session.commit()
+    await session.refresh(job)
+    return _job_summary(job)
+
+
+@router.get("/jobs", dependencies=MANAGER)
     return _job_summary(job)
 
 
@@ -235,6 +249,8 @@ async def list_jobs(
 
 
 @router.get("/jobs/{job_id}")
+async def get_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+                  principal: Principal = Depends(require_driver_or_manager)) -> dict:
 async def get_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> dict:
     """Get full job details."""
     job = (await session.execute(
@@ -242,6 +258,7 @@ async def get_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_session
     )).scalar_one_or_none()
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found.")
+    ensure_own(principal, job.driver_name)
     return {
         **_job_summary(job),
         "description": job.description,
@@ -249,6 +266,57 @@ async def get_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_session
         "dropoff_location": job.dropoff_location,
         "assigned_by": job.assigned_by,
         "deny_reason": job.deny_reason,
+        "messages": await _job_messages(session, job.id),
+    }
+
+
+async def _job_messages(session: AsyncSession, job_id: uuid.UUID) -> list[dict]:
+    rows = (await session.execute(
+        select(JobMessage).where(JobMessage.job_id == job_id).order_by(JobMessage.created_at)
+    )).scalars().all()
+    return [{
+        "id": str(m.id), "sender": m.sender, "author": m.author, "kind": m.kind,
+        "body": m.body, "created_at": m.created_at.isoformat() if m.created_at else None,
+    } for m in rows]
+
+
+@router.post("/jobs/{job_id}/messages", status_code=201)
+async def post_job_message(
+    job_id: uuid.UUID, body: JobMessageRequest,
+    session: AsyncSession = Depends(get_session),
+    principal: Principal = Depends(require_driver_or_manager),
+) -> list[dict]:
+    """Driver or office adds to a job's message thread; returns the whole thread."""
+    job = (await session.execute(select(Job).where(Job.id == job_id))).scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    ensure_own(principal, job.driver_name)
+    # Sender and author come from the sign-in, not the request body.
+    session.add(JobMessage(job_id=job.id, sender="office" if principal.is_manager else "driver",
+                           author=principal.name, kind=body.kind, body=body.body.strip()))
+    await session.commit()
+    return await _job_messages(session, job.id)
+
+
+@router.post("/jobs/{job_id}/start")
+async def start_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+                    principal: Principal = Depends(require_driver_or_manager)) -> dict:
+    """Driver starts an accepted job (Allocated -> Accepted -> In Progress -> Completed)."""
+    job = (await session.execute(select(Job).where(Job.id == job_id))).scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    ensure_own(principal, job.driver_name)
+    if job.status != "accepted":
+        raise HTTPException(status_code=400, detail=f"Job must be accepted first (currently {job.status}).")
+    job.status = "in_progress"
+    job.started_at = datetime.now(timezone.utc)
+    await session.commit()
+    return _job_summary(job)
+
+
+@router.post("/jobs/{job_id}/accept")
+async def accept_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+                     principal: Principal = Depends(require_driver_or_manager)) -> dict:
     }
 
 

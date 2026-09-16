@@ -10,33 +10,35 @@
 <link rel="manifest" href="approver/manifest.webmanifest">
 <title>Tacho Licence</title>
 <style>
-  :root { color-scheme: dark; }
+  :root { color-scheme: dark; --bg:#0b1220; --card:rgba(255,255,255,0.04); --line:rgba(255,255,255,0.08); --fg:#e7ecf5; --mut:#8ea3c4; --ok:#34d399; --warn:#fbbf24; --bad:#f87171; }
+  :root[data-theme="light"] { --card:#ffffff; --line:#e2e7ef; }
+  :root[data-theme="light"] body { background: var(--bg); }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body {
     margin: 0; min-height: 100vh; font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     background: radial-gradient(120% 90% at 50% 0%, #16233c 0%, #0b1220 55%, #070c16 100%);
-    color: #e7ecf5; display: flex; flex-direction: column; align-items: center;
+    color: var(--fg); display: flex; flex-direction: column; align-items: center;
     padding: max(24px, env(safe-area-inset-top)) 20px calc(24px + env(safe-area-inset-bottom));
   }
   .wrap { width: 100%; max-width: 460px; }
   header { text-align: center; margin: 8px 0 22px; }
   header .mark { font-size: 30px; letter-spacing: .5px; font-weight: 700; }
-  header .sub { color: #8ea3c4; font-size: 13px; margin-top: 4px; }
+  header .sub { color: var(--mut); font-size: 13px; margin-top: 4px; }
   .card {
-    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+    background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow);
     border-radius: 18px; padding: 20px; margin-bottom: 16px; backdrop-filter: blur(6px);
   }
   .statusline { display: flex; align-items: center; gap: 10px; font-size: 15px; }
   .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; box-shadow: 0 0 0 4px rgba(255,255,255,0.05); }
-  .dot.ok { background: #34d399; } .dot.warn { background: #fbbf24; } .dot.bad { background: #f87171; } .dot.mut { background: #64748b; }
-  .kv { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid rgba(255,255,255,0.06); font-size: 14px; }
+  .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.bad { background: var(--bad); } .dot.mut { background: #64748b; }
+  .kv { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 14px; }
   .kv:first-of-type { border-top: 0; }
-  .kv .k { color: #8ea3c4; } .kv .v { font-variant-numeric: tabular-nums; text-align: right; }
-  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: #8ea3c4; margin: 0 0 12px; }
-  label { display: block; font-size: 13px; color: #8ea3c4; margin: 0 0 6px; }
+  .kv .k { color: var(--mut); } .kv .v { font-variant-numeric: tabular-nums; text-align: right; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--mut); margin: 0 0 12px; }
+  label { display: block; font-size: 13px; color: var(--mut); margin: 0 0 6px; }
   input {
     width: 100%; padding: 13px 14px; font-size: 17px; letter-spacing: 2px; text-align: center;
-    background: #0c1526; border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; color: #fff;
+    background: var(--input); border: 1px solid var(--line); border-radius: 12px; color: var(--fg);
   }
   button {
     width: 100%; padding: 16px; font-size: 17px; font-weight: 650; border: 0; border-radius: 14px;
@@ -44,16 +46,17 @@
     transition: transform .06s ease, opacity .2s ease;
   }
   button:active { transform: translateY(1px) scale(.995); }
-  button.secondary { background: rgba(255,255,255,0.08); color: #cfe0f7; }
+  button.secondary { background: var(--card2); color: var(--fg); }
   button:disabled { opacity: .45; cursor: default; }
   .big { padding: 22px; font-size: 20px; }
   .msg { margin-top: 14px; font-size: 14px; text-align: center; min-height: 20px; }
-  .msg.ok { color: #34d399; } .msg.bad { color: #f87171; } .msg.info { color: #8ea3c4; }
-  .foot { text-align: center; color: #55688a; font-size: 12px; margin-top: 6px; word-break: break-all; }
+  .msg.ok { color: var(--ok); } .msg.bad { color: var(--bad); } .msg.info { color: var(--mut); }
+  .foot { text-align: center; color: var(--mut); font-size: 12px; margin-top: 6px; word-break: break-all; }
   [hidden] { display: none !important; }
 </style>
 </head>
 <body>
+<button type="button" class="theme-toggle floating" data-theme-toggle></button>
 <div class="wrap">
   <header>
     <div class="mark">Tacho&nbsp;Licence</div>
@@ -77,6 +80,7 @@
     <input id="pin" inputmode="numeric" autocomplete="one-time-code" placeholder="••••••">
     <button id="pairBtn" class="big">Pair this phone</button>
     <div class="msg info" id="pairMsg">Your signing key stays on this phone. Only its public half is sent.</div>
+    <div class="msg bad" id="installHint" hidden>Add this page to your Home Screen and pair from the Home Screen app. On iPhone, Safari tabs and Home Screen apps keep separate keys, and Safari can delete unused site data after 7 days.</div>
   </div>
 
   <!-- Approve -->
@@ -85,6 +89,7 @@
     <button id="approveBtn" class="big">Approve this month</button>
     <button id="refreshBtn" class="secondary">Refresh status</button>
     <div class="msg" id="approveMsg"></div>
+    <div class="msg bad" id="keyProblem" hidden></div>
   </div>
 
   <div class="foot" id="fp"></div>
@@ -110,14 +115,25 @@ async function kvGet(k) { const db = await idb(); return new Promise((res, rej) 
 async function kvSet(k, v) { const db = await idb(); return new Promise((res, rej) => {
   const t = db.transaction("keys", "readwrite").objectStore("keys").put(v, k); t.onsuccess = () => res(); t.onerror = () => rej(t.error); }); }
 
-async function getOrCreateKeys() {
-  let pair = await kvGet("pair");
-  if (!pair) {
-    pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, ["sign", "verify"]);
-    await kvSet("pair", pair); // CryptoKeys are structured-cloneable; private stays non-extractable
-  }
+// Only pairing may create a key. Approving with a freshly made key can never
+// match the server, so a lost key must surface as "re-pair", not a bad signature.
+async function getKeys() { return (await kvGet("pair")) || null; }
+async function createKeys() {
+  const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, ["sign", "verify"]);
+  await kvSet("pair", pair); // CryptoKeys are structured-cloneable; private stays non-extractable
   return pair;
 }
+// Ask the browser not to evict our key under storage pressure / inactivity.
+async function persistStorage() {
+  try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch (e) {}
+}
+let localKeyId = null; // first 16 chars of this phone's public key, or null if none stored
+async function refreshLocalKeyId() {
+  try { const pair = await getKeys(); localKeyId = pair ? (await rawPubB64(pair.publicKey)).slice(0, 16) : null; }
+  catch (e) { localKeyId = null; }
+}
+const isStandalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 function b64(buf) { return btoa(String.fromCharCode(...new Uint8Array(buf))); }
 async function rawPubB64(pubKey) { return b64(await crypto.subtle.exportKey("raw", pubKey)); }
 
@@ -137,10 +153,29 @@ function render() {
   $("v-until").textContent = fmtDate(s.valid_until);
   $("v-left").textContent = fmtLeft(s.seconds_remaining);
   $("v-server").textContent = s.server_id || "—";
+  $("fp").textContent = "this phone key " + (localKeyId ? localKeyId + "…" : "none")
+    + (s.key_id ? " · paired key " + s.key_id + "…" : "");
 
   const dot = $("dot"), head = $("headline");
-  if (!s.paired) { dot.className = "dot warn"; head.textContent = "Not paired yet"; $("pairCard").hidden = false; $("approveCard").hidden = true; return; }
+  if (!s.paired) {
+    dot.className = "dot warn"; head.textContent = "Not paired yet"; $("pairCard").hidden = false; $("approveCard").hidden = true;
+    $("installHint").hidden = !(isIOS && !isStandalone);
+    return;
+  }
   $("pairCard").hidden = true; $("approveCard").hidden = false;
+  const kp = $("keyProblem");
+  if (!localKeyId || (s.key_id && localKeyId !== s.key_id)) {
+    dot.className = "dot bad";
+    head.textContent = localKeyId ? "This phone's key doesn't match" : "No signing key on this phone";
+    kp.hidden = false;
+    kp.textContent = (localKeyId
+      ? "This browser holds a different key from the one the server is paired with. "
+      : "This browser has no signing key (site data was cleared, or you paired from a different app or browser). ")
+      + "If you paired from the Home Screen app, open that instead. Otherwise the server's pairing must be reset by the administrator and this phone paired again.";
+    $("approveBtn").disabled = true;
+    return;
+  }
+  kp.hidden = true;
   if (s.licensed) {
     const dueSoon = s.approved_period !== s.current_period;
     dot.className = "dot " + (dueSoon ? "warn" : "ok");
@@ -162,7 +197,8 @@ async function loadStatus() {
 async function pair() {
   const msg = $("pairMsg"); msg.className = "msg info"; msg.textContent = "Pairing…";
   try {
-    const pair = await getOrCreateKeys();
+    await persistStorage();
+    const pair = (await getKeys()) || (await createKeys());
     const pub = await rawPubB64(pair.publicKey);
     const r = await fetch(API + "/api/license/pair", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -171,6 +207,7 @@ async function pair() {
     const j = await r.json();
     if (!r.ok) throw new Error(j.detail || "Pairing failed");
     msg.className = "msg ok"; msg.textContent = "Paired. This phone now controls the licence.";
+    await refreshLocalKeyId();
     await loadStatus();
   } catch (e) { msg.className = "msg bad"; msg.textContent = e.message; }
 }
@@ -179,7 +216,8 @@ async function approve() {
   const msg = $("approveMsg"); msg.className = "msg info"; msg.textContent = "Approving…";
   try {
     await loadStatus();
-    const pair = await getOrCreateKeys();
+    const pair = await getKeys();
+    if (!pair) throw new Error("No signing key on this phone — re-pairing required.");
     const period = statusData.current_period;
     const issued = new Date().toISOString();
     const message = `TACHO-LICENSE|${statusData.server_id}|${period}|${issued}`;
@@ -202,10 +240,8 @@ $("approveBtn").onclick = approve;
 $("refreshBtn").onclick = loadStatus;
 
 (async () => {
-  try {
-    const pair = await getOrCreateKeys();
-    $("fp").textContent = "key " + (await rawPubB64(pair.publicKey)).slice(0, 16) + "…";
-  } catch (e) { $("fp").textContent = ""; }
+  await refreshLocalKeyId();
+  if (localKeyId) persistStorage();
   loadStatus().catch(() => { $("headline").textContent = "Can't reach server"; $("dot").className = "dot bad"; });
   setInterval(loadStatus, 60000);
 })();

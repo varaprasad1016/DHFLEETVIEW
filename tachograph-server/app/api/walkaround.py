@@ -17,12 +17,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_license
+from app.api.deps import require_license, require_manager
 from app.database import get_session
 from app.models.walkaround import WalkaroundCheck, WalkaroundDefect, WalkaroundPhoto
 from app.services import media_store
 
 router = APIRouter(prefix="/api/walkaround", tags=["walkaround"], dependencies=[Depends(require_license)])
+MANAGER = [Depends(require_manager)]
 
 
 # --- DVSA "Guide to maintaining roadworthiness" first-use walkaround items ---
@@ -78,6 +79,11 @@ class CheckIn(BaseModel):
     defects: list[DefectIn] = []
     photos: list[PhotoIn] = []          # optional per-item / general photos
     signature: str | None = None        # optional base64 data URL of the signature
+    phase: str = Field(default="pre_use", pattern="^(pre_use|end_of_day|fault_report)$")
+    fuel_level: str | None = Field(default=None, pattern="^(empty|1/4|1/2|3/4|full)$")
+    adblue_level: str | None = Field(default=None, pattern="^(empty|1/4|1/2|3/4|full)$")
+    duration_seconds: int | None = None
+    shift_id: uuid.UUID | None = None
 
 
 class RectifyIn(BaseModel):
@@ -106,12 +112,12 @@ def _store(data_url: str) -> dict:
         raise HTTPException(status_code=400, detail=f"Bad image: {e}")
 
 
-@router.get("/items")
+@router.get("/items", dependencies=MANAGER)
 async def items(check_type: str = "hgv") -> dict:
     return {"check_type": check_type, "items": CHECK_ITEMS.get(check_type, CHECK_ITEMS["hgv"])}
 
 
-@router.post("/checks", status_code=201)
+@router.post("/checks", status_code=201, dependencies=MANAGER)
 async def submit_check(body: CheckIn, session: AsyncSession = Depends(get_session)) -> dict:
     reg = body.vehicle_reg.strip().upper().replace(" ", "")
     if not reg:
@@ -126,6 +132,11 @@ async def submit_check(body: CheckIn, session: AsyncSession = Depends(get_sessio
         notes=body.notes,
         safe_to_drive=body.safe_to_drive,
         result="defects" if body.defects else "pass",
+        phase=body.phase,
+        fuel_level=body.fuel_level,
+        adblue_level=body.adblue_level,
+        duration_seconds=body.duration_seconds,
+        shift_id=body.shift_id,
     )
     if body.signature:
         check.signature_path = _store(body.signature)["storage_path"]
@@ -163,15 +174,17 @@ async def submit_check(body: CheckIn, session: AsyncSession = Depends(get_sessio
     }
 
 
-@router.get("/checks")
+@router.get("/checks", dependencies=MANAGER)
 async def list_checks(limit: int = 100, start: str | None = None, end: str | None = None,
-                      reg: str | None = None, driver: str | None = None,
+                      reg: str | None = None, driver: str | None = None, phase: str | None = None,
                       session: AsyncSession = Depends(get_session)) -> list[dict]:
     stmt = select(WalkaroundCheck).order_by(WalkaroundCheck.created_at.desc())
     if reg:
         stmt = stmt.where(WalkaroundCheck.vehicle_reg == reg.strip().upper().replace(" ", ""))
     if driver:
         stmt = stmt.where(WalkaroundCheck.driver_name.ilike(f"%{driver}%"))
+    if phase:
+        stmt = stmt.where(WalkaroundCheck.phase == phase)
     if start:
         stmt = stmt.where(WalkaroundCheck.created_at >= _parse_day(start))
     if end:
@@ -189,6 +202,10 @@ async def list_checks(limit: int = 100, start: str | None = None, end: str | Non
         "vehicle_reg": c.vehicle_reg,
         "driver_name": c.driver_name,
         "check_type": c.check_type,
+        "phase": c.phase,
+        "fuel_level": c.fuel_level,
+        "adblue_level": c.adblue_level,
+        "duration_seconds": c.duration_seconds,
         "odometer_km": c.odometer_km,
         "result": c.result,
         "safe_to_drive": c.safe_to_drive,
@@ -199,7 +216,7 @@ async def list_checks(limit: int = 100, start: str | None = None, end: str | Non
     } for c in rows]
 
 
-@router.get("/checks/{check_id}")
+@router.get("/checks/{check_id}", dependencies=MANAGER)
 async def get_check(check_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> dict:
     c = (await session.execute(
         select(WalkaroundCheck).where(WalkaroundCheck.id == check_id))).scalar_one_or_none()
@@ -212,6 +229,8 @@ async def get_check(check_id: uuid.UUID, session: AsyncSession = Depends(get_ses
     return {
         "id": str(c.id), "vehicle_reg": c.vehicle_reg, "driver_name": c.driver_name,
         "check_type": c.check_type, "odometer_km": c.odometer_km, "location": c.location,
+        "phase": c.phase, "fuel_level": c.fuel_level, "adblue_level": c.adblue_level,
+        "duration_seconds": c.duration_seconds,
         "result": c.result, "safe_to_drive": c.safe_to_drive, "notes": c.notes,
         "has_signature": bool(c.signature_path),
         "created_at": c.created_at.isoformat() if c.created_at else None,
@@ -223,7 +242,7 @@ async def get_check(check_id: uuid.UUID, session: AsyncSession = Depends(get_ses
     }
 
 
-@router.get("/photos/{photo_id}")
+@router.get("/photos/{photo_id}", dependencies=MANAGER)
 async def get_photo(photo_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> Response:
     p = (await session.execute(
         select(WalkaroundPhoto).where(WalkaroundPhoto.id == photo_id))).scalar_one_or_none()
@@ -235,7 +254,7 @@ async def get_photo(photo_id: uuid.UUID, session: AsyncSession = Depends(get_ses
         raise HTTPException(status_code=404, detail="Photo file missing.")
 
 
-@router.get("/checks/{check_id}/signature")
+@router.get("/checks/{check_id}/signature", dependencies=MANAGER)
 async def get_signature(check_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> Response:
     c = (await session.execute(
         select(WalkaroundCheck).where(WalkaroundCheck.id == check_id))).scalar_one_or_none()
@@ -248,7 +267,7 @@ async def get_signature(check_id: uuid.UUID, session: AsyncSession = Depends(get
         raise HTTPException(status_code=404, detail="Signature file missing.")
 
 
-@router.get("/defects")
+@router.get("/defects", dependencies=MANAGER)
 async def list_defects(status: str = "open", session: AsyncSession = Depends(get_session)) -> list[dict]:
     stmt = select(WalkaroundDefect).order_by(WalkaroundDefect.created_at.desc())
     if status != "all":
@@ -269,7 +288,7 @@ async def list_defects(status: str = "open", session: AsyncSession = Depends(get
     } for d in rows]
 
 
-@router.post("/defects/{defect_id}/rectify")
+@router.post("/defects/{defect_id}/rectify", dependencies=MANAGER)
 async def rectify_defect(
     defect_id: uuid.UUID, body: RectifyIn, session: AsyncSession = Depends(get_session)) -> dict:
     defect = (await session.execute(
@@ -285,7 +304,7 @@ async def rectify_defect(
     return {"id": str(defect.id), "status": defect.status}
 
 
-@router.get("/summary")
+@router.get("/summary", dependencies=MANAGER)
 async def summary(session: AsyncSession = Depends(get_session)) -> dict:
     open_defects = (await session.execute(
         select(func.count()).select_from(WalkaroundDefect).where(WalkaroundDefect.status == "open")

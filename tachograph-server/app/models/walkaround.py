@@ -36,6 +36,13 @@ class WalkaroundCheck(Base):
     safe_to_drive: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
     notes: Mapped[str | None] = mapped_column(Text)
     signature_path: Mapped[str | None] = mapped_column(String(500))  # driver's signature image
+    # pre_use (start of shift) | end_of_day | fault_report (ad-hoc driver fault)
+    phase: Mapped[str] = mapped_column(String(12), server_default=text("'pre_use'"))
+    fuel_level: Mapped[str | None] = mapped_column(String(8))     # empty|1/4|1/2|3/4|full
+    adblue_level: Mapped[str | None] = mapped_column(String(8))
+    duration_seconds: Mapped[int | None] = mapped_column(Integer)  # time the driver spent on the check
+    shift_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("shifts.id", ondelete="SET NULL"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     defects: Mapped[list["WalkaroundDefect"]] = relationship(

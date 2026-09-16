@@ -9,12 +9,14 @@ evidence of a driver debrief rather than just a printout.
 from __future__ import annotations
 
 import io
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
+from reportlab.pdfgen import canvas as pdf_canvas
 from reportlab.platypus import (
     Flowable, KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle)
 
@@ -309,8 +311,155 @@ def _signatures(st: dict) -> Table:
     return table
 
 
+TIMELINE_COLORS = {
+    "DRIVE": colors.HexColor("#ef1717"),
+    "WORK": colors.HexColor("#1d9b3a"),
+    "AVAILABLE": colors.HexColor("#f1cf35"),
+    "REST": colors.HexColor("#3f46c9"),
+}
+TIMELINE_BG = colors.HexColor("#fffed2")
+TIMELINE_GRID = colors.HexColor("#4b5563")
+LOCAL_TZ = ZoneInfo("Europe/London")
+
+
+def _timeline_dt(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(LOCAL_TZ)
+
+
+def _timeline_days(rows: list[dict]) -> dict[date, list[dict]]:
+    days: dict[date, list[dict]] = {}
+    for row in rows:
+        start = _timeline_dt(row["start"])
+        end = _timeline_dt(row["end"])
+        while end > start:
+            day_end = datetime(start.year, start.month, start.day, tzinfo=LOCAL_TZ) + timedelta(days=1)
+            clipped_end = min(end, day_end)
+            clipped = dict(row)
+            clipped["start"], clipped["end"] = start.isoformat(), clipped_end.isoformat()
+            days.setdefault(start.date(), []).append(clipped)
+            start = clipped_end
+    return dict(sorted(days.items()))
+
+
+def _timeline_lanes(rows: list[dict]) -> list[tuple[str, str, list[dict]]]:
+    lanes: dict[str, list[dict]] = {}
+    for row in rows:
+        driver = row.get("driver_ref") or "Driver activity"
+        lanes.setdefault(driver, []).append(row)
+    return [
+        (driver, ", ".join(dict.fromkeys(row.get("vehicle_ref") for row in lane if row.get("vehicle_ref")))
+         or "Registration unavailable", lane)
+        for driver, lane in lanes.items()
+    ] or [("Driver activity", "Registration unavailable", [])]
+
+
+def _timeline_block(c: pdf_canvas.Canvas, day: date, rows: list[dict], top: float,
+                    page_width: float) -> float:
+    lanes = _timeline_lanes(rows)
+    block_height = 52 + 60 * len(lanes)
+    c.setFillColor(INK)
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(32, top, day.strftime("%A %d/%m/%Y"))
+    c.setFont("Helvetica", 7.5)
+    c.setFillColor(MUTED)
+    c.drawRightString(page_width - 32, top, "Daily values 00:00 to 24:00 local time")
+
+    # Reserve a complete row for the legend before the first chart starts.
+    legend_x = 32
+    legend_y = top - 19
+    c.setFont("Helvetica", 7)
+    for name in ("DRIVE", "WORK", "AVAILABLE", "REST"):
+        c.setFillColor(TIMELINE_COLORS[name])
+        c.rect(legend_x, legend_y - 2, 9, 9, fill=1, stroke=0)
+        c.setFillColor(INK)
+        c.drawString(legend_x + 13, legend_y, name.title())
+        legend_x += 78 if name != "AVAILABLE" else 99
+
+    left, right = 56, page_width - 32
+    chart_width = right - left
+    lane_top = top - 55
+    for lane_index, (driver, registration, lane_rows) in enumerate(lanes):
+        y = lane_top - lane_index * 60
+        c.setFillColor(TIMELINE_BG)
+        c.rect(left, y - 3, chart_width, 27, fill=1, stroke=0)
+        c.setStrokeColor(TIMELINE_GRID)
+        c.setLineWidth(0.35)
+        for hour in range(25):
+            x = left + chart_width * hour / 24
+            c.line(x, y - 3, x, y + 24)
+            if hour < 24:
+                c.setFillColor(INK)
+                c.setFont("Helvetica", 6)
+                c.drawCentredString(x + chart_width / 48, y - 16, str(hour))
+        c.setFillColor(INK)
+        c.setFont("Helvetica-Bold", 6.5)
+        c.drawString(2, y + 13, driver[:22])
+        c.setFont("Helvetica", 6)
+        c.drawString(2, y + 3, registration[:25])
+
+        day_start = datetime(day.year, day.month, day.day, tzinfo=LOCAL_TZ)
+        day_end = day_start + timedelta(days=1)
+        for row in lane_rows:
+            start = max(_timeline_dt(row["start"]), day_start)
+            end = min(_timeline_dt(row["end"]), day_end)
+            if end <= start:
+                continue
+            start_fraction = (start - day_start).total_seconds() / (day_end - day_start).total_seconds()
+            end_fraction = (end - day_start).total_seconds() / (day_end - day_start).total_seconds()
+            x = left + chart_width * start_fraction
+            width = max(1, chart_width * (end_fraction - start_fraction))
+            c.setFillColor(TIMELINE_COLORS.get(row.get("activity", "").upper(), MUTED))
+            c.rect(x, y, width, 20, fill=1, stroke=0)
+            if width > 24:
+                c.setFillColor(colors.white if row.get("activity", "").upper() in ("DRIVE", "REST") else INK)
+                c.setFont("Helvetica-Bold", 5.5)
+                c.drawCentredString(x + width / 2, y + 7, row.get("activity", "").title())
+    return block_height
+
+
+def render_timeline(rows: list[dict], driver_ref: str | None = None,
+                    generated: datetime | None = None) -> bytes:
+    """Render canonical activities as daily 24-hour tachograph charts."""
+    buffer = io.BytesIO()
+    page_width, page_height = landscape(A4)
+    c = pdf_canvas.Canvas(buffer, pagesize=(page_width, page_height),
+                          title="Tachograph activity timeline")
+    days = _timeline_days(rows)
+    stamp = (generated or datetime.now()).strftime("%d/%m/%Y %H:%M")
+
+    def header() -> None:
+        c.setFillColor(INK)
+        c.setFont("Helvetica-Bold", 15)
+        c.drawString(32, page_height - 32, "Tachograph activity timeline")
+        c.setFont("Helvetica", 7.5)
+        c.setFillColor(MUTED)
+        c.drawRightString(page_width - 32, page_height - 31, f"Generated {stamp}")
+        c.drawString(32, page_height - 47, f"Driver: {driver_ref or '—'}")
+        c.line(32, page_height - 55, page_width - 32, page_height - 55)
+
+    header()
+    y = page_height - 78
+    if not days:
+        c.setFillColor(MUTED)
+        c.setFont("Helvetica-Oblique", 9)
+        c.drawString(32, y, "No activity in the selected period.")
+    else:
+        for day, day_rows in days.items():
+            height = 80 + 60 * len(_timeline_lanes(day_rows))
+            if y - height < 38:
+                c.showPage()
+                header()
+                y = page_height - 78
+            _timeline_block(c, day, day_rows, y, page_width)
+            y -= height + 17
+    c.setFillColor(MUTED)
+    c.setFont("Helvetica", 6.5)
+    c.drawString(32, 18, "Times shown in Europe/London. Activity values are taken from driver-card downloads.")
+    c.save()
+    return buffer.getvalue()
+
+
 def render(report: dict, generated: datetime | None = None) -> bytes:
-    """Return the report as PDF bytes."""
     st = _styles()
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(

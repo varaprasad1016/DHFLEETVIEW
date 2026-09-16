@@ -1,9 +1,11 @@
 """Customer tenancy and tachograph assignment API.
 
-The bridge continues to own PC/SC and USB card access on Windows. This API
-registers which customer owns a vehicle, company card, bridge, and download.
-Until the platform user-authentication layer is added, customer-scoped
-requests must send the matching ``X-Company-ID`` header.
+The bridge still owns PC/SC and USB card access on Windows.  This API only
+registers which customer owns a vehicle/card/bridge and which customer a
+vehicle-unit download belongs to.  Until the platform user-authentication
+layer is added, mutating and customer-scoped requests must send the matching
+``X-Company-ID`` header; this prevents accidental cross-customer selection in
+server-side code and gives the future auth layer one clear scope boundary.
 """
 
 from __future__ import annotations
@@ -15,12 +17,16 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_license
+from app.api.deps import require_license, require_manager
 from app.database import get_session
 from app.models.core import Company, CompanyCard, Driver, DriverCompany, TbaInstance, Vehicle
 from app.models.tacho import TachoFile
 
-router = APIRouter(prefix="/api/customers", tags=["customers"], dependencies=[Depends(require_license)])
+router = APIRouter(
+    prefix="/api/customers",
+    tags=["customers"],
+    dependencies=[Depends(require_license), Depends(require_manager)],
+)
 
 
 class CompanyIn(BaseModel):
@@ -53,6 +59,7 @@ class DriverIn(BaseModel):
 
 
 async def company_scope(company_id: uuid.UUID, x_company_id: str | None = Header(default=None)) -> uuid.UUID:
+    """Require the caller's selected tenant to match the URL tenant."""
     if not x_company_id:
         raise HTTPException(status_code=400, detail="X-Company-ID header is required.")
     try:
@@ -136,8 +143,7 @@ async def add_company_card(company_id: uuid.UUID, body: CardIn, _: uuid.UUID = D
     if card is not None:
         if card.company_id != company_id:
             raise HTTPException(status_code=409, detail="This company card belongs to another customer.")
-        return {"id": str(card.id), "company_id": str(company_id), "card_id": card.card_id,
-                "already_registered": True}
+        return {"id": str(card.id), "company_id": str(company_id), "card_id": card.card_id, "already_registered": True}
     card = CompanyCard(company_id=company_id, card_id=body.card_id, name=body.name, number=body.number)
     session.add(card)
     await session.commit()

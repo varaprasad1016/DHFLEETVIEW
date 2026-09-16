@@ -21,7 +21,7 @@ def _created() -> Mapped[datetime]:
 
 
 class Company(Base):
-    """A customer tenant. Vehicles, cards and bridge instances belong to it."""
+    """A customer tenant. Vehicles, cards, bridge instances and VU files belong to it."""
 
     __tablename__ = "companies"
 
@@ -76,7 +76,7 @@ class Driver(Base):
 
 
 class DriverCompany(Base):
-    """A driver may be associated with several customer companies."""
+    """Many-to-many employment/association; a driver may work for many customers."""
 
     __tablename__ = "driver_companies"
 

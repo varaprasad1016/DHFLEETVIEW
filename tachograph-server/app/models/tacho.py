@@ -31,7 +31,7 @@ class TachoActivity(Base):
     vehicle_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("vehicles.id"))
     driver_ref: Mapped[str | None] = mapped_column(String(40))
     vehicle_ref: Mapped[str | None] = mapped_column(String(20))
-    activity_type: Mapped[str] = mapped_column(String(16), nullable=False)  # drive|work|available|rest
+    activity_type: Mapped[str] = mapped_column(String(16), nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     ended_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     source: Mapped[str] = mapped_column(String(20), server_default=text("'TACHOGRAPH'"))
