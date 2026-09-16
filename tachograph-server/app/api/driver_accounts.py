@@ -223,9 +223,15 @@ class TraccarPinIn(BaseModel):
 
 
 @accounts_router.get("/traccar")
-async def list_traccar_accounts(session: AsyncSession = Depends(get_session)) -> list[dict]:
+async def list_traccar_accounts(principal: Principal = Depends(require_manager),
+                                session: AsyncSession = Depends(get_session)) -> list[dict]:
+    """App status for the drivers this user can see in DH FleetView only."""
+    visible = await auth.traccar_get(principal, "/api/drivers")
+    ids = [d["id"] for d in (visible or []) if "id" in d]
+    if not ids:
+        return []
     rows = (await session.execute(
-        select(DriverAccount).where(DriverAccount.traccar_driver_id.is_not(None))
+        select(DriverAccount).where(DriverAccount.traccar_driver_id.in_(ids))
     )).scalars().all()
     return [await _summary(session, a) for a in rows]
 

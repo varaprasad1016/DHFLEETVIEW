@@ -446,35 +446,31 @@ async def resend_job(
 @router.get("/drivers", dependencies=JOBS)
 async def job_drivers(session: AsyncSession = Depends(get_session),
                       principal: Principal = Depends(require_manager)) -> list[dict]:
-    """Every driver a job can go to: DH FleetView drivers (as this user sees them),
-    driver app accounts, and names already used on jobs/shifts."""
+    """Drivers this user can send jobs to: the drivers linked to their DH FleetView
+    account (the ones they added), never other companies' drivers."""
     from app.models.driver_auth import DriverAccount
     from app.services import auth as auth_service
 
-    by_name: dict[str, dict] = {}
-
-    def add(name: str | None, source: str, **extra) -> None:
-        name = " ".join((name or "").split())
-        if not name:
-            return
-        entry = by_name.setdefault(name.lower(), {"name": name, "unique_id": None, "in_fleetview": False, "app_access": False})
-        if source == "fleetview":
-            entry["in_fleetview"] = True
-        entry.update({k: v for k, v in extra.items() if v})
-
     try:
-        drivers = await auth_service.traccar_get(principal, "/api/drivers?all=true" if principal.administrator else "/api/drivers")
+        drivers = await auth_service.traccar_get(principal, "/api/drivers")
     except Exception:
-        drivers = None
-    for d in drivers or []:
-        add(d.get("name"), "fleetview", unique_id=d.get("uniqueId"))
-    for a in (await session.execute(select(DriverAccount))).scalars().all():
-        add(a.name, "account", unique_id=a.unique_id, app_access=bool(a.active))
-    for (name,) in (await session.execute(select(Job.driver_name).distinct())).all():
-        add(name, "history")
-    for (name,) in (await session.execute(select(Shift.driver_name).distinct())).all():
-        add(name, "history")
-    return sorted(by_name.values(), key=lambda e: e["name"].lower())
+        raise HTTPException(status_code=503, detail="Can't load drivers from DH FleetView. Try again shortly.")
+    drivers = [d for d in (drivers or []) if d.get("name")]
+    ids = [d["id"] for d in drivers if "id" in d]
+    accounts = {}
+    if ids:
+        rows = (await session.execute(select(DriverAccount).where(DriverAccount.traccar_driver_id.in_(ids)))).scalars().all()
+        accounts = {a.traccar_driver_id: a for a in rows}
+    out = []
+    for d in drivers:
+        account = accounts.get(d.get("id"))
+        out.append({
+            "id": d.get("id"),
+            "name": " ".join(d["name"].split()),
+            "unique_id": d.get("uniqueId"),
+            "app_access": bool(account and account.active),
+        })
+    return sorted(out, key=lambda e: e["name"].lower())
 
 
 # --- Photo endpoint (before /{shift_id}) ---

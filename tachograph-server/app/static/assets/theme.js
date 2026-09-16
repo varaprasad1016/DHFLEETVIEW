@@ -79,7 +79,10 @@
     return true;
   }
   function fitTables() {
-    var narrow = window.innerWidth <= STACK_BELOW;
+    // A too-wide table makes phones widen the layout viewport, so innerWidth alone
+    // can report "not narrow"; the screen width can't be stretched that way.
+    var width = Math.min(window.innerWidth, (window.screen && window.screen.width) || window.innerWidth);
+    var narrow = width <= STACK_BELOW;
     var tables = document.querySelectorAll("table:not([data-no-stack])");
     for (var i = 0; i < tables.length; i++) {
       var t = tables[i];
