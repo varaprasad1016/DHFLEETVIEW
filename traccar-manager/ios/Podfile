@@ -1,4 +1,4 @@
-# ${title} - CocoaPods configuration for the Flutter iOS app
+# DH FleetView - CocoaPods configuration for the Flutter iOS app
 
 # Uncomment this line to define a global platform for your project
 platform :ios, '13.0'
