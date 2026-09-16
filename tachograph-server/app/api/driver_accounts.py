@@ -52,7 +52,7 @@ class LoginIn(BaseModel):
     pin: str = Field(..., min_length=4, max_length=12)
 
 
-@auth_router.post("/login", dependencies=[Depends(require_module("driver_app"))])
+@auth_router.post("/login")
 async def login(body: LoginIn, request: Request, session: AsyncSession = Depends(get_session)) -> dict:
     now_mono = time.monotonic()
     _global_failures[:] = [t for t in _global_failures if now_mono - t < _GLOBAL_WINDOW]

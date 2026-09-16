@@ -29,17 +29,7 @@
   .lock h2{ margin:0 0 8px; } .lock p{ color:var(--mut); }
   .btn{ display:inline-block; background:var(--acc); color:var(--on-acc); font-weight:700; text-decoration:none; padding:11px 18px; border-radius:10px; margin-top:8px; }
   .hidden{ display:none !important; }
-  .modules{ background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px 18px; margin-bottom:16px; }
-  .modules h2{ margin:0 0 4px; font-size:16px; }
-  .modules .note{ color:var(--mut); font-size:13px; margin:0 0 12px; }
-  .module-list{ display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:8px; }
-  .module-opt{ display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border:1px solid var(--line); border-radius:10px; cursor:pointer; background:var(--input); }
-  .module-opt input{ width:18px; height:18px; margin:2px 0 0; accent-color:var(--acc); flex:none; }
-  .module-opt b{ display:block; font-size:14px; }
-  .module-opt span{ display:block; color:var(--mut); font-size:12px; }
-  .module-opt.saving{ opacity:.6; }
-  .card.off{ opacity:.55; border-style:dashed; }
-  .pill.off{ background:var(--bad-soft); color:var(--bad); }
+
 </style>
 </head>
 <body>
@@ -52,12 +42,6 @@
     <span class="dot warn" id="dot"></span>
     <div><b id="stTitle">Checking licence…</b><div class="meta" id="stMeta"></div></div>
   </div>
-
-  <section id="modulesPanel" class="modules hidden" aria-labelledby="modulesTitle">
-    <h2 id="modulesTitle">Module access</h2>
-    <p class="note">Only the super administrator sees this. Tick a module to switch it on for everyone; unticked modules are hidden and their data is switched off.</p>
-    <div class="module-list" id="moduleList"></div>
-  </section>
 
   <section id="tools" class="hidden">
     <div class="grid">
@@ -142,37 +126,11 @@
       $('locked').classList.remove('hidden'); $('tools').classList.add('hidden');
     }
   }
-  const escHtml = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
-
-  // Module switches: everyone sees only switched-on modules; the super
-  // administrator also sees switched-off ones (dimmed) and the tick boxes.
+  // Module access is set per user by the super administrator (DH FleetView
+  // Settings > Users). Show only the modules this user has.
   function applyModules(m) {
     document.querySelectorAll('[data-module]').forEach((card) => {
-      const enabled = m.enabled[card.dataset.module] !== false;
-      card.classList.toggle('hidden', !enabled && !m.can_manage);
-      card.classList.toggle('off', !enabled && m.can_manage);
-      let tag = card.querySelector('.pill.off');
-      if (!enabled && m.can_manage && !tag) {
-        tag = document.createElement('span'); tag.className = 'pill off'; tag.textContent = 'Off';
-        card.querySelector('h3').appendChild(tag);
-      } else if (enabled && tag) tag.remove();
-    });
-    $('modulesPanel').classList.toggle('hidden', !m.can_manage);
-    if (!m.can_manage) return;
-    $('moduleList').innerHTML = m.modules.map((x) => `<label class="module-opt" data-key="${escHtml(x.key)}">
-        <input type="checkbox" ${x.enabled ? 'checked' : ''}>
-        <div><b>${escHtml(x.label)}</b><span>${escHtml(x.description)}</span></div></label>`).join('');
-    $('moduleList').querySelectorAll('.module-opt').forEach((opt) => {
-      const box = opt.querySelector('input');
-      box.onchange = async () => {
-        opt.classList.add('saving'); box.disabled = true;
-        try {
-          const r = await fetch('api/modules', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ [opt.dataset.key]: box.checked }) });
-          if (!r.ok) throw new Error();
-          applyModules(await r.json());
-        } catch { box.checked = !box.checked; opt.classList.remove('saving'); box.disabled = false; alert('Could not save the module setting.'); }
-      };
+      card.classList.toggle('hidden', m.enabled[card.dataset.module] === false);
     });
   }
   async function loadModules() {

@@ -148,20 +148,27 @@ def ensure_own(principal: Principal, driver_name: str | None) -> None:
         raise HTTPException(status_code=404, detail="Not found.")
 
 
-# --- module switches ---------------------------------------------------------------------
+# --- module access -------------------------------------------------------------------------
 
 def require_module(key: str):
-    """Refuse requests to a module the super administrator has switched off."""
+    """Refuse an office user's requests to a module the super administrator hasn't
+    given them. Drivers and the super administrator are never limited here; the
+    route's own auth dependency still decides who may call it at all."""
     from app.services import modules
 
-    async def dependency(session: AsyncSession = Depends(get_session)) -> None:
-        flags = await modules.get_flags(session)
+    async def dependency(request: Request, session: AsyncSession = Depends(get_session)) -> None:
+        if await _driver_principal(request, session) is not None:
+            return
+        principal = await _manager_principal(request)
+        if principal is None or modules.is_super_admin(principal):
+            return
+        flags, _ = await modules.get_user_flags(session, principal.user_id)
         if not flags.get(key, True):
             label = next((lbl for k, lbl, _ in modules.MODULES if k == key), key)
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail={"error": "module_disabled", "module": key,
-                        "message": f"{label} isn't switched on. Ask your administrator."},
+                        "message": f"{label} isn't switched on for your account. Ask your administrator."},
             )
     dependency.__name__ = f"require_module_{key}"
     return dependency
