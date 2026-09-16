@@ -1,10 +1,10 @@
-# Building the iOS App (${title})
+# Building the iOS App (DH FleetView)
 
-The iOS project in `ios/` is fully branded and ready to build — but iOS builds **require a Mac with Xcode**. This project is the same Flutter app as the Android version: a WebView that loads the ${title} web app.
+The iOS project in `ios/` is fully branded and ready to build — but iOS builds **require a Mac with Xcode**. This project is the same Flutter app as the Android version: a WebView that loads the DH FleetView web app.
 
 ## What's already done
 
-- App name **${title}** (`Info.plist` → `CFBundleDisplayName` / `CFBundleName`)
+- App name **DH FleetView** (`Info.plist` → `CFBundleDisplayName` / `CFBundleName`)
 - Bundle ID **`com.dhgroup.fleetview`**
 - App icons regenerated to match Android: indigo→violet gradient with the white pin badge (all sizes)
 - App Transport Security allows cleartext HTTP (`NSAllowsArbitraryLoads`) so the app can load your `http://` server
