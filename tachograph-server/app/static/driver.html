@@ -498,8 +498,29 @@ function signedOut() {
   clearTimers();
   location.replace(LOGIN_URL);
 }
-function renderSignIn() {
-  signedOut();
+// No driver session. Office staff who open the driver screens from DH FleetView
+// get an explanation instead of being bounced to their own home screen.
+async function renderSignIn() {
+  let officeUser = null;
+  try {
+    const r = await fetch("/api/session", { headers: { Accept: "application/json" } });
+    if (r.ok) officeUser = await r.json();
+  } catch (e) {}
+  if (!officeUser) { signedOut(); return; }
+  clearTimers();
+  setTopbar({ title: "Driver" }); setNav(null); setSubbar(null); setBottomAction(null);
+  $("#view").innerHTML = `<div class="card" style="margin-top:24px">
+      <div class="card-title" style="font-size:20px">Driver screens</div>
+      <p class="mut" style="margin:0 0 10px">You're signed in to DH FleetView as <b>${esc(officeUser.name || officeUser.email || "an office user")}</b>.
+        These screens are for drivers, so there's nothing to show for an office account.</p>
+      <p class="mut" style="margin:0 0 6px">To give a driver access:</p>
+      <ol class="mut" style="margin:0 0 16px;padding-left:20px">
+        <li>Open <b>Settings → Drivers</b> and set a 6-digit PIN for the driver.</li>
+        <li>The driver signs in on the normal DH FleetView login with their name (or driver ID) and that PIN.</li>
+      </ol>
+      <a class="btn btn-primary" href="/settings/drivers" style="text-decoration:none">Manage drivers &amp; PINs</a>
+      <a class="btn btn-soft" href="/" style="text-decoration:none">Back to DH FleetView</a>
+    </div>`;
 }
 function openProfile() {
   openSheet("Profile", `
