@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { getEnabledModules } from '../common/util/driverApp';
 import {
   Box, Button, Card, CardContent, Chip, FormControlLabel, Grid, MenuItem,
   Paper, Switch, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
@@ -15,8 +16,10 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import EventAvailableIcon from '@mui/icons-material/EventAvailable';
 import AirIcon from '@mui/icons-material/Air';
 import DashboardCustomizeIcon from '@mui/icons-material/DashboardCustomize';
-import LoginIcon from '@mui/icons-material/Login';
+import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import AssignmentIcon from '@mui/icons-material/Assignment';
+import ScheduleIcon from '@mui/icons-material/Schedule';
+import BadgeIcon from '@mui/icons-material/Badge';
 import { useCatch, useCatchCallback } from '../reactHelper';
 import {
   tachoGetConfiguration, tachoSaveConfiguration, tachoRequestDownload,
@@ -25,6 +28,7 @@ import {
 } from '../common/util/tachograph';
 
 const TachographPage = () => {
+  const [enabledModules, setEnabledModules] = useState(null);
   const [deviceId, setDeviceId] = useState('');
   const [config, setConfig] = useState(null);
   const [downloads, setDownloads] = useState([]);
@@ -32,6 +36,10 @@ const TachographPage = () => {
   const [bridges, setBridges] = useState([]);
   const [pairingCode, setPairingCode] = useState('');
   const [stats, setStats] = useState({ total: 0, completed: 0, pending: 0, failed: 0 });
+
+  useEffect(() => {
+    getEnabledModules().then(setEnabledModules);
+  }, []);
 
   const devices = useSelector((state) => Object.values(state.devices.items));
 
@@ -120,15 +128,18 @@ const TachographPage = () => {
           <Grid container spacing={2}>
             {[
               { label: 'Compliance hub', desc: 'All tools & licence status', href: '/tacho/compliance', icon: <DashboardCustomizeIcon /> },
-              { label: 'Walkaround checks', desc: 'Driver daily vehicle check', href: '/tacho/walkaround', icon: <FactCheckIcon /> },
-              { label: 'Vehicle defects', desc: 'Defects & rectification log', href: '/tacho/defects', icon: <WarningAmberIcon /> },
-              { label: 'Tacho compliance', desc: "Drivers' hours & WTD, archive", href: '/tacho/hours', icon: <AccessTimeIcon /> },
-              { label: 'Driver Shifts', desc: 'Clock in/out & shift tracking', href: '/driver-shift', icon: <LoginIcon /> },
-              { label: 'Job Management', desc: 'Send & manage driver jobs', href: '/jobs', icon: <AssignmentIcon /> },
-              { label: 'Shift Reports', desc: 'View shift history & photos', href: '/shifts', icon: <AccessTimeIcon /> },
-              { label: 'MOT & tax reminders', desc: 'DVLA MOT, tax & Euro status', href: '/tacho/reminders', icon: <EventAvailableIcon /> },
-              { label: 'Clean Air Zone', desc: 'ULEZ / CAZ charge exposure', href: '/tacho/caz', icon: <AirIcon /> },
-            ].map((tool) => (
+              { label: 'Walkaround reports', desc: "All drivers' checks, photos & signatures", href: '/tacho/walkaround-reports', icon: <FactCheckIcon />, module: 'walkaround_reports' },
+              { label: 'Vehicle defects', desc: 'Defects & rectification log', href: '/tacho/defects', icon: <WarningAmberIcon />, module: 'defects' },
+              { label: 'Tacho compliance', desc: "Drivers' hours & WTD, archive", href: '/tacho/hours', icon: <AccessTimeIcon />, module: 'tacho' },
+              { label: 'MOT & tax reminders', desc: 'DVLA MOT, tax & Euro status', href: '/tacho/reminders', icon: <EventAvailableIcon />, module: 'reminders' },
+              { label: 'Clean Air Zone', desc: 'ULEZ / CAZ charge exposure', href: '/tacho/caz', icon: <AirIcon />, module: 'caz' },
+              { label: 'Driver app', desc: 'Shifts, walkarounds, jobs, fuel & faults', href: '/tacho/driver', icon: <LocalShippingIcon />, module: 'driver_app' },
+              { label: 'Drivers & app PINs', desc: 'Add drivers and set their app PIN', href: '/settings/drivers', icon: <BadgeIcon />, module: 'driver_pins' },
+              { label: 'Job management', desc: 'Send jobs & message drivers', href: '/tacho/jobs', icon: <AssignmentIcon />, module: 'jobs' },
+              { label: 'Shift reports', desc: 'Active shifts, history & photos', href: '/tacho/shifts', icon: <ScheduleIcon />, module: 'shifts' },
+            ]
+              .filter((tool) => !tool.module || !enabledModules || enabledModules[tool.module] !== false)
+              .map((tool) => (
               <Grid item xs={12} sm={6} md={4} key={tool.href}>
                 <Button
                   fullWidth

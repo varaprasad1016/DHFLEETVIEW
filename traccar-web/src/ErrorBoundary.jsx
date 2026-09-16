@@ -8,6 +8,27 @@ import { Alert, Box, Button } from '@mui/material';
 // throws again immediately and, after MAX_RETRIES, we surface it.
 const MAX_RETRIES = 3;
 
+const HARD_RELOAD_KEY = 'errorBoundaryHardReload';
+
+// Reload without the offline cache. A crash can come from an old build that the
+// service worker (or the mobile app's web view) is still serving after a fix
+// was deployed; a normal reload would load the same broken files again.
+export const hardReload = async () => {
+  try {
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map((registration) => registration.unregister()));
+    }
+    if (window.caches) {
+      const keys = await window.caches.keys();
+      await Promise.all(keys.map((key) => window.caches.delete(key)));
+    }
+  } catch {
+    // Still reload below.
+  }
+  window.location.reload();
+};
+
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -37,9 +58,21 @@ class ErrorBoundary extends React.Component {
       // After a stable period, forget the retry count so later transients also recover.
       clearTimeout(this.resetTimer);
       this.resetTimer = setTimeout(() => this.setState({ retries: 0 }), 8000);
-    } else if (typeof console !== 'undefined') {
-      // eslint-disable-next-line no-console
-      console.error('ErrorBoundary: giving up after retries', error);
+    } else {
+      if (typeof console !== 'undefined') {
+        // eslint-disable-next-line no-console
+        console.error('ErrorBoundary: giving up after retries', error);
+      }
+      // Heal a stale cached build automatically, once per session; a real bug
+      // shows the error card after that.
+      try {
+        if (!window.sessionStorage.getItem(HARD_RELOAD_KEY)) {
+          window.sessionStorage.setItem(HARD_RELOAD_KEY, String(Date.now()));
+          hardReload();
+        }
+      } catch {
+        // sessionStorage unavailable: leave it to the Reload button.
+      }
     }
   }
 
@@ -64,7 +97,7 @@ class ErrorBoundary extends React.Component {
           <Alert
             severity="error"
             action={(
-              <Button color="inherit" size="small" onClick={() => window.location.reload()}>
+              <Button color="inherit" size="small" onClick={() => hardReload()}>
                 Reload
               </Button>
             )}
