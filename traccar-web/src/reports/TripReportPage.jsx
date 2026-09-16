@@ -125,7 +125,7 @@ const TripReportPage = () => {
     }
   }, []);
 
-  const onExport = useCatch(async () => {
+  const onExport = useCatch(async ({ format = 'xlsx' } = {}) => {
     const sheets = new Map();
     items.forEach((item) => {
       const deviceName = devices[item.deviceId].name;
@@ -159,7 +159,7 @@ const TripReportPage = () => {
       });
       sheets.get(deviceName).push(row);
     });
-    await exportExcel(t('reportTrips'), 'trips.xlsx', sheets, theme);
+    await exportExcel(t('reportTrips'), 'trips.xlsx', sheets, theme, format);
   });
 
   const onSchedule = useCatch(async (deviceIds, groupIds, report) => {
@@ -244,7 +244,7 @@ const TripReportPage = () => {
               onSchedule={onSchedule}
               deviceType="multiple"
               loading={loading}
-              formats={['xlsx']}
+              formats={['xlsx', 'pdf']}
             >
               <ColumnSelect columns={columns} setColumns={setColumns} columnsArray={columnsArray} />
             </ReportFilter>

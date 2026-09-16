@@ -1,5 +1,5 @@
 /*
- * Test CMSV9 video page in the Android emulator's WebView (DH FleetView app).
+ * Test CMSV9 video page in the Android emulator's WebView (${title} app).
  * Requires: adb forward tcp:9223 localabstract:webview_devtools_remote_<pid>
  * Usage: node preview/test-android-webview.mjs
  */

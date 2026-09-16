@@ -187,6 +187,18 @@ async def _persist_infringements(session: AsyncSession, driver_ref: str, found: 
 
 # --- endpoints --------------------------------------------------------------
 
+@router.get("/company")
+async def company_name(session: AsyncSession = Depends(get_session)) -> dict:
+    """Return the latest company name read from a vehicle-unit upload."""
+    name = (await session.execute(
+        select(TachoFile.company_name)
+        .where(TachoFile.file_kind == "vehicle_unit", TachoFile.company_name.isnot(None))
+        .order_by(TachoFile.created_at.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+    return {"name": name or "${title}"}
+
+
 @router.get("/summary")
 async def summary(session: AsyncSession = Depends(get_session)) -> dict:
     comp = await tacho_compliance.compliance(session)
@@ -309,7 +321,9 @@ async def upload(body: UploadIn, session: AsyncSession = Depends(get_session),
     result = {"file_id": str(tf.id), "sha256": meta["sha256"], "size_bytes": meta["size_bytes"],
               "parsed": False, "infringements_found": 0, "infringements_new": 0}
 
-    if body.file_kind == "driver_card":
+    if body.file_kind == "vehicle_unit":
+        tf.company_name = ddd_parser.parse_vehicle_unit_company(data)
+    elif body.file_kind == "driver_card":
         try:
             parsed, parser_name = _parse_driver_card(data)
             tf.parsed = True
@@ -554,7 +568,12 @@ async def _report_for(session: AsyncSession, file_id: uuid.UUID | None,
 
     return tacho_report.build_report(
         parsed, found, start=start, end=end,
-        driver_ref=tf.driver_ref or parsed.get("driver_ref"))
+        driver_ref=tf.driver_ref or parsed.get("driver_ref"),
+        company_name=(await session.execute(
+            select(TachoFile.company_name)
+            .where(TachoFile.file_kind == "vehicle_unit", TachoFile.company_name.isnot(None))
+            .order_by(TachoFile.created_at.desc()).limit(1)
+        )).scalar_one_or_none())
 
 
 @router.get("/timeline")
@@ -667,6 +686,7 @@ async def list_files(session: AsyncSession = Depends(get_session)) -> list[dict]
     return [{
         "id": str(f.id), "filename": f.filename, "file_kind": f.file_kind,
         "driver_ref": f.driver_ref, "vehicle_ref": f.vehicle_ref,
+        "company_name": f.company_name,
         "size_bytes": f.size_bytes, "sha256": f.sha256, "parsed": f.parsed,
         "parse_error": f.parse_error,
         "retain_until": f.retain_until.isoformat() if f.retain_until else None,

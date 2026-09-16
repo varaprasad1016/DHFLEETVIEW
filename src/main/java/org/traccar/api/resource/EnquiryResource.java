@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 DH FleetView contributors
+ * Copyright 2026 ${title} contributors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,7 +24,7 @@ import java.util.Map;
 
 /**
  * Public sales-enquiry endpoint. Collects a prospect's name, email and phone and
- * dispatches an enquiry to the DH FleetView team. Uses the server's MailManager,
+ * dispatches an enquiry to the ${title} team. Uses the server's MailManager,
  * which logs the message when SMTP is not yet configured.
  */
 @Path("enquiry")
@@ -33,7 +33,7 @@ import java.util.Map;
 public class EnquiryResource {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(EnquiryResource.class);
-    private static final String RECIPIENT = "admin@dhfleetview.co.uk";
+    private static final String RECIPIENT = "admin@${serverHost}";
 
     @Inject
     private MailManager mailManager;
@@ -51,7 +51,7 @@ public class EnquiryResource {
                     .build();
         }
 
-        String subject = "New DH FleetView enquiry from " + name;
+        String subject = "New ${title} enquiry from " + name;
         String text = "A new sales enquiry has been received.\n\n"
                 + "Name:  " + name + "\n"
                 + "Email: " + email + "\n"
@@ -61,7 +61,7 @@ public class EnquiryResource {
 
         try {
             User recipient = new User();
-            recipient.setName("DH FleetView Team");
+            recipient.setName("${title} Team");
             recipient.setEmail(RECIPIENT);
             mailManager.sendMessage(recipient, true, subject, text);
         } catch (Exception e) {

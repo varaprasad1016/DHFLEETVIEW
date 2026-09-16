@@ -27,7 +27,7 @@
   .pill{ display:inline-block; font-size:11px; color:var(--acc); border:1px solid var(--line); border-radius:999px; padding:1px 8px; margin-left:6px; vertical-align:middle;}
   .lock { background:var(--card); border:1px solid var(--bad); border-radius:14px; padding:20px; text-align:center; }
   .lock h2{ margin:0 0 8px; } .lock p{ color:var(--mut); }
-  .btn{ display:inline-block; background:var(--acc); color:var(--on-acc); font-weight:700; text-decoration:none; padding:11px 18px; border-radius:10px; margin-top:8px; }
+  .btn{ display:inline-block; background:var(--acc); color:#04121f; font-weight:700; text-decoration:none; padding:11px 18px; border-radius:10px; margin-top:8px; }
   .hidden{ display:none !important; }
 </style>
 </head>
@@ -44,6 +44,10 @@
 
   <section id="tools" class="hidden">
     <div class="grid">
+      <a class="card" href="walkaround">
+        <h3>Daily walkaround check</h3>
+        <p>Driver first-use vehicle check &amp; defect reporting (DVSA).</p>
+      </a>
       <a class="card" href="defects">
         <h3>Defects <span class="pill" id="defPill">—</span></h3>
         <p>Open defects, severity and rectification audit trail.</p>
@@ -64,19 +68,15 @@
         <h3>Tacho compliance <span class="pill" id="tachoPill">—</span></h3>
         <p>Drivers' hours &amp; WTD infringements, downloads, archive.</p>
       </a>
-      <a class="card" href="driver">
-        <h3>Driver App <span class="pill">new</span></h3>
-        <p>Mobile shift start/end, walkaround checks, jobs, fuel, faults &amp; paperwork.</p>
+      <a class="card" href="/tacho/driver-shift">
+        <h3>Driver Shifts <span class="pill">new</span></h3>
+        <p>Clock in/out with odometer, fuel &amp; AdBlue photo capture.</p>
       </a>
-      <a class="card" href="/settings/drivers">
-        <h3>Drivers &amp; app PINs</h3>
-        <p>Add drivers and set their 6-digit PIN for the driver screens (DH FleetView Settings → Drivers).</p>
-      </a>
-      <a class="card" href="jobs">
+      <a class="card" href="/tacho/jobs">
         <h3>Job Management <span class="pill" id="jobsPill">—</span></h3>
         <p>Send &amp; manage driver job assignments — accept/deny workflow.</p>
       </a>
-      <a class="card" href="shifts">
+      <a class="card" href="/tacho/shifts">
         <h3>Shift Reports</h3>
         <p>View active shifts, history &amp; clock-in/out photos.</p>
       </a>

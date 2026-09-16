@@ -15,15 +15,15 @@
   .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; margin-bottom:14px; }
   .tabs { display:flex; gap:6px; margin-bottom:14px; }
   .tab { padding:6px 14px; border-radius:999px; border:1px solid var(--line); background:transparent; color:var(--mut); cursor:pointer; font-size:13px; }
-  .tab.active { background:var(--acc); color:var(--on-acc); border-color:var(--acc); font-weight:600; }
+  .tab.active { background:var(--acc); color:#04121f; border-color:var(--acc); font-weight:600; }
   table { width:100%; border-collapse:collapse; font-size:13px; }
   th { text-align:left; padding:8px 10px; border-bottom:2px solid var(--line); color:var(--mut); font-size:11px; text-transform:uppercase; }
   td { padding:8px 10px; border-bottom:1px solid var(--line); }
   .pill { display:inline-block; font-size:11px; padding:2px 8px; border-radius:999px; font-weight:600; }
-  .pill-in { background:var(--ok); color:var(--on-acc); }
-  .pill-break { background:var(--warn); color:var(--on-acc); }
-  .pill-out { background:var(--mut); color:var(--on-acc); }
-  .btn { padding:6px 12px; border:none; border-radius:6px; font-size:12px; cursor:pointer; background:var(--acc); color:var(--on-acc); }
+  .pill-in { background:var(--ok); color:#04121f; }
+  .pill-break { background:var(--warn); color:#04121f; }
+  .pill-out { background:var(--mut); color:#04121f; }
+  .btn { padding:6px 12px; border:none; border-radius:6px; font-size:12px; cursor:pointer; background:var(--acc); color:#04121f; }
   .empty { text-align:center; padding:30px; color:var(--mut); }
   .detail-overlay { position:fixed; inset:0; background:rgba(0,0,0,.7); z-index:100; display:flex; align-items:center; justify-content:center; padding:20px; }
   .detail-box { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:24px; max-width:700px; width:100%; max-height:90vh; overflow:auto; }
@@ -31,10 +31,9 @@
   .photo-grid img { width:100%; height:150px; object-fit:cover; border-radius:8px; }
   .photo-grid .cap { font-size:11px; color:var(--mut); text-align:center; margin-top:4px; }
   .stat-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:10px; }
-  .stat { background:var(--input); border-radius:8px; padding:10px; text-align:center; }
+  .stat { background:#0e1624; border-radius:8px; padding:10px; text-align:center; }
   .stat small { display:block; color:var(--mut); font-size:11px; }
   .stat b { font-size:16px; }
-  .hidden { display:none !important; }
 </style>
 </head>
 <body>
@@ -60,8 +59,7 @@
   <div class="detail-box" id="detailBox" onclick="event.stopPropagation()"></div>
 </div>
 <script>
-// Same-origin: works at /tacho/<page> behind Apache and at :8000/<page> directly.
-const API = location.pathname.replace(/\/[^\/]*$/, '') + '/api/shifts';
+const API = location.port === '8000' ? '/api/shifts' : location.protocol + '//' + location.hostname + ':8000/api/shifts';
 let activeShifts = [];
 let historyShifts = [];
 let currentTab = 'active';
@@ -142,7 +140,7 @@ async function viewDetail(id){
     if(s.jobs && s.jobs.length){
       html += `<h3 style="margin-top:16px">Jobs</h3>`;
       s.jobs.forEach(j => {
-        html += `<div style="padding:8px;background:var(--input);border-radius:8px;margin-top:6px"><b>${esc(j.title)}</b> <span class="pill pill-${j.status==='accepted'?'accepted':'out'}" style="font-size:10px">${j.status}</span></div>`;
+        html += `<div style="padding:8px;background:#0e1624;border-radius:8px;margin-top:6px"><b>${esc(j.title)}</b> <span class="pill pill-${j.status==='accepted'?'accepted':'out'}" style="font-size:10px">${j.status}</span></div>`;
       });
     }
     html += `<div style="margin-top:16px;text-align:right"><button class="btn" onclick="closeDetail()">Close</button></div>`;

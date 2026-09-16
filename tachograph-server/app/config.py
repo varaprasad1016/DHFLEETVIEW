@@ -87,20 +87,5 @@ class Settings(BaseSettings):
     tls_cert_path: str = ""
     tls_key_path: str = ""
 
-    # --- Driver app ---
-    # Contacts tab, "Name|Role|Phone" entries separated by ';', e.g.
-    # "Transport Office|Planning|01234 567890;Workshop|Defects|07700 900123"
-    driver_contacts: str = ""
-
-    # --- Access control ---
-    # Office staff sign in to DH FleetView (Traccar); the tacho API checks that
-    # session with Traccar. Role needed: "admin", "manager" (admin or a Traccar
-    # manager, i.e. userLimit != 0) or "user" (any enabled account).
-    traccar_url: str = "http://127.0.0.1:8090"
-    manager_role: str = "manager"
-    # Browser origins allowed to call the API with a DH FleetView session cookie.
-    allowed_origins: str = "https://dhfleetview.co.uk,https://www.dhfleetview.co.uk"
-    driver_session_days: int = 90
-
 
 settings = Settings()

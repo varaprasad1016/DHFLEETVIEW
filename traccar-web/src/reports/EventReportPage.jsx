@@ -143,7 +143,7 @@ const EventReportPage = () => {
     [eventTypes, alarmTypes],
   );
 
-  const onExport = useCatch(async () => {
+  const onExport = useCatch(async ({ format = 'xlsx' } = {}) => {
     const sheets = new Map();
     items.forEach((item) => {
       const deviceName = devices[item.deviceId].name;
@@ -164,7 +164,7 @@ const EventReportPage = () => {
       });
       sheets.get(deviceName).push(row);
     });
-    await exportExcel(t('reportEvents'), 'events.xlsx', sheets, theme);
+    await exportExcel(t('reportEvents'), 'events.xlsx', sheets, theme, format);
   });
 
   const onSchedule = useCatch(async (deviceIds, groupIds, report) => {
@@ -259,7 +259,7 @@ const EventReportPage = () => {
               onSchedule={onSchedule}
               deviceType="multiple"
               loading={loading}
-              formats={['xlsx']}
+              formats={['xlsx', 'pdf']}
             >
               <div className={classes.filterItem}>
                 <SelectField

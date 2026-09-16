@@ -1,10 +1,10 @@
-# DH FleetView - Production Deployment Script
+# ${title} - Production Deployment Script
 # Run this in PowerShell (Admin) on the production server
 # Server: 109.228.53.195
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "=== DH FleetView Production Deployment ===" -ForegroundColor Cyan
+Write-Host "=== ${title} Production Deployment ===" -ForegroundColor Cyan
 Write-Host ""
 
 # Step 1: Install Docker if not present
@@ -63,7 +63,7 @@ if (-not (Test-Path $deployDir)) {
 }
 
 # Step 4: Download the project from GitHub
-Write-Host "[4/6] Downloading DH FleetView from GitHub..."
+Write-Host "[4/6] Downloading ${title} from GitHub..."
 $zipUrl = "https://github.com/varaprasad1016/DHFLEETVIEW/archive/refs/heads/main.zip"
 $zipFile = Join-Path $env:TEMP "dhfleetview.zip"
 
@@ -113,7 +113,7 @@ if (-not (Test-Path $dataDir)) { New-Item -ItemType Directory -Path $dataDir -Fo
 Write-Host "  Configuration created" -ForegroundColor Green
 
 # Step 6: Stop old container and start new one
-Write-Host "[6/6] Starting DH FleetView server..."
+Write-Host "[6/6] Starting ${title} server..."
 
 # Stop existing container if running
 $existing = docker ps -a --filter "name=dhfleetview" --format "{{.Names}}"
@@ -143,12 +143,12 @@ docker run -d `
 Write-Host ""
 Write-Host "=== Deployment Complete ===" -ForegroundColor Green
 Write-Host ""
-Write-Host "Access DH FleetView at: http://109.228.53.195:8082" -ForegroundColor Cyan
+Write-Host "Access ${title} at: http://109.228.53.195:8082" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "NOTE: You may need to open port 8082 in Windows Firewall:" -ForegroundColor Yellow
-Write-Host '  netsh advfirewall firewall add rule name="DH FleetView HTTP" dir=in action=allow protocol=TCP localport=8082' -ForegroundColor White
+Write-Host '  netsh advfirewall firewall add rule name="${title} HTTP" dir=in action=allow protocol=TCP localport=8082' -ForegroundColor White
 Write-Host ""
 Write-Host "And in the IONOS cloud firewall/security group, allow inbound TCP 8082" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "Also open port 5027 for GPS device tracking:" -ForegroundColor Yellow
-Write-Host '  netsh advfirewall firewall add rule name="DH FleetView GPS" dir=in action=allow protocol=TCP localport=5027' -ForegroundColor White
+Write-Host '  netsh advfirewall firewall add rule name="${title} GPS" dir=in action=allow protocol=TCP localport=5027' -ForegroundColor White

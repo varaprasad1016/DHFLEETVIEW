@@ -45,6 +45,8 @@ public final class DddInspector {
     private static final int MANUFACTURER_ADDRESS_LENGTH = 36;
     private static final int PART_NUMBER_LENGTH = 16;
     private static final int SERIAL_NUMBER_LENGTH = 8;
+    private static final int COMPANY_NAME_OFFSET = 456;
+    private static final int COMPANY_NAME_LENGTH = 35;
 
     private DddInspector() {
     }
@@ -157,6 +159,11 @@ public final class DddInspector {
         metadata.setCurrentDateTime(readTimeReal(data, currentTimeOffset));
         metadata.setDownloadablePeriodFrom(readTimeReal(data, periodOffset));
         metadata.setDownloadablePeriodTo(readTimeReal(data, periodOffset + 4));
+        int companyOffset = block.getOffset() + COMPANY_NAME_OFFSET;
+        if (companyOffset + COMPANY_NAME_LENGTH <= block.getOffset() + block.getLength()
+                && companyOffset + COMPANY_NAME_LENGTH <= data.length) {
+            metadata.setCompanyName(readString(data, companyOffset, COMPANY_NAME_LENGTH));
+        }
     }
 
     /**

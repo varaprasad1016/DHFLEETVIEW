@@ -149,7 +149,7 @@ const LoginLayout = ({ children }) => {
       <Paper className={classes.card} elevation={0}>
         <div className={classes.brand}>
           <LogoImage color={theme.palette.primary.main} />
-          <span className={classes.tagline}>Fleet Command Center</span>
+          <span className={classes.tagline}>{window.description || '${description}'}</span>
           <span className={classes.status}>
             <span className={classes.dot} />
             Secure connection

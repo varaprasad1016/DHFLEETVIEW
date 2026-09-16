@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useTheme } from '@mui/material/styles';
 import { IconButton, Table, TableBody, TableCell, TableHead, TableRow } from '@mui/material';
 import GpsFixedIcon from '@mui/icons-material/GpsFixed';
 import LocationSearchingIcon from '@mui/icons-material/LocationSearching';
@@ -26,11 +27,13 @@ import { useRestriction } from '../common/util/permissions';
 import CollectionActions from '../settings/components/CollectionActions';
 import fetchOrThrow from '../common/util/fetchOrThrow';
 import SelectField from '../common/components/SelectField';
+import exportExcel from '../common/util/exportExcel';
 
 const PositionsReportPage = () => {
   const navigate = useNavigate();
   const { classes } = useReportStyles();
   const t = useTranslation();
+  const theme = useTheme();
 
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -107,7 +110,15 @@ const PositionsReportPage = () => {
       query.append('geofenceId', geofenceId);
     }
     deviceIds.forEach((deviceId) => query.append('deviceId', deviceId));
-    window.location.assign(`/api/positions/${format}?${query.toString()}`);
+    if (format === 'pdf') {
+      const rows = items.map((item) => Object.fromEntries(columns.map((key) => [
+        positionAttributes[key]?.name || key,
+        item.hasOwnProperty(key) ? item[key] : item.attributes?.[key],
+      ])));
+      await exportExcel(t('reportPositions'), 'positions.xlsx', new Map([[t('reportPositions'), rows]]), theme, format);
+    } else {
+      window.location.assign(`/api/positions/${format}?${query.toString()}`);
+    }
   });
 
   const onSchedule = useCatch(async (deviceIds, groupIds, report) => {
@@ -149,7 +160,7 @@ const PositionsReportPage = () => {
               onSchedule={onSchedule}
               deviceType="single"
               loading={loading}
-              formats={['csv', 'gpx', 'kml', 'kmz']}
+              formats={['csv', 'gpx', 'kml', 'kmz', 'pdf']}
             >
               <div className={classes.filterItem}>
                 <SelectField

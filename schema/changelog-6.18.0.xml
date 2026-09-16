@@ -1,0 +1,15 @@
+<?xml version="1.1" encoding="UTF-8"?>
+<databaseChangeLog
+  xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                      http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.6.xsd"
+  logicalFilePath="changelog-6.18">
+
+  <changeSet author="dhfleetview" id="changelog-6.18-tachograph-company-name">
+    <addColumn tableName="tc_tachograph_files">
+      <column name="companyname" type="VARCHAR(128)" />
+    </addColumn>
+  </changeSet>
+
+</databaseChangeLog>

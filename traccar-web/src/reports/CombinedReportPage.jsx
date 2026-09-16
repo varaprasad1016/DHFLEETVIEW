@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
+import { useTheme } from '@mui/material/styles';
 import { IconButton, Table, TableBody, TableCell, TableHead, TableRow } from '@mui/material';
 import GpsFixedIcon from '@mui/icons-material/GpsFixed';
 import LocationSearchingIcon from '@mui/icons-material/LocationSearching';
@@ -26,6 +27,7 @@ import AddressValue from '../common/components/AddressValue';
 import formatEventData from './common/formatEventData';
 import { eventIconKey } from '../map/core/preloadImages';
 import fetchOrThrow from '../common/util/fetchOrThrow';
+import exportExcel from '../common/util/exportExcel';
 import { deviceEquality } from '../common/util/deviceEquality';
 
 const columnsArray = [
@@ -41,6 +43,7 @@ const eventPosition = (item, event) => item.positions.find((p) => p.id === event
 const CombinedReportPage = () => {
   const { classes } = useReportStyles();
   const t = useTranslation();
+  const theme = useTheme();
 
   const devices = useSelector(
     (state) => state.devices.items,
@@ -117,6 +120,30 @@ const CombinedReportPage = () => {
     }
   };
 
+  const onExport = async ({ format = 'xlsx' } = {}) => {
+    const sheets = new Map();
+    items.forEach((item) => {
+      const deviceName = devices[item.deviceId]?.name || String(item.deviceId);
+      const rows = sheets.get(deviceName) || [];
+      item.events.forEach((event) => {
+        const row = {};
+        columns.forEach((key) => {
+          const header = t(columnsMap.get(key));
+          if (key === 'address') {
+            row[header] = eventPosition(item, event)?.address || '';
+          } else if (key === 'attributes') {
+            row[header] = JSON.stringify(event.attributes || {});
+          } else {
+            row[header] = formatValue(item, event, key);
+          }
+        });
+        rows.push(row);
+      });
+      if (rows.length) sheets.set(deviceName, rows);
+    });
+    await exportExcel(t('reportCombined'), 'combined.xlsx', sheets, theme, format);
+  };
+
   return (
     <PageLayout menu={<ReportsMenu />} breadcrumbs={['reportTitle', 'reportCombined']}>
       <div className={classes.container}>
@@ -150,7 +177,13 @@ const CombinedReportPage = () => {
         )}
         <div className={classes.containerMain}>
           <div className={classes.header}>
-            <ReportFilter onShow={onShow} deviceType="multiple" loading={loading}>
+            <ReportFilter
+              onShow={onShow}
+              onExport={onExport}
+              deviceType="multiple"
+              loading={loading}
+              formats={['xlsx', 'pdf']}
+            >
               <ColumnSelect columns={columns} setColumns={setColumns} columnsArray={columnsArray} />
             </ReportFilter>
           </div>

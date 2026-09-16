@@ -252,31 +252,8 @@ function resolveUrl(url) {
   }
 }
 
-async function waitForStream(url, timeoutMs = 45000, cancelFn) {
-  const absolute = resolveUrl(url);
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (cancelFn && cancelFn()) return false;
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 1200);
-      const res = await fetch(absolute, { signal: controller.signal, cache: 'no-store' });
-      clearTimeout(timer);
-      if (res.ok) {
-        // We only need to know the stream exists. Abort immediately so this probe
-        // does not hold a streaming connection open — otherwise N channels leak N
-        // connections and blow past the browser's ~6-per-host limit, leaving no
-        // sockets for the actual players (the "only 2 channels play" bug).
-        controller.abort();
-        return true;
-      }
-    } catch (e) {
-      // keep polling while device starts pushing
-    }
-    await new Promise((resolve) => setTimeout(resolve, 300));
-  }
-  return false;
-}
+// waitForStream removed: use waitForStreamReady (server-side check) instead
+// to avoid exhausting the browser's ~6-connections-per-host limit.
 
 const Cmsv9VideoPage = () => {
   const { classes } = useStyles();
@@ -397,7 +374,7 @@ const Cmsv9VideoPage = () => {
       const { flvUrl } = data;
       if (!flvUrl) throw new Error('No stream URL returned');
       setPlaying(true);
-      const found = await waitForStream(flvUrl, 90000, () => cancelledRef.current);
+      const found = await waitForStreamReady(deviceId, channel, 90000, () => cancelledRef.current);
       if (!found) {
         if (!cancelledRef.current) {
           setLiveError(true);
@@ -554,7 +531,7 @@ const Cmsv9VideoPage = () => {
       // Stagger startup: N tiles firing play-orders and spinning up N WASM
       // H.265 decoders at the same instant is what makes multi-channel struggle.
       if (idx > 0) {
-        await new Promise((resolve) => setTimeout(resolve, idx * 400));
+        await new Promise((resolve) => setTimeout(resolve, idx * 600));
         if (cancelledRef.current) return;
       }
       try {
@@ -567,7 +544,7 @@ const Cmsv9VideoPage = () => {
           setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
           return;
         }
-        const found = await waitForStream(data.flvUrl, 150000, () => cancelledRef.current);
+        const found = await waitForStreamReady(deviceId, ch, 150000, () => cancelledRef.current);
         if (!found) {
           if (!cancelledRef.current) {
             setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
@@ -715,7 +692,7 @@ const Cmsv9VideoPage = () => {
         // The platform pushes the recorded segment to the portal relay as a
         // regular FLV stream, so it plays directly in the browser just like
         // live does.
-        const found = await waitForStream(flvUrl, 90000, () => cancelledRef.current);
+        const found = await waitForStreamReady(deviceId, channel, 90000, () => cancelledRef.current);
         if (!found) {
           if (!cancelledRef.current) {
             setLiveError(true);

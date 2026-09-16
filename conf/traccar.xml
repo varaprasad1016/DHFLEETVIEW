@@ -8,6 +8,8 @@
     <entry key='web.cacheControl'>no-cache</entry>
     <entry key='registration.enable'>true</entry>
     <entry key="web.port">8090</entry>
+    <!-- Keep latest-position queries available for one full year for every vehicle. -->
+    <entry key="database.positionPeriod">31536000</entry>
 
     <!-- Only bind protocols actually in use. Traccar otherwise opens a listener
          for every supported protocol it knows (~250 ports on 0.0.0.0). -->

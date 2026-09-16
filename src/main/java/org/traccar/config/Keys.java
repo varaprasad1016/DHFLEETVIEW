@@ -650,11 +650,11 @@ public final class Keys {
 
     /**
      * Limit latest position queries to a certain time period in seconds. This is useful for TimescaleDB
-     * to avoid scanning all time chunks. Default value is 7776000 seconds (90 days). Zero value disables the limit.
+     * to avoid scanning all time chunks. Default value is 31536000 seconds (365 days). Zero value disables the limit.
      */
     public static final ConfigKey<Long> DATABASE_POSITION_PERIOD = new LongConfigKey(
             "database.positionPeriod",
-            List.of(KeyType.CONFIG), 7776000L);
+            List.of(KeyType.CONFIG), 31536000L);
 
     /**
      * Store empty messages as positions. For example, heartbeats.

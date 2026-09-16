@@ -265,6 +265,18 @@ def _parse_identification(value: bytes) -> dict:
     }
 
 
+def parse_vehicle_unit_company(data: bytes) -> str | None:
+    """Read the fixed company/operator field from a Gen1 VU overview.
+
+    The overview stores this field at bytes 456..490 (inclusive). Keep this
+    best-effort: an upload must still be archived if a generation/vendor uses
+    a different layout.
+    """
+    raw = data[456:491] if len(data) >= 491 else b""
+    value = raw.decode("latin-1", "replace").replace("\x00", " ").strip()
+    return value if value and any(character.isalnum() for character in value) else None
+
+
 def parse_driver_card(data: bytes) -> dict:
     """Return {'activities': [...], 'days': n} plus whatever the card says about
     its holder. Raises ValueError if no driver activity block is found (the

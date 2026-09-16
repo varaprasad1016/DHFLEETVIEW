@@ -64,7 +64,7 @@ const GeofenceReportPage = () => {
     [geofenceIds],
   );
 
-  const onExport = useCatch(async () => {
+  const onExport = useCatch(async ({ format = 'xlsx' } = {}) => {
     const sheets = new Map();
     items.forEach((item) => {
       const deviceName = devices[item.deviceId].name;
@@ -78,7 +78,7 @@ const GeofenceReportPage = () => {
       });
       sheets.get(deviceName).push(row);
     });
-    await exportExcel(t('sharedGeofences'), 'geofences.xlsx', sheets, theme);
+    await exportExcel(t('sharedGeofences'), 'geofences.xlsx', sheets, theme, format);
   });
 
   const formatValue = (item, key) => {
@@ -103,7 +103,7 @@ const GeofenceReportPage = () => {
           onExport={onExport}
           deviceType="multiple"
           loading={loading}
-          formats={['xlsx']}
+          formats={['xlsx', 'pdf']}
         >
           <div className={classes.filterItem}>
             <SelectField

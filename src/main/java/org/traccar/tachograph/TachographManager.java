@@ -601,6 +601,7 @@ public class TachographManager {
                 file.setVehicleRegistration(metadata.getVehicleRegistrationNumber());
                 file.setVehicleIdentification(metadata.getVehicleIdentificationNumber());
                 file.setVehicleUnitSerial(metadata.getVehicleUnitSerialNumber());
+                file.setCompanyName(metadata.getCompanyName());
                 file.setCardNumber(metadata.getCardNumber());
                 file.setPeriodFrom(metadata.getDownloadablePeriodFrom());
                 file.setPeriodTo(metadata.getDownloadablePeriodTo());
@@ -621,7 +622,6 @@ public class TachographManager {
             job.setFileId(fileId);
             storage.updateObject(job, new Request(new Columns.Exclude("id"), new Condition.Equals("id", job.getId())));
 
-            LOGGER.info("Tachograph file {} stored for job {} at {} ({} bytes, sha256 {})",
             LOGGER.info("Stored {} for job {} at {} ({} bytes, sha256 {})",
                     fileName, job.getId(), finalPath, data.length, sha256);
             return file;
@@ -654,31 +654,6 @@ public class TachographManager {
         } else {
             storage.updateObject(configuration,
                     new Request(new Columns.Exclude("id"), new Condition.Equals("id", configuration.getId())));
-        }
-    }
-
-    private void handleFailure(TachographDownloadJob job, String errorCode, String message) throws StorageException {
-        // Non-retryable errors
-        if (TachographDownloadJob.ERROR_INVALID_FILE.equals(errorCode)
-                || TachographDownloadJob.ERROR_PERMISSION_DENIED.equals(errorCode)
-                || TachographDownloadJob.ERROR_PROTOCOL_SPEC_MISSING.equals(errorCode)) {
-            job.setStatus(TachographDownloadJob.STATUS_FAILED);
-            job.setErrorCode(errorCode);
-            job.setErrorMessage(message);
-            job.setFailedAt(new Date());
-            job.setUpdatedAt(new Date());
-            storage.updateObject(job, new Request(new Columns.Exclude("id"), new Condition.Equals("id", job.getId())));
-            LOGGER.warn("Tachograph job {} failed permanently: {} - {}", job.getId(), errorCode, message);
-            return;
-    /** Hands a stored file to the delivery queue, without letting that fail the download. */
-    private void queueForwarding(TachographFile file, TachographDownloadJob job) {
-        try {
-            Device device = storage.getObject(Device.class,
-                    new Request(new Columns.All(), new Condition.Equals("id", job.getDeviceId())));
-            forwardService.enqueue(file, device);
-        } catch (Exception e) {
-            LOGGER.warn("Could not queue {} for delivery; it is stored and can be re-queued",
-                    file.getFileName(), e);
         }
     }
 
@@ -728,11 +703,6 @@ public class TachographManager {
         job.setNextRetryAt(new Date(System.currentTimeMillis() + (long) delaySeconds * 1000));
         job.setUpdatedAt(new Date());
         storage.updateObject(job, new Request(new Columns.Exclude("id"), new Condition.Equals("id", job.getId())));
-        LOGGER.info("Tachograph job {} scheduled for retry #{} in {}s: {} - {}",
-        job.setProgress(0);
-        job.setProgressDetail("Waiting to retry");
-        job.setNextRetryAt(new Date(now.getTime() + delaySeconds * 1000L));
-        save(job);
         LOGGER.info("Tachograph job {} will retry (attempt {}) in {} s: {} - {}",
                 job.getId(), job.getRetryCount(), delaySeconds, errorCode, message);
     }
@@ -834,6 +804,7 @@ public class TachographManager {
                     || TachographDownloadJob.STATUS_WAITING_FOR_DEVICE.equals(s)
                     || TachographDownloadJob.STATUS_WAITING_FOR_BRIDGE.equals(s)) {
                 executeAsync(job.getId());
+            }
             if (visible != null && !visible.contains(job.getDeviceId())) {
                 continue;
             }
@@ -968,53 +939,6 @@ public class TachographManager {
         if (isSimulatorEnabled()) {
             return mockAuthProvider;
         }
-        if (matched == null) {
-            throw new TachographException("INVALID_PAIRING_CODE", "Invalid or expired pairing code");
-        }
-        matched.setBridgeId(bridgeId);
-        matched.setName(name);
-        matched.setSoftwareVersion(softwareVersion);
-        matched.setStatus(TachographBridge.STATUS_ONLINE);
-        String token = java.util.UUID.randomUUID().toString();
-        matched.setTokenHash(hashSha256(token));
-        matched.setLastSeenAt(new Date());
-        matched.setLastHeartbeat(new Date());
-        matched.setPairingCodeHash(null);
-        matched.setPairingCodeExpiresAt(null);
-        storage.updateObject(matched, new Request(
-                new Columns.Exclude("id"), new Condition.Equals("id", matched.getId())));
-        // Return with token in a transient field (reuse tokenHash field for response only if needed)
-        // The caller receives the raw token via the bridge's tokenHash? For MVP we set tokenHash to the
-        // hash and return the raw token in the bridge name? Instead, put token in softwareVersion transient?
-        // Simpler: set tokenHash to raw token for the response, then re-hash on next heartbeat.
-        // For MVP we store the hash and return the raw token in a map via the resource.
-        // To keep the model clean, we store the hash and the resource returns the raw token separately.
-        // Here we set a transient attribute for the resource to read.
-        matched.setTokenHash(token); // raw token for immediate response; will be hashed on next heartbeat
-        LOGGER.info("Bridge {} registered for group {}", bridgeId, matched.getGroupId());
-        return matched;
-    }
-
-    public Map<String, Object> heartbeat(long bridgeId, String token, Map<String, Object> body)
-            throws StorageException, TachographException {
-        TachographBridge bridge = getBridge(bridgeId);
-        if (bridge == null) {
-            throw new TachographException("NOT_FOUND", "Bridge not found: " + bridgeId);
-        }
-        if (token == null || !hashSha256(token).equals(bridge.getTokenHash())
-                && !token.equals(bridge.getTokenHash())) {
-            // allow raw token match for the first heartbeat after registration
-            boolean ok = false;
-            if (bridge.getTokenHash() != null) {
-                ok = hashSha256(token).equals(bridge.getTokenHash()) || token.equals(bridge.getTokenHash());
-            }
-            if (!ok) {
-                throw new TachographException("UNAUTHORIZED", "Invalid bridge token");
-            }
-            // migrate raw token to hash on first successful heartbeat
-            if (token.equals(bridge.getTokenHash())) {
-                bridge.setTokenHash(hashSha256(token));
-            }
         return hasAnyBridge() ? bridgeAuthProvider : null;
     }
 

@@ -91,6 +91,25 @@ def _drive_by_date(acts: list[Activity], lo: _Local) -> dict[date, int]:
     return out
 
 
+def _timeline_for_day(d: date, lo: _Local, acts: list[Activity]) -> tuple[list[dict], dict[str, int]]:
+    """Return clipped driver-card activity segments for one local 24-hour row."""
+    day_start, day_end = lo.bounds(d)
+    segments: list[dict] = []
+    totals = {"drive": 0, "work": 0, "available": 0, "rest": 0}
+    for activity in acts:
+        start = max(activity.start, day_start)
+        end = min(activity.end, day_end)
+        if end <= start:
+            continue
+        start_minute = max(0, int((start - day_start).total_seconds() // 60))
+        end_minute = min(1440, int((end - day_start).total_seconds() // 60))
+        if end_minute <= start_minute:
+            continue
+        segments.append({"type": activity.type, "start": start_minute, "end": end_minute})
+        totals[activity.type] = totals.get(activity.type, 0) + end_minute - start_minute
+    return segments, totals
+
+
 def _day_row(d: date, lo: _Local, acts: list[Activity], days: list[DutyDay],
              by_day: dict[date, list[VehiclePeriod]],
              covered: tuple[date, date]) -> dict:
@@ -130,9 +149,11 @@ def _day_row(d: date, lo: _Local, acts: list[Activity], days: list[DutyDay],
     # A duty period the data never shows the end of has no end time, no length
     # and no daily rest; the card was simply downloaded mid-shift.
     closed = ending is not None and ending.closed_by_rest
+    timeline, timeline_totals = _timeline_for_day(d, lo, acts)
     return {
+        "timeline": timeline,
+        "timeline_totals": timeline_totals,
         "date": d.isoformat(),
-        "weekday": d.strftime("%a"),
         "registration": ", ".join(regs),
         "odometer_start": odo_start,
         "odometer_end": odo_end,
@@ -158,7 +179,8 @@ def _day_row(d: date, lo: _Local, acts: list[Activity], days: list[DutyDay],
 
 def build_report(parsed: dict, infringements: list[Infringement],
                  start: date | None = None, end: date | None = None,
-                 driver_ref: str | None = None, tz: ZoneInfo = LOCAL) -> dict:
+                 driver_ref: str | None = None, company_name: str | None = None,
+                 tz: ZoneInfo = LOCAL) -> dict:
     """Assemble the report. `parsed` is a parse_driver_card() result."""
     lo = _Local(tz)
     acts = _prepare(parsed["activities"])
@@ -242,6 +264,7 @@ def build_report(parsed: dict, infringements: list[Infringement],
             "name": parsed.get("driver_name"),
             "card_number": parsed.get("card_number"),
         },
+        "company_name": company_name or parsed.get("company_name"),
         "period": {"from": first.isoformat(), "to": last.isoformat(),
                    "timezone": str(tz),
                    "data_from": covered[0].isoformat(),

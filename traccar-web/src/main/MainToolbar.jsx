@@ -161,7 +161,7 @@ const MainToolbar = ({
           </svg>
         </div>
         <div>
-          <Typography className={classes.brandText}>DH FleetView</Typography>
+          <Typography className={classes.brandText}>{window.title || '${title}'}</Typography>
           <Typography className={classes.brandSub}>Tracking &amp; Live View</Typography>
         </div>
       </div>
