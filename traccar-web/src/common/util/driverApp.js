@@ -64,8 +64,8 @@ export const tryDriverLogin = async (identifier, pin) => {
   return { ok: false, fallback: true, message };
 };
 
-const accountsRequest = async (path, init) => {
-  const response = await fetch(`${ACCOUNTS_API}${path}`, init);
+const accountsRequestAt = async (url, init) => {
+  const response = await fetch(url, init);
   if (!response.ok) {
     const { message, code } = await readDetail(response);
     const error = new Error(message || `Driver app service error (${response.status})`);
@@ -74,6 +74,8 @@ const accountsRequest = async (path, init) => {
   }
   return response.json();
 };
+
+const accountsRequest = (path, init) => accountsRequestAt(`${ACCOUNTS_API}${path}`, init);
 
 export const getDriverAppAccount = (driverId) => accountsRequest(`/traccar/${driverId}`);
 
@@ -86,17 +88,30 @@ export const saveDriverAppAccount = (driverId, { pin, active }) =>
     body: JSON.stringify({ pin: pin || null, active }),
   });
 
-// Module switches set by the super administrator on the Compliance hub.
-// Resolves to { key: enabled } or null when the tacho service can't say.
-export const getEnabledModules = async () => {
+// Compliance modules this user may see (set per user by the super administrator).
+// Resolves to { enabled: { key: bool }, can_manage, modules } or null when the
+// tacho service can't say.
+export const getModuleAccess = async () => {
   try {
     const response = await fetch('/tacho/api/modules');
     if (!response.ok) return null;
-    return (await response.json()).enabled;
+    return await response.json();
   } catch {
     return null;
   }
 };
+
+export const getEnabledModules = async () => (await getModuleAccess())?.enabled || null;
+
+// Super administrator: another user's modules.
+export const getUserModules = (userId) => accountsRequestAt(`/tacho/api/modules/users/${userId}`);
+
+export const saveUserModules = (userId, enabled) =>
+  accountsRequestAt(`/tacho/api/modules/users/${userId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(enabled),
+  });
 
 export const syncDriverAppAccounts = () =>
   accountsRequest('/traccar-sync', { method: 'POST' }).catch(() => null);
