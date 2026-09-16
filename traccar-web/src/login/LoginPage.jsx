@@ -30,6 +30,12 @@ import {
 import { useCatch } from '../reactHelper';
 import QrCodeDialog from '../common/components/QrCodeDialog';
 import PasswordField from '../common/components/PasswordField';
+import {
+  hasDriverSession,
+  looksLikeEmail,
+  openDriverHome,
+  tryDriverLogin,
+} from '../common/util/driverApp';
 
 const useStyles = makeStyles()((theme) => ({
   options: {
@@ -82,6 +88,7 @@ const LoginPage = () => {
   }));
 
   const [failed, setFailed] = useState(false);
+  const [failMessage, setFailMessage] = useState(null);
 
   const [email, setEmail] = usePersistedState('loginEmail', '');
   const [password, setPassword] = useState('');
@@ -105,9 +112,33 @@ const LoginPage = () => {
   const [announcementShown, setAnnouncementShown] = useState(false);
   const announcement = useSelector((state) => state.session.server.announcement);
 
+  // A phone already signed in as a driver goes straight back to the driver screens.
+  useEffect(() => {
+    if (hasDriverSession()) {
+      openDriverHome();
+    }
+  }, []);
+
   const handlePasswordLogin = async (event) => {
     event.preventDefault();
     setFailed(false);
+    setFailMessage(null);
+    // Anything that isn't an email address may be a driver name/ID with a PIN.
+    let driverMessage = null;
+    if (!looksLikeEmail(email) && !code.length) {
+      const driver = await tryDriverLogin(email, password);
+      if (driver.ok) {
+        openDriverHome();
+        return;
+      }
+      if (!driver.fallback) {
+        setFailMessage(driver.message);
+        setFailed(true);
+        setPassword('');
+        return;
+      }
+      driverMessage = /^\d{4,12}$/.test(password) ? driver.message : null;
+    }
     try {
       const query = `email=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`;
       const response = await fetch('/api/session', {
@@ -127,6 +158,7 @@ const LoginPage = () => {
         throw Error(await response.text());
       }
     } catch {
+      setFailMessage(driverMessage);
       setFailed(true);
       setPassword('');
     }
@@ -190,18 +222,18 @@ const LoginPage = () => {
             <TextField
               required
               error={failed}
-              label={t('userEmail')}
+              label={`${t('userEmail')} / driver name`}
               name="email"
               value={email}
-              autoComplete="email"
+              autoComplete="username"
               autoFocus={!email}
               onChange={(e) => setEmail(e.target.value)}
-              helperText={failed && 'Invalid username or password'}
+              helperText={failed && (failMessage || 'Invalid username or password')}
             />
             <PasswordField
               required
               error={failed}
-              label={t('userPassword')}
+              label={`${t('userPassword')} / PIN`}
               name="password"
               value={password}
               autoComplete="current-password"

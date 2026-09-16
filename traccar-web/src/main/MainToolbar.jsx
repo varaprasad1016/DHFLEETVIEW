@@ -33,6 +33,7 @@ import { useTranslation } from '../common/components/LocalizationProvider';
 import { useDeviceReadonly } from '../common/util/permissions';
 import { computeFleetStats } from '../common/util/vehicleStatus';
 import DeviceRow from './DeviceRow';
+import ThemeModeButton from '../common/components/ThemeModeButton';
 
 const useStyles = makeStyles()((theme) => ({
   toolbar: {
@@ -323,6 +324,8 @@ const MainToolbar = ({
       </Popover>
 
       <Box sx={{ flex: 1 }} />
+
+      <ThemeModeButton />
 
       {/* Notifications */}
       <Tooltip title={t('reportEvents')}>
