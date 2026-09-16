@@ -26,6 +26,9 @@ from app.models.licensing import LicenseState
 from app.models.walkaround import WalkaroundCheck, WalkaroundDefect, WalkaroundPhoto
 from app.models.tacho import TachoActivity, TachoFile, Infringement
 from app.models.vehicle import VehicleStatus
+from app.models.shifts import Shift, ShiftPhoto, Job, JobMessage, ShiftJob
+from app.models.driver_app import FuelLog, DriverPaperwork
+from app.models.driver_auth import DriverAccount, DriverSession
 
 __all__ = [
     "Base",
@@ -52,4 +55,13 @@ __all__ = [
     "TachoFile",
     "Infringement",
     "VehicleStatus",
+    "Shift",
+    "ShiftPhoto",
+    "Job",
+    "ShiftJob",
+    "JobMessage",
+    "FuelLog",
+    "DriverPaperwork",
+    "DriverAccount",
+    "DriverSession",
 ]

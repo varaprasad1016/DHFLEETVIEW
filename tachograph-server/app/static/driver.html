@@ -1,0 +1,1210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Driver">
+<link rel="manifest" href="driver/manifest.webmanifest">
+<title>${title} — Driver</title>
+<style>
+  :root {
+    color-scheme: light;
+    --d-bg: #f2f4f8; --d-surface: #ffffff; --d-surface-2: #f5f7fb; --d-line: #e7eaf1; --d-line-2: #d9dee8;
+    --d-fg: #111827; --d-fg-2: #374151; --d-mut: #6b7280; --d-mut-2: #9aa3b2;
+    --d-primary: #4f5de8; --d-primary-soft: #eceefe; --d-on-primary: #ffffff;
+    --d-dark: #1f2430; --d-on-dark: #ffffff;
+    --d-ok: #1f9d3a; --d-ok-soft: #e6f6ea; --d-ok-2: #34b24f;
+    --d-warn: #d97706; --d-warn-soft: #fdf1e2;
+    --d-bad: #e11d2e; --d-bad-soft: #fde8ea;
+    --d-teal: #127c86; --d-adblue: #5aae7b;
+    --d-plate: #f7c600; --d-plate-front: #fbf6d9; --d-plate-ink: #111;
+    --d-shadow: 0 1px 2px rgba(17,24,39,.05), 0 4px 16px rgba(17,24,39,.04);
+    --d-scrim: rgba(17,24,39,.38);
+    --nav-h: 74px;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --d-bg: #0b1120; --d-surface: #141b2d; --d-surface-2: #1a2236; --d-line: #243049; --d-line-2: #2e3b57;
+    --d-fg: #e8edf6; --d-fg-2: #c3cddd; --d-mut: #8e9bb3; --d-mut-2: #6b7890;
+    --d-primary: #7482ff; --d-primary-soft: #232b52; --d-on-primary: #ffffff;
+    --d-dark: #2a3450; --d-on-dark: #ffffff;
+    --d-ok: #34c35a; --d-ok-soft: #12301d; --d-ok-2: #34c35a;
+    --d-warn: #f5a524; --d-warn-soft: #33260f;
+    --d-bad: #ff5a67; --d-bad-soft: #3a1419;
+    --d-teal: #1c9aa6; --d-adblue: #4fa56f;
+    --d-plate: #e0b400; --d-plate-front: #efe7bf; --d-plate-ink: #111;
+    --d-shadow: 0 1px 2px rgba(0,0,0,.35);
+    --d-scrim: rgba(0,0,0,.55);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--d-bg); color: var(--d-fg); }
+  body { font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif; min-height: 100vh; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  [hidden] { display: none !important; }
+
+  /* --- top bar --- */
+  .topbar {
+    position: sticky; top: 0; z-index: 20; display: grid; grid-template-columns: 44px 1fr 88px; align-items: center;
+    padding: calc(8px + env(safe-area-inset-top)) 14px 8px; background: var(--d-surface); border-bottom: 1px solid var(--d-line);
+  }
+  .topbar h1 { margin: 0; text-align: center; font-size: 17px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .topbar .right { display: flex; gap: 8px; justify-content: flex-end; }
+  .avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--d-primary); color: #fff; border: 0; font-size: 12px; font-weight: 700; letter-spacing: .3px; }
+  .iconbtn { width: 38px; height: 38px; border-radius: 50%; border: 0; background: var(--d-surface-2); display: grid; place-items: center; padding: 0; position: relative; color: var(--d-fg); }
+  .iconbtn .badge-dot { position: absolute; top: 7px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--d-bad); border: 2px solid var(--d-surface-2); }
+  .topbar .theme-toggle { width: 38px; height: 38px; border-radius: 50%; border: 0; background: var(--d-surface-2); display: grid; place-items: center; padding: 0; margin: 0; box-shadow: none; }
+  .back { width: 38px; height: 38px; border: 0; background: none; display: grid; place-items: center; padding: 0; color: var(--d-fg); }
+
+  .subbar { position: sticky; top: calc(55px + env(safe-area-inset-top)); z-index: 19; display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; background: var(--d-surface); border-bottom: 1px solid var(--d-line); }
+  .subbar b { font-size: 16px; font-weight: 600; } .subbar .step { color: var(--d-mut); font-size: 14px; }
+  .timer { color: var(--d-primary); font-weight: 600; font-size: 14px; display: inline-flex; gap: 5px; align-items: center; font-variant-numeric: tabular-nums; }
+
+  main { padding: 16px 16px calc(var(--nav-h) + 28px + env(safe-area-inset-bottom)); max-width: 640px; margin: 0 auto; }
+  main.with-action { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+
+  .card { background: var(--d-surface); border-radius: 16px; padding: 16px; margin-bottom: 14px; box-shadow: var(--d-shadow); border: 1px solid var(--d-line); }
+  .card-title { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 15px; margin: 0 0 12px; }
+  .section-title { font-size: 20px; font-weight: 600; margin: 22px 0 2px; }
+  .section-sub { color: var(--d-primary); font-weight: 600; font-size: 14px; margin: 6px 0 10px; }
+  .mut { color: var(--d-mut); } .small { font-size: 12px; }
+  .row { display: flex; align-items: center; gap: 10px; }
+  .between { justify-content: space-between; }
+  hr.sep { border: 0; border-top: 1px solid var(--d-line); margin: 12px 0; }
+
+  /* --- inputs --- */
+  label.lbl { display: block; font-size: 13px; color: var(--d-fg-2); margin: 12px 0 6px; font-weight: 500; }
+  .input { width: 100%; padding: 13px 14px; border-radius: 12px; border: 1.5px solid var(--d-line-2); background: var(--d-surface); font-size: 16px; outline: none; }
+  .input:focus { border-color: var(--d-primary); box-shadow: 0 0 0 3px var(--d-primary-soft); }
+  textarea.input { min-height: 84px; resize: vertical; }
+  .reg-input-wrap { position: relative; }
+  .reg-input { font-size: 20px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; padding-right: 44px; }
+  .clear-x { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); border: 0; background: none; color: var(--d-mut-2); width: 32px; height: 32px; font-size: 18px; }
+  .hint { color: var(--d-mut); font-size: 12px; margin-top: 8px; }
+
+  /* --- buttons --- */
+  .btn { display: flex; width: 100%; align-items: center; justify-content: center; gap: 8px; padding: 14px 16px; border: 0; border-radius: 12px; font-weight: 600; font-size: 16px; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn-primary { background: var(--d-primary); color: var(--d-on-primary); }
+  .btn-ok { background: linear-gradient(180deg, var(--d-ok-2), var(--d-ok)); color: #fff; }
+  .btn-teal { background: var(--d-teal); color: #fff; }
+  .btn-soft { background: var(--d-surface-2); color: var(--d-fg-2); border: 1px solid var(--d-line); }
+  .btn-outline-bad { background: var(--d-surface); color: var(--d-bad); border: 1.5px solid var(--d-bad); }
+  .btn-bad { background: var(--d-bad); color: #fff; }
+  .btn-sm { width: auto; padding: 8px 12px; font-size: 13px; border-radius: 10px; }
+  .btn + .btn { margin-top: 10px; }
+  .btn-row { display: flex; gap: 10px; } .btn-row .btn { margin-top: 0; }
+  .actions-btn { display: inline-flex; align-items: center; gap: 6px; background: var(--d-dark); color: var(--d-on-dark); border: 0; border-radius: 10px; padding: 9px 12px; font-size: 13px; font-weight: 600; }
+
+  /* --- plates & chips --- */
+  .plate { display: inline-block; font-family: "Arial Narrow", "Roboto Condensed", Arial, sans-serif; font-weight: 800; letter-spacing: 1px; color: var(--d-plate-ink); background: var(--d-plate-front); border: 1.5px solid #3a3a3a; border-radius: 5px; padding: 3px 8px; font-size: 13px; white-space: nowrap; }
+  .plate.lg { font-size: 22px; padding: 6px 12px; border-width: 2px; }
+  .plate.rear { background: var(--d-plate); border-color: var(--d-plate); }
+  .chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .chip-ok { background: var(--d-ok-soft); color: var(--d-ok); }
+  .chip-primary { background: var(--d-primary-soft); color: var(--d-primary); }
+  .chip-warn { background: var(--d-warn-soft); color: var(--d-warn); }
+  .chip-bad { background: var(--d-bad-soft); color: var(--d-bad); }
+  .chip-mut { background: var(--d-surface-2); color: var(--d-mut); }
+  .chip.square { border-radius: 6px; }
+
+  /* --- vehicle found / vehicle card --- */
+  .found { border: 1.5px solid var(--d-ok); }
+  .kv-mini { display: flex; gap: 10px; align-items: flex-start; margin-top: 12px; }
+  .kv-mini .ico { width: 26px; height: 26px; border-radius: 7px; background: var(--d-primary-soft); color: var(--d-primary); display: grid; place-items: center; flex: none; }
+  .kv-mini .k { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: var(--d-mut); }
+  .kv-mini .v { font-weight: 600; font-size: 14px; }
+  .loc { display: flex; gap: 6px; align-items: center; color: var(--d-mut); font-size: 13px; margin-top: 10px; }
+  .status-line { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; font-size: 13px; padding: 10px 0; border-top: 1px solid var(--d-line); border-bottom: 1px solid var(--d-line); margin-top: 10px; }
+  .status-line .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--d-primary); display: inline-block; margin-right: 5px; }
+  .status-line .inuse .live-dot { background: var(--d-ok); }
+  .status-line b { font-variant-numeric: tabular-nums; }
+  .comp-title { color: var(--d-mut); font-size: 13px; margin: 12px 0 6px; }
+  .comp-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: 14px; }
+  .comp-row .st { margin-left: auto; font-size: 12px; font-weight: 600; }
+  .circle { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--d-mut-2); flex: none; display: grid; place-items: center; }
+  .circle.done { background: var(--d-ok); border-color: var(--d-ok); color: #fff; }
+  .circle.avail { background: var(--d-ok-2); border-color: var(--d-ok-2); }
+  .circle.prog { border-color: var(--d-warn); }
+  .progress { height: 4px; border-radius: 4px; background: var(--d-line); margin-top: 8px; overflow: hidden; }
+  .progress > i { display: block; height: 100%; background: var(--d-ok); border-radius: 4px; transition: width .3s; }
+  .progress.warn > i { background: var(--d-warn); }
+  .fault-ok { display: flex; align-items: center; gap: 10px; color: var(--d-ok); font-weight: 600; font-size: 14px; }
+  .fault-ok .dotbig { width: 16px; height: 16px; border-radius: 50%; background: var(--d-ok-2); }
+  .fault-item { display: flex; gap: 8px; align-items: flex-start; font-size: 14px; padding: 6px 0; }
+
+  /* --- active walkaround banner --- */
+  .active-wa .row.between b { display: inline-flex; align-items: center; gap: 8px; }
+
+  /* --- jobs --- */
+  .job { position: relative; background: var(--d-surface); border-radius: 14px; padding: 14px 14px 12px 18px; margin-bottom: 10px; box-shadow: var(--d-shadow); border: 1px solid var(--d-line); overflow: hidden; width: 100%; text-align: left; display: block; }
+  .job::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--d-primary); }
+  .job.pending::before { background: var(--d-warn); } .job.in_progress::before { background: var(--d-teal); } .job.completed::before { background: var(--d-mut-2); }
+  .job .ref { font-size: 13px; font-weight: 500; }
+  .job .title { font-weight: 700; text-transform: uppercase; margin-top: 8px; font-size: 15px; }
+  .job .meta { display: flex; justify-content: space-between; color: var(--d-mut); font-size: 12px; margin-top: 8px; gap: 8px; }
+  .empty { text-align: center; color: var(--d-mut); padding: 26px 10px; font-size: 14px; }
+
+  /* --- walkaround wizard --- */
+  .seg { display: flex; gap: 8px; flex-wrap: nowrap; }
+  .seg button { flex: 1; min-width: 0; height: 44px; border-radius: 999px; border: 1px solid var(--d-line-2); background: var(--d-surface); font-size: 13px; color: var(--d-fg-2); padding: 0 4px; }
+  .seg button.on { background: var(--d-primary); border-color: var(--d-primary); color: #fff; font-weight: 600; }
+  .seg.adblue button.on { background: var(--d-adblue); border-color: var(--d-adblue); }
+  .seg.sq button { border-radius: 10px; }
+  .photo-box { border: 1.5px dashed var(--d-line-2); border-radius: 12px; min-height: 130px; display: grid; place-items: center; color: var(--d-mut); background: var(--d-surface-2); overflow: hidden; }
+  .photo-box img { width: 100%; max-height: 240px; object-fit: cover; display: block; }
+  .check-list { padding: 0; overflow: hidden; }
+  .check-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 8px 10px 8px 14px; border-top: 1px solid var(--d-line); }
+  .check-row:first-child { border-top: 0; }
+  .check-name { font-size: 14px; display: flex; gap: 6px; align-items: center; }
+  .info { border: 0; background: none; color: var(--d-primary); padding: 0; width: 20px; height: 20px; flex: none; }
+  .okfault { display: flex; gap: 6px; }
+  .okfault button { width: 54px; height: 38px; border-radius: 12px; border: 1px solid var(--d-line); background: var(--d-surface-2); font-size: 12px; color: var(--d-mut); }
+  .okfault button.ok.on { background: var(--d-primary); border-color: var(--d-primary); color: #fff; font-weight: 600; }
+  .okfault button.fault.on { background: var(--d-bad); border-color: var(--d-bad); color: #fff; font-weight: 600; }
+  .fault-detail { grid-column: 1 / -1; background: var(--d-bad-soft); border-radius: 12px; padding: 10px 12px 12px; margin: 2px 0 4px; }
+  .fault-detail .lbl { margin-top: 6px; }
+  .hint-text { grid-column: 1 / -1; font-size: 12px; color: var(--d-mut); background: var(--d-surface-2); border-radius: 10px; padding: 8px 10px; }
+  .bottom-action { position: fixed; left: 0; right: 0; bottom: 0; z-index: 25; background: var(--d-surface); border-top: 1px solid var(--d-line); padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); display: flex; gap: 10px; }
+  .bottom-action .btn { margin: 0; }
+  .bottom-action .back-sq { width: 52px; flex: none; }
+  .sig-wrap { border: 1.5px dashed var(--d-line-2); border-radius: 12px; background: var(--d-surface-2); position: relative; }
+  .sig-wrap canvas { width: 100%; height: 170px; display: block; touch-action: none; }
+  .sig-clear { position: absolute; top: 8px; right: 8px; }
+  .toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; }
+  .switch { width: 50px; height: 30px; border-radius: 999px; background: var(--d-line-2); border: 0; position: relative; flex: none; transition: background .2s; }
+  .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%; background: #fff; transition: transform .2s; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+  .switch.on { background: var(--d-ok); } .switch.on::after { transform: translateX(20px); }
+
+  /* --- job detail --- */
+  .stepper { display: grid; grid-template-columns: repeat(4, 1fr); padding: 14px 6px 10px; }
+  .stepper .s { position: relative; text-align: center; font-size: 11px; color: var(--d-mut-2); }
+  .stepper .s .c { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--d-line-2); margin: 0 auto 6px; background: var(--d-surface); position: relative; z-index: 1; display: grid; place-items: center; }
+  .stepper .s.done { color: var(--d-fg-2); } .stepper .s.done .c { background: var(--d-primary); border-color: var(--d-primary); color: #fff; }
+  .stepper .s:not(:first-child)::before { content: ""; position: absolute; top: 10px; right: 50%; width: 100%; height: 2px; background: var(--d-line); }
+  .stepper .s.done:not(:first-child)::before { background: var(--d-primary); }
+  .overline { font-size: 12px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--d-fg-2); margin: 18px 0 8px; }
+  .instructions { white-space: pre-wrap; text-transform: uppercase; font-size: 14px; }
+  .banner { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-radius: 10px; font-weight: 600; font-size: 14px; margin-bottom: 10px; }
+  .banner.ok { background: var(--d-ok-soft); color: var(--d-ok); border: 1px solid color-mix(in srgb, var(--d-ok) 30%, transparent); }
+  .banner.warn { background: var(--d-warn-soft); color: var(--d-warn); }
+  .banner.pending { background: var(--d-primary-soft); color: var(--d-primary); }
+  .msgs { background: var(--d-surface); border: 1px solid var(--d-line); border-radius: 12px; overflow: hidden; }
+  .msg-list { max-height: 320px; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+  .bubble { max-width: 82%; padding: 8px 11px; border-radius: 14px; font-size: 14px; }
+  .bubble.me { align-self: flex-end; background: var(--d-primary); color: #fff; border-bottom-right-radius: 4px; }
+  .bubble.them { align-self: flex-start; background: var(--d-surface-2); border-bottom-left-radius: 4px; }
+  .bubble.change { border: 1.5px solid var(--d-warn); }
+  .bubble .t { font-size: 10px; opacity: .75; margin-top: 3px; }
+  .composer { display: flex; gap: 8px; padding: 10px; border-top: 1px solid var(--d-line); }
+  .composer input { flex: 1; border-radius: 999px; padding: 10px 14px; border: 1px solid var(--d-line-2); background: var(--d-surface); outline: none; }
+  .send { width: 42px; height: 42px; border-radius: 50%; border: 0; background: var(--d-surface-2); color: var(--d-primary); display: grid; place-items: center; }
+
+  /* --- bottom sheet --- */
+  .scrim { position: fixed; inset: 0; background: var(--d-scrim); z-index: 60; opacity: 0; transition: opacity .2s; }
+  .scrim.open { opacity: 1; }
+  .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 61; background: var(--d-surface); border-radius: 22px 22px 0 0; max-height: 88vh; overflow-y: auto; transform: translateY(100%); transition: transform .25s ease; padding-bottom: calc(18px + env(safe-area-inset-bottom)); max-width: 640px; margin: 0 auto; }
+  .sheet.open { transform: translateY(0); }
+  .sheet .grab { width: 40px; height: 4px; border-radius: 4px; background: var(--d-line-2); margin: 8px auto 0; }
+  .sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px 14px; border-bottom: 1px solid var(--d-line); }
+  .sheet-head h2 { margin: 0; font-size: 18px; font-weight: 600; }
+  .sheet-close { width: 36px; height: 36px; border-radius: 10px; border: 0; background: var(--d-surface-2); display: grid; place-items: center; color: var(--d-fg-2); }
+  .sheet-body { padding: 4px 16px 8px; }
+  .sheet-group { font-size: 11px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; color: var(--d-mut); margin: 16px 0 8px; }
+  .action { display: flex; align-items: center; gap: 12px; width: 100%; border: 0; background: var(--d-surface-2); border-radius: 12px; padding: 12px; text-align: left; margin-bottom: 10px; }
+  .action .ai { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; color: #fff; flex: none; }
+  .action .at { font-weight: 600; font-size: 15px; } .action .as { font-size: 12px; color: var(--d-mut); }
+  .action .chev { margin-left: auto; color: var(--d-mut-2); }
+  .ai.primary { background: var(--d-primary); } .ai.bad { background: var(--d-bad); } .ai.warn { background: var(--d-warn); } .ai.teal { background: var(--d-teal); } .ai.ok { background: var(--d-ok); }
+
+  /* --- bottom nav --- */
+  .nav { position: fixed; left: 12px; right: 12px; bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 30; background: var(--d-surface); border-radius: 22px; box-shadow: 0 6px 24px rgba(17,24,39,.12); border: 1px solid var(--d-line); display: grid; grid-template-columns: repeat(4, 1fr); padding: 6px; max-width: 616px; margin: 0 auto; }
+  .nav a { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 7px 0; border-radius: 16px; font-size: 11px; color: var(--d-fg-2); text-decoration: none; }
+  .nav a.on { background: var(--d-primary-soft); color: var(--d-primary); font-weight: 600; }
+
+  .toast { position: fixed; left: 50%; bottom: calc(var(--nav-h) + 26px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 90; background: var(--d-dark); color: #fff; padding: 11px 18px; border-radius: 12px; font-size: 14px; font-weight: 500; box-shadow: 0 6px 20px rgba(0,0,0,.2); max-width: 90vw; }
+  .toast.bad { background: var(--d-bad); }
+  .spinner { width: 18px; height: 18px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .tabs { display: flex; background: var(--d-surface-2); border-radius: 12px; padding: 4px; gap: 4px; margin-bottom: 14px; }
+  .tabs button { flex: 1; border: 0; background: none; padding: 9px; border-radius: 9px; font-size: 13px; color: var(--d-mut); }
+  .tabs button.on { background: var(--d-surface); color: var(--d-fg); font-weight: 600; box-shadow: var(--d-shadow); }
+  .list-item { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--d-line); }
+  .list-item:first-child { border-top: 0; }
+  .list-item a { color: var(--d-primary); text-decoration: none; font-weight: 600; font-size: 13px; }
+  .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .stat { background: var(--d-surface-2); border-radius: 12px; padding: 10px; }
+  .stat .n { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; } .stat .l { font-size: 11px; color: var(--d-mut); }
+  .locked { text-align: center; padding: 40px 20px; }
+</style>
+</head>
+<body>
+
+<header class="topbar" id="topbar">
+  <div id="tbLeft"></div>
+  <h1 id="tbTitle">Live</h1>
+  <div class="right" id="tbRight">
+    <button class="iconbtn" id="bellBtn" aria-label="Notifications" hidden>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="#f5a524"><path d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22zm7-6V11a7 7 0 0 0-5.5-6.84V3.5a1.5 1.5 0 0 0-3 0v.66A7 7 0 0 0 5 11v5l-2 2v1h18v-1l-2-2z"/></svg>
+      <span class="badge-dot" id="bellDot" hidden></span>
+    </button>
+    <button class="theme-toggle" data-theme-toggle aria-label="Toggle theme"></button>
+  </div>
+</header>
+<div class="subbar" id="subbar" hidden></div>
+
+<main id="view"></main>
+<div id="bottomAction"></div>
+
+<nav class="nav" id="nav">
+  <a href="#/home" data-nav="home"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 2 11.5h3V21h5.5v-6h3v6H19v-9.5h3z"/></svg>Home</a>
+  <a href="#/documents" data-nav="documents"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2h8l6 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm7 1.5V9h5.5zM8 13h8v1.6H8zm0 3.4h8V18H8z"/></svg>Documents</a>
+  <a href="#/live" data-nav="live"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M21 3 3 10.5l7.2 2.3L12.5 20z"/></svg>Live</a>
+  <a href="#/contacts" data-nav="contacts"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm7.5 0a3.3 3.3 0 1 0 0-6.6 3.3 3.3 0 0 0 0 6.6zM1.5 20c0-3.6 3.4-6.3 7.5-6.3s7.5 2.7 7.5 6.3V21h-15zm16.2 1v-1c0-2-.8-3.8-2.2-5.2.4-.1.7-.1 1.1-.1 3.4 0 6 2.2 6 5.2V21z"/></svg>Contacts</a>
+</nav>
+
+<div class="scrim" id="scrim" hidden></div>
+<section class="sheet" id="sheet" hidden role="dialog" aria-modal="true"></section>
+<input type="file" id="fileCam" accept="image/*" capture="environment" hidden>
+<input type="file" id="fileAny" accept="image/*,application/pdf" hidden>
+
+<script>
+"use strict";
+// ---------- base ----------
+const BASE = location.pathname.replace(/\/(driver|driver-shift)\/?$/, "/");
+const LEVELS = [["empty", "Empty"], ["1/4", "¼"], ["1/2", "½"], ["3/4", "¾"], ["full", "Full"]];
+const TZ = "Europe/London";
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmtReg = (r) => { r = String(r || "").toUpperCase().replace(/\s+/g, ""); return /^[A-Z]{2}\d{2}[A-Z]{3}$/.test(r) ? r.slice(0, 4) + " " + r.slice(4) : r; };
+const initials = (n) => String(n || "").trim().split(/\s+/).slice(0, 2).map((p) => p[0] || "").join("").toUpperCase() || "?";
+const store = {
+  get(k, d = null) { try { const v = localStorage.getItem("drv:" + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem("drv:" + k, JSON.stringify(v)); return true; } catch (e) { return false; } },
+  del(k) { try { localStorage.removeItem("drv:" + k); } catch (e) {} },
+};
+const ICON = {
+  back: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>',
+  chev: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg>',
+  close: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
+  clock: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  truck: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--d-primary)" stroke-width="2" stroke-linejoin="round"><path d="M3 6h11v10H3zM14 9h4l3 3.5V16h-7z"/><circle cx="7" cy="17.5" r="1.8" fill="var(--d-surface)"/><circle cx="17" cy="17.5" r="1.8" fill="var(--d-surface)"/></svg>',
+  pin: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-6.2-7-12a7 7 0 0 1 14 0c0 5.8-7 12-7 12z"/><circle cx="12" cy="9" r="2.5"/></svg>',
+  bolt: '<svg width="13" height="13" viewBox="0 0 24 24" fill="#f5c518"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></svg>',
+  dots: '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>',
+  check: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>',
+  camera: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
+  info: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>',
+  shieldCheck: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg>',
+  swap: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4"/></svg>',
+  fuel: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round"><path d="M4 21V4h10v17M3 21h12M14 9h2.5a1.5 1.5 0 0 1 1.5 1.5V17a1.5 1.5 0 0 0 3 0V8l-3-3M7 8h4"/></svg>',
+  warn: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"><path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17v.5"/></svg>',
+  doc: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round"><path d="M6 3h8l5 5v13H6z"/><path d="M13 3v6h6M9 13h7M9 17h7"/></svg>',
+  play: '<svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M8 5v14l11-7z"/></svg>',
+  send: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M3 20.5 21 12 3 3.5 5.5 12zM5.5 12H13"/></svg>',
+  cal: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
+  user: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/></svg>',
+  okCircle: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.5 2.5 4.5-5"/></svg>',
+};
+
+// ---------- time ----------
+function fmtTime(iso) { return iso ? new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: TZ }) : ""; }
+function fmtTime12(iso) { return iso ? new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: TZ }) : ""; }
+function dayKey(d) { return new Date(d).toLocaleDateString("en-GB", { timeZone: TZ }); }
+function fmtWhen(iso) {
+  if (!iso) return "";
+  const today = dayKey(Date.now()), tomorrow = dayKey(Date.now() + 864e5), yesterday = dayKey(Date.now() - 864e5), k = dayKey(iso);
+  const label = k === today ? "Today" : k === tomorrow ? "Tomorrow" : k === yesterday ? "Yesterday" : new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", timeZone: TZ });
+  return label + " · " + fmtTime(iso);
+}
+function fmtDuration(ms, withSeconds = true) {
+  const s = Math.max(0, Math.floor(ms / 1000)), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return withSeconds ? `${h}h ${String(m).padStart(2, "0")}m ${String(sec).padStart(2, "0")}s` : `${h}h ${String(m).padStart(2, "0")}m`;
+}
+function fmtClock(ms) { const s = Math.max(0, Math.floor(ms / 1000)); const m = Math.floor(s / 60); return `${String(m).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`; }
+
+// ---------- api ----------
+class LicenceLocked extends Error {}
+class SignedOut extends Error {}
+async function api(method, path, body, isForm = false) {
+  const opts = { method, headers: {} };
+  if (S.token) opts.headers.Authorization = "Bearer " + S.token;
+  if (body !== undefined) {
+    if (isForm) opts.body = body;
+    else { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
+  }
+  const r = await fetch(BASE + path, opts);
+  let data = null;
+  try { data = await r.json(); } catch (e) {}
+  if (r.status === 403 && data && data.detail && data.detail.error === "licence_suspended") throw new LicenceLocked(data.detail.message);
+  if (r.status === 401 && data && data.detail && data.detail.error === "login_required") { signedOut(); throw new SignedOut(); }
+  if (!r.ok) {
+    const d = data && data.detail;
+    throw new Error(typeof d === "string" ? d : Array.isArray(d) ? d.map((x) => x.msg).join("; ") : `Request failed (${r.status})`);
+  }
+  return data;
+}
+
+// ---------- ui helpers ----------
+let toastTimer;
+function toast(msg, bad = false) {
+  $$(".toast").forEach((t) => t.remove());
+  const t = document.createElement("div");
+  t.className = "toast" + (bad ? " bad" : "");
+  t.textContent = msg;
+  document.body.appendChild(t);
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.remove(), 3200);
+}
+function fail(e) {
+  if (e instanceof SignedOut) return;
+  if (e instanceof LicenceLocked) { renderLocked(e.message); return; }
+  toast(e.message || String(e), true);
+}
+async function busy(btn, fn) {
+  if (btn.disabled) return;
+  const html = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>';
+  try { return await fn(); } catch (e) { fail(e); } finally { if (btn.isConnected) { btn.disabled = false; btn.innerHTML = html; } }
+}
+function setTopbar({ title, back = null, avatar = false, bell = false }) {
+  $("#tbTitle").textContent = title;
+  const left = $("#tbLeft");
+  if (back) { left.innerHTML = `<button class="back" aria-label="Back">${ICON.back}</button>`; left.firstChild.onclick = back; }
+  else if (avatar) { left.innerHTML = `<button class="avatar" aria-label="Profile">${esc(initials(S.driver))}</button>`; left.firstChild.onclick = openProfile; }
+  else left.innerHTML = "";
+  $("#bellBtn").hidden = !bell;
+}
+function setSubbar(html) { const sb = $("#subbar"); sb.hidden = !html; sb.innerHTML = html || ""; }
+function setNav(active) {
+  $("#nav").hidden = !active;
+  $$("#nav a").forEach((a) => a.classList.toggle("on", a.dataset.nav === active));
+  $("#view").classList.toggle("with-action", !active);
+}
+function setBottomAction(html) { $("#bottomAction").innerHTML = html ? `<div class="bottom-action">${html}</div>` : ""; }
+
+// Bottom sheet
+function openSheet(title, bodyHtml, onMount) {
+  const sheet = $("#sheet"), scrim = $("#scrim");
+  sheet.innerHTML = `<div class="grab"></div><div class="sheet-head"><h2>${esc(title)}</h2><button class="sheet-close" aria-label="Close">${ICON.close}</button></div><div class="sheet-body">${bodyHtml}</div>`;
+  sheet.hidden = false; scrim.hidden = false;
+  requestAnimationFrame(() => { sheet.classList.add("open"); scrim.classList.add("open"); });
+  $(".sheet-close", sheet).onclick = closeSheet;
+  scrim.onclick = closeSheet;
+  if (onMount) onMount(sheet);
+}
+function closeSheet() {
+  const sheet = $("#sheet"), scrim = $("#scrim");
+  sheet.classList.remove("open"); scrim.classList.remove("open");
+  setTimeout(() => { sheet.hidden = true; scrim.hidden = true; sheet.innerHTML = ""; }, 220);
+}
+
+// Photos: downscale to ≤1280px JPEG
+function pickFile(input) {
+  return new Promise((resolve) => {
+    input.value = "";
+    input.onchange = () => resolve(input.files[0] || null);
+    input.click();
+  });
+}
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Could not read that photo.")); };
+    img.src = url;
+  });
+}
+async function downscale(file, max = 1280, q = 0.75) {
+  const img = await loadImage(file);
+  const ratio = Math.min(1, max / Math.max(img.width, img.height));
+  const c = document.createElement("canvas");
+  c.width = Math.round(img.width * ratio); c.height = Math.round(img.height * ratio);
+  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+  return c.toDataURL("image/jpeg", q);
+}
+async function dataUrlToBlob(dataUrl) { return (await fetch(dataUrl)).blob(); }
+async function takePhoto() { const f = await pickFile($("#fileCam")); return f ? downscale(f) : null; }
+
+// ---------- state ----------
+const S = {
+  token: store.get("token"),
+  driver: store.get("token") ? store.get("driver") : null,
+  state: null,          // /api/driver/state
+  template: null,
+  timers: [],
+};
+function clearTimers() { S.timers.forEach(clearInterval); S.timers = []; }
+function draftKey() { return "walkaround:" + (S.driver || "").toLowerCase(); }
+function getDraft() { return store.get(draftKey()); }
+function saveDraft(d) {
+  if (!store.set(draftKey(), d)) {
+    // Storage full (photos): keep the answers, drop the pictures.
+    const slim = JSON.parse(JSON.stringify(d));
+    slim.odometerPhoto = null;
+    Object.values(slim.answers || {}).forEach((a) => { a.photo = null; });
+    if (store.set(draftKey(), slim)) toast("Phone storage is full — photos in this check won't survive closing the app.", true);
+  }
+}
+
+async function loadState() {
+  S.state = await api("GET", "api/driver/state");
+  const pending = (S.state.jobs || []).some((j) => j.status === "pending");
+  $("#bellDot").hidden = !pending;
+  return S.state;
+}
+async function loadTemplate(checkType = "hgv") {
+  if (!S.template || S.template.check_type !== checkType) S.template = await api("GET", "api/driver/walkaround/template?check_type=" + checkType);
+  return S.template;
+}
+
+// ---------- router ----------
+function route() {
+  clearTimers();
+  setSubbar(null); setBottomAction(null);
+  if (!S.token || !S.driver) return renderSignIn();
+  const [, name, arg] = (location.hash || "#/live").split("/");
+  window.scrollTo(0, 0);
+  if (name === "walkaround") return renderWalkaround();
+  if (name === "job" && arg) return renderJob(arg);
+  if (name === "home") return renderHome();
+  if (name === "documents") return renderDocuments();
+  if (name === "contacts") return renderContacts();
+  return renderLive();
+}
+window.addEventListener("hashchange", route);
+
+function renderLocked(message) {
+  clearTimers();
+  setTopbar({ title: "Driver", avatar: !!S.driver }); setNav(null); setSubbar(null); setBottomAction(null);
+  $("#view").innerHTML = `<div class="card locked"><div style="font-size:40px">🔒</div><h2 style="margin:8px 0">Driver app locked</h2>
+    <p class="mut">${esc(message || "The compliance licence for this month hasn't been approved yet.")}</p>
+    <p class="mut small">Ask your transport office to approve this month's licence, then try again.</p>
+    <button class="btn btn-primary" onclick="route()">Try again</button></div>`;
+}
+
+// ---------- sign in ----------
+// Drivers sign in on the main DH FleetView login (name or driver ID + PIN), which
+// stores the token and sends them here. Signed out means back to that login.
+const LOGIN_URL = "/";
+function signedOut() {
+  S.token = null; S.driver = null; S.state = null;
+  store.del("token"); store.del("driver");
+  clearTimers();
+  location.replace(LOGIN_URL);
+}
+function renderSignIn() {
+  signedOut();
+}
+function openProfile() {
+  openSheet("Profile", `
+    <div class="row" style="margin:16px 0"><div class="avatar" style="display:grid;place-items:center;width:48px;height:48px;font-size:16px">${esc(initials(S.driver))}</div>
+      <div><div style="font-weight:600">${esc(S.driver)}</div><div class="mut small">Driver</div></div></div>
+    <button class="action" id="swTheme"><span class="ai primary">${ICON.bolt}</span><span><div class="at">Light / dark mode</div><div class="as">Currently ${document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light"}</div></span><span class="chev">${ICON.chev}</span></button>
+    <button class="btn btn-outline-bad" id="signOut">Sign out</button>`, (sh) => {
+    $("#swTheme", sh).onclick = () => { window.dhfvTheme && window.dhfvTheme.toggle(); closeSheet(); };
+    $("#signOut", sh).onclick = async () => {
+      try { await api("POST", "api/driver/auth/logout"); } catch (e) {}
+      signedOut();
+    };
+  });
+}
+
+// ---------- LIVE ----------
+async function renderLive() {
+  clearTimers();
+  setTopbar({ title: "Live", avatar: true, bell: true }); setNav("live");
+  const view = $("#view");
+  if (!S.state) view.innerHTML = `<div class="empty"><span class="spinner"></span></div>`;
+  try { await loadState(); } catch (e) { return fail(e); }
+  if (location.hash && !location.hash.startsWith("#/live") && location.hash !== "#/" && location.hash !== "") return;
+  const st = S.state, draft = getDraft();
+  let html = "";
+
+  if (draft) {
+    html += `<div class="card active-wa">
+      <div class="row between"><b>${ICON.warn.replace('stroke="#fff"', 'stroke="currentColor"')} Active Walkaround</b><span class="timer">${ICON.clock}<span data-since="${draft.startedAt}" data-fmt="clock"></span></span></div>
+      <div class="mut small" style="margin:4px 0 12px">Ref: ${esc(draft.ref)} · in_progress · ${draft.phase === "end_of_day" ? "End of day" : "Pre-use"} · ${esc(fmtReg(draft.reg))}</div>
+      <div class="btn-row"><button class="btn btn-outline-bad" id="waCancel">Cancel</button><button class="btn btn-primary" id="waResume">Resume</button></div></div>`;
+  }
+
+  if (!st.shift) {
+    const q = store.get("regSearch", "");
+    html += `<div class="card">
+      <div class="card-title">${ICON.truck} Vehicle Registration</div>
+      <div class="reg-input-wrap"><input class="input reg-input" id="regIn" value="${esc(q)}" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="e.g. KX64 TLU" enterkeyhint="search">
+      <button class="clear-x" id="regClear" aria-label="Clear" ${q ? "" : "hidden"}>✕</button></div>
+      <div class="hint">Spaces are ignored — enter the registration exactly as shown on the vehicle.</div>
+    </div><div id="regResult"></div>`;
+  } else {
+    html += vehicleCard(st, draft);
+  }
+
+  html += jobsSection(st.jobs || []);
+  view.innerHTML = html;
+
+  S.timers.push(setInterval(tickTimers, 1000)); tickTimers();
+  S.timers.push(setInterval(() => { if (!$("#sheet").classList.contains("open") && !document.activeElement?.matches?.("input,textarea")) renderLive(); }, 30000));
+
+  if (draft) {
+    $("#waResume").onclick = () => { location.hash = "#/walkaround"; };
+    $("#waCancel").onclick = () => confirmSheet("Cancel walkaround?", "Your answers and photos for this check will be discarded.", "Discard check", "btn-bad", () => { store.del(draftKey()); renderLive(); });
+  }
+  if (!st.shift) wireRegSearch();
+  else $("#actionsBtn").onclick = () => openActions();
+  wireJobCards();
+}
+
+function tickTimers() {
+  $$("[data-since]").forEach((el) => {
+    const ms = Date.now() - new Date(el.dataset.since).getTime();
+    el.textContent = el.dataset.fmt === "clock" ? fmtClock(ms) : fmtDuration(ms);
+  });
+}
+
+function wireRegSearch() {
+  const inp = $("#regIn"), clear = $("#regClear");
+  let t;
+  const run = async () => {
+    const reg = inp.value.toUpperCase().replace(/\s+/g, "");
+    store.set("regSearch", inp.value);
+    clear.hidden = !inp.value;
+    const out = $("#regResult");
+    if (reg.length < 4) { out.innerHTML = ""; return; }
+    try {
+      const v = await api("GET", "api/driver/vehicle?reg=" + encodeURIComponent(reg));
+      if (inp.value.toUpperCase().replace(/\s+/g, "") !== reg) return;
+      out.innerHTML = `<div class="card ${v.found ? "found" : ""}">
+        <div class="row between"><span class="plate lg">${esc(fmtReg(v.reg))}</span>
+          ${v.found ? '<span class="chip chip-ok">Vehicle found</span>' : '<span class="chip chip-warn">Not on fleet list</span>'}</div>
+        ${v.company ? `<div class="kv-mini"><span class="ico">${ICON.truck}</span><div><div class="k">Vehicle pool</div><div class="v">${esc(v.company)}</div></div></div>` : ""}
+        ${v.make ? `<div class="kv-mini"><span class="ico">${ICON.info}</span><div><div class="k">Vehicle</div><div class="v">${esc([v.make, v.colour].filter(Boolean).join(" · "))}</div></div></div>` : ""}
+        ${v.found ? "" : '<div class="hint">This registration isn\'t on your fleet list yet. Check it, or start anyway and your office will see it.</div>'}
+        <button class="btn btn-ok" id="startShift" style="margin-top:16px">Start Shift</button></div>`;
+      $("#startShift").onclick = (e) => busy(e.currentTarget, async () => {
+        await api("POST", "api/driver/shift/start", { vehicle_reg: v.reg });
+        store.del("regSearch");
+        toast("Shift started — complete your pre-use walkaround");
+        await renderLive();
+      });
+    } catch (e) { fail(e); }
+  };
+  inp.oninput = () => { clearTimeout(t); t = setTimeout(run, 350); };
+  inp.onkeydown = (e) => { if (e.key === "Enter") { clearTimeout(t); run(); inp.blur(); } };
+  clear.onclick = () => { inp.value = ""; run(); inp.focus(); };
+  if (inp.value) run(); else setTimeout(() => inp.focus(), 50);
+}
+
+function compRow(label, c, draftPhase) {
+  let circle = "circle", st = "Not Available", cls = "mut";
+  if (draftPhase) { circle += " prog"; st = "In Progress"; cls = "chip-warn"; }
+  else if (c.status === "completed") { circle += " done"; st = "Completed"; cls = "ok"; }
+  else if (c.status === "available") { circle += " avail"; st = "Available"; cls = "primary"; }
+  const color = cls === "ok" ? "var(--d-ok)" : cls === "primary" ? "var(--d-primary)" : cls === "chip-warn" ? "var(--d-warn)" : "var(--d-mut)";
+  return `<div class="comp-row"><span class="${circle}">${c.status === "completed" && !draftPhase ? ICON.check : ""}</span>${label}<span class="st" style="color:${color}">${st}</span></div>`;
+}
+
+function vehicleCard(st, draft) {
+  const v = st.vehicle || { reg: st.shift.vehicle_reg, compliance: { pre_use: {}, end_of_day: {}, completed: 0, total: 2 }, faults: [] };
+  const c = v.compliance;
+  const dPre = draft && draft.phase === "pre_use" && draft.shiftId === st.shift.id;
+  const dEod = draft && draft.phase === "end_of_day" && draft.shiftId === st.shift.id;
+  const pct = Math.round((c.completed / c.total) * 100);
+  const faults = v.faults || [];
+  const onBreak = st.shift.status === "on_break";
+  return `<div class="card">
+    <div class="row between"><span class="plate">${esc(fmtReg(v.reg))}</span>
+      <button class="actions-btn" id="actionsBtn">${ICON.bolt} Actions ${ICON.dots}</button></div>
+    ${v.company ? `<div class="loc">${ICON.pin} ${esc(v.company)}</div>` : ""}
+    <div class="status-line"><span class="${onBreak ? "" : "inuse"}" style="color:${onBreak ? "var(--d-warn)" : "var(--d-ok)"};font-weight:600"><span class="live-dot" style="background:currentColor"></span>${onBreak ? "On Break" : "In Use"}</span>
+      <span class="mut">Started ${esc(fmtTime12(st.shift.clocked_in_at))}</span>
+      <b data-since="${esc(st.shift.clocked_in_at)}"></b></div>
+    <div class="comp-title">Compliance</div>
+    ${compRow("Pre-Use Check", c.pre_use, dPre)}
+    ${compRow("End of Day Check", c.end_of_day, dEod)}
+    <div class="progress ${dPre || dEod ? "warn" : ""}"><i style="width:${pct}%"></i></div>
+    <div class="mut small" style="margin-top:6px">${c.completed} of ${c.total} checks completed</div>
+    <hr class="sep">
+    <div class="comp-title" style="margin-top:0">Fault Status</div>
+    ${faults.length ? faults.slice(0, 4).map((f) => `<div class="fault-item"><span class="chip ${f.severity === "minor" ? "chip-warn" : "chip-bad"} square">${esc(f.severity)}</span><span>${esc(f.item)}${f.description ? `<div class="mut small">${esc(f.description)}</div>` : ""}</span></div>`).join("")
+      + (faults.length > 4 ? `<div class="mut small">+${faults.length - 4} more open</div>` : "")
+      : `<div class="fault-ok"><span class="dotbig"></span>No Open Faults</div>`}
+  </div>`;
+}
+
+const JOB_STATUS = {
+  pending: ["New", "chip-warn"], accepted: ["Accepted", "chip-primary"], in_progress: ["In Progress", "chip-warn"],
+  completed: ["Completed", "chip-ok"], denied: ["Declined", "chip-mut"], cancelled: ["Cancelled", "chip-mut"],
+};
+function jobChip(s) { const [l, c] = JOB_STATUS[s] || [s, "chip-mut"]; return `<span class="chip ${c}">${s === "accepted" || s === "completed" ? "✓ " : ""}${esc(l)}</span>`; }
+function jobCard(j) {
+  return `<button class="job ${esc(j.status)}" data-job="${esc(j.id)}">
+    <div class="row between"><span class="ref">${esc(j.ref || "Job")}</span>${jobChip(j.status)}</div>
+    <div class="row between" style="align-items:center"><div class="title">${esc(j.title)}</div>${j.vehicle_reg ? `<span class="plate rear" style="margin-top:8px">${esc(fmtReg(j.vehicle_reg))}</span>` : ""}</div>
+    <div class="meta"><span>${ICON.user} ${esc(j.driver_name)}</span><span>${esc(fmtWhen(j.scheduled_at || j.assigned_at))}</span></div>
+  </button>`;
+}
+function jobsSection(jobs) {
+  const groups = [["pending", "New"], ["in_progress", "In Progress"], ["accepted", "Accepted"], ["completed", "Completed today"]];
+  let html = `<div class="section-title">Your Jobs</div>`;
+  if (!jobs.length) return html + `<div class="empty">No jobs yet. New jobs from your office will appear here.</div>`;
+  for (const [s, label] of groups) {
+    const list = jobs.filter((j) => j.status === s);
+    if (list.length) html += `<div class="section-sub">${label}</div>` + list.map(jobCard).join("");
+  }
+  return html;
+}
+function wireJobCards() { $$("[data-job]").forEach((b) => { b.onclick = () => { location.hash = "#/job/" + b.dataset.job; }; }); }
+
+function confirmSheet(title, text, okLabel, okClass, onOk) {
+  openSheet(title, `<p class="mut" style="margin:14px 0 18px">${esc(text)}</p><button class="btn ${okClass}" id="cfOk">${esc(okLabel)}</button><button class="btn btn-soft" id="cfNo">Keep going</button>`, (sh) => {
+    $("#cfNo", sh).onclick = closeSheet;
+    $("#cfOk", sh).onclick = (e) => busy(e.currentTarget, async () => { await onOk(); closeSheet(); });
+  });
+}
+
+// ---------- ACTIONS SHEET ----------
+function actionBtn(id, icon, cls, title, sub) {
+  return `<button class="action" id="${id}"><span class="ai ${cls}">${icon}</span><span><div class="at">${esc(title)}</div><div class="as">${esc(sub)}</div></span><span class="chev">${ICON.chev}</span></button>`;
+}
+function openActions() {
+  const st = S.state, c = st.vehicle.compliance, draft = getDraft();
+  let checks = "";
+  if (draft && draft.shiftId === st.shift.id) checks = actionBtn("aResume", ICON.shieldCheck, "warn", `Resume ${draft.phase === "end_of_day" ? "End of Day" : "Pre-Use"} Check`, "Continue your in-progress inspection");
+  else if (c.pre_use.status !== "completed") checks = actionBtn("aPre", ICON.shieldCheck, "primary", "Start Pre-use Walkaround", "Required before starting shift");
+  else if (c.end_of_day.status !== "completed") checks = actionBtn("aEod", ICON.shieldCheck, "primary", "Start End of Day Check", "Record the vehicle's condition as you finish");
+  else checks = `<div class="fault-ok" style="margin:6px 0 12px">${ICON.okCircle} Both checks completed for this shift</div>`;
+  const onBreak = st.shift.status === "on_break";
+  openSheet("Vehicle Actions", `
+    <div class="sheet-group">Shift checks</div>${checks}
+    <div class="sheet-group">Vehicle actions</div>
+    ${actionBtn("aBreak", ICON.play, onBreak ? "ok" : "teal", onBreak ? "End Break" : "Start Break", onBreak ? "Back to work" : "Record a rest break")}
+    ${actionBtn("aEnd", ICON.swap, "bad", "End Shift / Change Vehicle", "You will need to search for a vehicle again")}
+    <div class="sheet-group">Reports &amp; logs</div>
+    ${actionBtn("aFuel", ICON.fuel, "primary", "Add Fuel", "Record a fuel fill-up for this vehicle")}
+    ${actionBtn("aFault", ICON.warn, "bad", "Report Fault", "Report fault to selected vehicle")}
+    ${actionBtn("aPaper", ICON.doc, "teal", "Upload Paperwork", "Job sheets, PODs and more")}`, (sh) => {
+    const on = (id, fn) => { const b = $("#" + id, sh); if (b) b.onclick = fn; };
+    on("aResume", () => { closeSheet(); location.hash = "#/walkaround"; });
+    on("aPre", () => { closeSheet(); startWalkaround("pre_use"); });
+    on("aEod", () => { closeSheet(); startWalkaround("end_of_day"); });
+    on("aBreak", (e) => busy(e.currentTarget, async () => {
+      await api("POST", `api/shifts/${st.shift.id}/break`, { break_type: onBreak ? "end" : "start" });
+      closeSheet(); toast(onBreak ? "Break ended" : "Break started"); renderLive();
+    }));
+    on("aEnd", () => openEndShift());
+    on("aFuel", () => openFuel());
+    on("aFault", () => openFault());
+    on("aPaper", () => openPaperwork());
+  });
+}
+
+function levelSeg(name, value, extra = "") {
+  return `<div class="seg ${extra}" data-seg="${name}">${LEVELS.map(([v, l]) => `<button type="button" data-v="${v}" class="${value === v ? "on" : ""}">${l}</button>`).join("")}</div>`;
+}
+function wireSeg(root, name, onChange) {
+  const seg = $(`[data-seg="${name}"]`, root);
+  $$("button", seg).forEach((b) => b.onclick = () => { $$("button", seg).forEach((x) => x.classList.toggle("on", x === b)); onChange(b.dataset.v); });
+}
+
+function openEndShift() {
+  const st = S.state;
+  let fuel = null, adblue = null;
+  openSheet("End Shift", `
+    <p class="mut" style="margin:12px 0 4px">${st.vehicle.compliance.end_of_day.status !== "completed" ? "Your end of day check isn't done yet — you can still end the shift. " : ""}After ending you'll need to search for a vehicle again.</p>
+    <label class="lbl" for="odoOut">Odometer reading</label><input class="input" id="odoOut" inputmode="numeric" pattern="[0-9]*" placeholder="Optional">
+    <label class="lbl">Fuel level</label>${levelSeg("fuelOut", null)}
+    <label class="lbl">AdBlue level</label>${levelSeg("adOut", null, "adblue")}
+    <button class="btn btn-bad" id="endGo" style="margin-top:18px">End Shift</button>`, (sh) => {
+    wireSeg(sh, "fuelOut", (v) => fuel = v); wireSeg(sh, "adOut", (v) => adblue = v);
+    $("#endGo", sh).onclick = (e) => busy(e.currentTarget, async () => {
+      const odo = $("#odoOut", sh).value.replace(/\D/g, "");
+      await api("POST", `api/driver/shift/${st.shift.id}/end`, { odometer_km: odo ? parseInt(odo, 10) : null, fuel_level: fuel, adblue_level: adblue });
+      const d = getDraft(); if (d && d.shiftId === st.shift.id) store.del(draftKey());
+      closeSheet(); toast("Shift ended"); renderLive();
+    });
+  });
+}
+
+function photoField(id, label) {
+  return `<label class="lbl">${esc(label)}</label><div class="photo-box" id="${id}Box"><span class="mut small">${ICON.camera}<br>No photo added</span></div>
+    <button type="button" class="btn btn-soft" id="${id}Btn" style="margin-top:8px">${ICON.camera} Take Photo</button>`;
+}
+function wirePhotoField(root, id, onPhoto, source = "#fileCam") {
+  $("#" + id + "Btn", root).onclick = async () => {
+    const f = await pickFile($(source));
+    if (!f) return;
+    if (f.type === "application/pdf") { $("#" + id + "Box", root).innerHTML = `<span>📄 ${esc(f.name)}</span>`; onPhoto({ file: f }); return; }
+    try {
+      const url = await downscale(f);
+      $("#" + id + "Box", root).innerHTML = `<img alt="" src="${url}">`;
+      onPhoto({ dataUrl: url });
+    } catch (e) { fail(e); }
+  };
+}
+async function appendUpload(fd, field, photo, name = "photo.jpg") {
+  if (!photo) return;
+  if (photo.file) fd.append(field, photo.file, photo.file.name);
+  else fd.append(field, await dataUrlToBlob(photo.dataUrl), name);
+}
+
+function openFuel() {
+  const st = S.state; let type = "diesel", full = true, receipt = null;
+  openSheet("Add Fuel", `
+    <label class="lbl">Fuel</label><div class="seg sq" data-seg="ftype"><button type="button" data-v="diesel" class="on">Diesel</button><button type="button" data-v="adblue">AdBlue</button></div>
+    <div class="row" style="gap:10px"><div style="flex:1"><label class="lbl" for="fL">Litres</label><input class="input" id="fL" inputmode="decimal" placeholder="0.00"></div>
+      <div style="flex:1"><label class="lbl" for="fC">Cost (£)</label><input class="input" id="fC" inputmode="decimal" placeholder="Optional"></div></div>
+    <label class="lbl" for="fO">Odometer</label><input class="input" id="fO" inputmode="numeric" placeholder="Optional">
+    <div class="toggle"><span>Filled to full</span><button type="button" class="switch on" id="fFull" aria-label="Filled to full"></button></div>
+    ${photoField("fR", "Receipt photo")}
+    <button class="btn btn-primary" id="fGo" style="margin-top:16px">Save Fill-up</button>`, (sh) => {
+    wireSeg(sh, "ftype", (v) => type = v);
+    $("#fFull", sh).onclick = (e) => { full = !full; e.currentTarget.classList.toggle("on", full); };
+    wirePhotoField(sh, "fR", (p) => receipt = p);
+    $("#fGo", sh).onclick = (e) => busy(e.currentTarget, async () => {
+      const litres = $("#fL", sh).value.replace(",", ".").trim();
+      if (!litres) throw new Error("Enter the litres.");
+      const fd = new FormData();
+      fd.append("vehicle_reg", st.shift.vehicle_reg); fd.append("shift_id", st.shift.id);
+      fd.append("fuel_type", type); fd.append("litres", litres); fd.append("full_tank", full ? "true" : "false");
+      const cost = $("#fC", sh).value.replace(/[£,\s]/g, ""); if (cost) fd.append("cost", cost);
+      const odo = $("#fO", sh).value.replace(/\D/g, ""); if (odo) fd.append("odometer_km", odo);
+      await appendUpload(fd, "receipt", receipt, "receipt.jpg");
+      await api("POST", "api/driver/fuel", fd, true);
+      closeSheet(); toast("Fuel recorded");
+    });
+  });
+}
+
+async function openFault() {
+  const st = S.state;
+  let severity = "major", photo = null, tpl;
+  try { tpl = await loadTemplate("hgv"); } catch (e) { return fail(e); }
+  const items = tpl.steps.flatMap((s) => s.items || []).map((i) => i.name);
+  openSheet("Report Fault", `
+    <label class="lbl" for="flItem">What's wrong?</label>
+    <select class="input" id="flItem">${items.map((n) => `<option>${esc(n)}</option>`).join("")}<option value="__other">Something else…</option></select>
+    <input class="input" id="flOther" placeholder="Describe the part" hidden style="margin-top:8px">
+    <label class="lbl">Severity</label>
+    <div class="seg sq" data-seg="sev"><button type="button" data-v="minor">Minor</button><button type="button" data-v="major" class="on">Major</button><button type="button" data-v="dangerous">Dangerous</button></div>
+    <div class="hint">Major or dangerous faults mean the vehicle shouldn't be used until it's fixed.</div>
+    <label class="lbl" for="flDesc">Details</label><textarea class="input" id="flDesc" placeholder="What did you notice?"></textarea>
+    ${photoField("flP", "Photo")}
+    <button class="btn btn-bad" id="flGo" style="margin-top:16px">Report Fault</button>`, (sh) => {
+    wireSeg(sh, "sev", (v) => severity = v);
+    $("#flItem", sh).onchange = (e) => { $("#flOther", sh).hidden = e.target.value !== "__other"; };
+    wirePhotoField(sh, "flP", (p) => photo = p);
+    $("#flGo", sh).onclick = (e) => busy(e.currentTarget, async () => {
+      let item = $("#flItem", sh).value;
+      if (item === "__other") item = $("#flOther", sh).value.trim();
+      if (!item) throw new Error("Say which part is faulty.");
+      const fd = new FormData();
+      fd.append("vehicle_reg", st.shift.vehicle_reg); fd.append("shift_id", st.shift.id);
+      fd.append("item", item); fd.append("severity", severity);
+      const d = $("#flDesc", sh).value.trim(); if (d) fd.append("description", d);
+      await appendUpload(fd, "photo", photo, "fault.jpg");
+      await api("POST", "api/driver/faults", fd, true);
+      closeSheet(); toast("Fault reported to your office"); renderLive();
+    });
+  });
+}
+
+function openPaperwork(jobId = null) {
+  const st = S.state; let kind = jobId ? "pod" : "job_sheet", file = null;
+  const jobs = (st && st.jobs || []).filter((j) => ["accepted", "in_progress", "completed"].includes(j.status));
+  openSheet("Upload Paperwork", `
+    <label class="lbl">Type</label>
+    <div class="seg sq" data-seg="kind">${[["job_sheet", "Job sheet"], ["pod", "POD"], ["receipt", "Receipt"], ["other", "Other"]].map(([v, l]) => `<button type="button" data-v="${v}" class="${v === kind ? "on" : ""}">${l}</button>`).join("")}</div>
+    ${jobs.length ? `<label class="lbl" for="pwJob">Job</label><select class="input" id="pwJob"><option value="">Not for a job</option>${jobs.map((j) => `<option value="${esc(j.id)}" ${j.id === jobId ? "selected" : ""}>${esc(j.ref)} · ${esc(j.title)}</option>`).join("")}</select>` : ""}
+    <label class="lbl" for="pwNote">Note</label><input class="input" id="pwNote" placeholder="Optional">
+    ${photoField("pwF", "Photo or PDF")}
+    <button class="btn btn-primary" id="pwGo" style="margin-top:16px">Upload</button>`, (sh) => {
+    wireSeg(sh, "kind", (v) => kind = v);
+    wirePhotoField(sh, "pwF", (p) => file = p, "#fileAny");
+    $("#pwGo", sh).onclick = (e) => busy(e.currentTarget, async () => {
+      if (!file) throw new Error("Take a photo or choose a PDF first.");
+      const fd = new FormData();
+      fd.append("kind", kind);
+      if (st && st.shift) { fd.append("vehicle_reg", st.shift.vehicle_reg); fd.append("shift_id", st.shift.id); }
+      const j = $("#pwJob", sh); if (j && j.value) fd.append("job_id", j.value);
+      const n = $("#pwNote", sh).value.trim(); if (n) fd.append("note", n);
+      await appendUpload(fd, "file", file, "paperwork.jpg");
+      await api("POST", "api/driver/paperwork", fd, true);
+      closeSheet(); toast("Paperwork uploaded");
+    });
+  });
+}
+
+// ---------- WALKAROUND WIZARD ----------
+function startWalkaround(phase) {
+  const st = S.state;
+  const draft = {
+    ref: "WAL-" + String(Math.floor(1000 + Math.random() * 9000)),
+    phase, shiftId: st.shift.id, reg: st.shift.vehicle_reg, checkType: store.get("checkType:" + st.shift.vehicle_reg, "hgv"),
+    startedAt: new Date().toISOString(), step: 0,
+    odometer: "", odometerPhoto: null, fuel: null, adblue: null,
+    answers: {}, notes: "", safeToDrive: true,
+  };
+  saveDraft(draft);
+  location.hash = "#/walkaround";
+}
+
+async function renderWalkaround() {
+  const d = getDraft();
+  if (!d) { location.hash = "#/live"; return; }
+  setNav(null);
+  let tpl;
+  try { tpl = await loadTemplate(d.checkType); } catch (e) { return fail(e); }
+  const steps = tpl.steps, step = steps[Math.min(d.step, steps.length - 1)];
+  const titleFor = { overview: "Vehicle Overview", review: "Review & Sign" };
+  setTopbar({ title: step.id === "overview" || step.id === "review" ? titleFor[step.id] : "Walkaround Checks", back: () => { if (d.step > 0) { d.step--; saveDraft(d); renderWalkaround(); } else location.hash = "#/live"; } });
+  setSubbar(`<span><b>${esc(step.title)}</b> <span class="step">· ${d.step + 1}/${steps.length}</span></span><span class="timer">${ICON.clock}<span data-since="${d.startedAt}" data-fmt="clock"></span></span>`);
+  clearTimers(); S.timers.push(setInterval(tickTimers, 1000)); tickTimers();
+  window.scrollTo(0, 0);
+  const view = $("#view");
+
+  if (step.id === "overview") {
+    view.innerHTML = `<div class="card">
+      <div class="row between"><span class="plate">${esc(fmtReg(d.reg))}</span><span class="chip chip-primary">${d.phase === "end_of_day" ? "End of day check" : "Pre-use check"}</span></div>
+      <label class="lbl" for="ctype">Vehicle type</label>
+      <select class="input" id="ctype">${[["hgv", "HGV / lorry"], ["van", "Van"], ["psv", "Bus / coach"], ["car", "Car"]].map(([v, l]) => `<option value="${v}" ${v === d.checkType ? "selected" : ""}>${l}</option>`).join("")}</select>
+      <label class="lbl" for="odo">Odometer Reading *</label>
+      <input class="input" id="odo" inputmode="numeric" pattern="[0-9]*" value="${esc(d.odometer)}" placeholder="Enter odometer reading">
+      <label class="lbl">Odometer Photo *</label>
+      <div class="photo-box" id="odoBox">${d.odometerPhoto ? `<img alt="Odometer" src="${d.odometerPhoto}">` : `<span class="mut small" style="text-align:center">${ICON.camera}<br>No photo added</span>`}</div>
+      <button type="button" class="btn btn-primary" id="odoBtn" style="margin-top:10px">${ICON.camera} Take Photo</button>
+      <label class="lbl">Fuel Level *</label>${levelSeg("fuel", d.fuel)}
+      <label class="lbl">AdBlue Level *</label>${levelSeg("adblue", d.adblue, "adblue")}
+    </div>`;
+    $("#ctype").onchange = (e) => { d.checkType = e.target.value; d.answers = {}; store.set("checkType:" + d.reg, d.checkType); saveDraft(d); S.template = null; renderWalkaround(); };
+    $("#odo").oninput = (e) => { d.odometer = e.target.value.replace(/\D/g, ""); e.target.value = d.odometer; saveDraft(d); };
+    $("#odoBtn").onclick = async () => {
+      try { const url = await takePhoto(); if (!url) return; d.odometerPhoto = url; saveDraft(d); $("#odoBox").innerHTML = `<img alt="Odometer" src="${url}">`; } catch (e) { fail(e); }
+    };
+    wireSeg(view, "fuel", (v) => { d.fuel = v; saveDraft(d); });
+    wireSeg(view, "adblue", (v) => { d.adblue = v; saveDraft(d); });
+    wizardNav(d, steps, () => {
+      if (!d.odometer) return "Enter the odometer reading.";
+      if (!d.odometerPhoto) return "Take a photo of the odometer.";
+      if (!d.fuel) return "Select the fuel level.";
+      if (!d.adblue) return "Select the AdBlue level.";
+    });
+    return;
+  }
+
+  if (step.id === "review") return renderReview(d, tpl);
+
+  // item checklist step
+  const answer = (name) => d.answers[name] || (d.answers[name] = { result: null, severity: "major", description: "", photo: null });
+  view.innerHTML = `<div class="card check-list">${step.items.map((it, i) => {
+    const a = d.answers[it.name] || {};
+    return `<div class="check-row" data-i="${i}">
+      <div class="check-name">${esc(it.name)}${it.hint ? `<button class="info" data-hint="${i}" aria-label="Guidance">${ICON.info}</button>` : ""}</div>
+      <div class="okfault"><button class="ok ${a.result === "ok" ? "on" : ""}" data-r="ok">OK</button><button class="fault ${a.result === "fault" ? "on" : ""}" data-r="fault">Fault</button></div>
+      <div class="hint-text" data-hinttext="${i}" hidden>${esc(it.hint || "")}</div>
+      ${a.result === "fault" ? faultDetail(a, i) : ""}
+    </div>`;
+  }).join("")}</div>
+  <button class="btn btn-soft" id="allOk">Mark remaining as OK</button>`;
+  $$(".check-row", view).forEach((row) => {
+    const it = step.items[+row.dataset.i];
+    $$(".okfault button", row).forEach((b) => b.onclick = () => {
+      const a = answer(it.name); a.result = b.dataset.r; saveDraft(d);
+      const y = window.scrollY; renderWalkaround().then(() => window.scrollTo(0, y));
+    });
+    const hb = $("[data-hint]", row); if (hb) hb.onclick = () => { const h = $("[data-hinttext]", row); h.hidden = !h.hidden; };
+    wireFaultDetail(row, d, it.name);
+  });
+  $("#allOk").onclick = () => { step.items.forEach((it) => { const a = answer(it.name); if (!a.result) a.result = "ok"; }); saveDraft(d); renderWalkaround(); };
+  wizardNav(d, steps, () => {
+    const missing = step.items.filter((it) => !(d.answers[it.name] || {}).result);
+    if (missing.length) return `Answer every item (${missing.length} left).`;
+    const noDesc = step.items.find((it) => d.answers[it.name].result === "fault" && !d.answers[it.name].description.trim());
+    if (noDesc) return `Describe the fault on "${noDesc.name}".`;
+  });
+}
+
+function faultDetail(a, i) {
+  return `<div class="fault-detail">
+    <div class="seg sq" data-seg="sev${i}">${["minor", "major", "dangerous"].map((s) => `<button type="button" data-v="${s}" class="${a.severity === s ? "on" : ""}">${s[0].toUpperCase() + s.slice(1)}</button>`).join("")}</div>
+    <label class="lbl">What's wrong?</label><textarea class="input" data-desc placeholder="Describe the fault">${esc(a.description)}</textarea>
+    <div class="row" style="margin-top:8px">${a.photo ? `<img alt="" src="${a.photo}" style="width:64px;height:48px;object-fit:cover;border-radius:8px">` : ""}
+      <button type="button" class="btn btn-soft btn-sm" data-fphoto>${ICON.camera} ${a.photo ? "Retake" : "Add photo"}</button></div>
+  </div>`;
+}
+function wireFaultDetail(row, d, name) {
+  const a = d.answers[name]; if (!a || a.result !== "fault") return;
+  const i = row.dataset.i;
+  wireSeg(row, "sev" + i, (v) => { a.severity = v; saveDraft(d); });
+  $("[data-desc]", row).oninput = (e) => { a.description = e.target.value; saveDraft(d); };
+  $("[data-fphoto]", row).onclick = async () => {
+    try { const url = await takePhoto(); if (!url) return; a.photo = url; saveDraft(d); const y = window.scrollY; await renderWalkaround(); window.scrollTo(0, y); } catch (e) { fail(e); }
+  };
+}
+
+function wizardNav(d, steps, validate) {
+  setBottomAction(`<button class="btn btn-soft back-sq" id="wzBack" aria-label="Back">${ICON.back}</button><button class="btn btn-primary" id="wzNext">Continue ${ICON.chev}</button>`);
+  $("#wzBack").onclick = () => { if (d.step > 0) { d.step--; saveDraft(d); renderWalkaround(); } else location.hash = "#/live"; };
+  $("#wzNext").onclick = () => {
+    const err = validate && validate();
+    if (err) return toast(err, true);
+    d.step = Math.min(d.step + 1, steps.length - 1); saveDraft(d); renderWalkaround();
+  };
+}
+
+function renderReview(d, tpl) {
+  const items = tpl.steps.flatMap((s) => s.items || []);
+  const faults = items.filter((it) => (d.answers[it.name] || {}).result === "fault");
+  const blocking = faults.some((it) => ["major", "dangerous"].includes(d.answers[it.name].severity));
+  if (blocking) d.safeToDrive = false;
+  const view = $("#view");
+  view.innerHTML = `<div class="card">
+      <div class="row between"><span class="plate">${esc(fmtReg(d.reg))}</span><span class="chip ${faults.length ? "chip-bad" : "chip-ok"}">${faults.length ? `${faults.length} fault${faults.length > 1 ? "s" : ""}` : "No faults"}</span></div>
+      <div class="stat-grid" style="margin-top:14px">
+        <div class="stat"><div class="n">${esc(d.odometer)}</div><div class="l">Odometer</div></div>
+        <div class="stat"><div class="n">${esc((LEVELS.find((l) => l[0] === d.fuel) || [])[1] || "—")}</div><div class="l">Fuel</div></div>
+        <div class="stat"><div class="n">${esc((LEVELS.find((l) => l[0] === d.adblue) || [])[1] || "—")}</div><div class="l">AdBlue</div></div>
+      </div>
+      ${faults.length ? `<div class="comp-title">Faults</div>` + faults.map((it) => { const a = d.answers[it.name]; return `<div class="fault-item"><span class="chip ${a.severity === "minor" ? "chip-warn" : "chip-bad"} square">${esc(a.severity)}</span><span>${esc(it.name)}<div class="mut small">${esc(a.description)}</div></span></div>`; }).join("") : ""}
+      <div class="toggle" style="margin-top:6px"><span>Vehicle is safe to drive${blocking ? '<div class="mut small">Not allowed with a major or dangerous fault</div>' : ""}</span><button type="button" class="switch ${d.safeToDrive ? "on" : ""}" id="safe" ${blocking ? "disabled" : ""} aria-label="Safe to drive"></button></div>
+      <label class="lbl" for="notes">Notes</label><textarea class="input" id="notes" placeholder="Optional">${esc(d.notes)}</textarea>
+    </div>
+    <div class="card"><div class="card-title">Driver signature *</div>
+      <div class="sig-wrap"><canvas id="sig"></canvas><button type="button" class="btn btn-soft btn-sm sig-clear" id="sigClear">Clear</button></div>
+      <div class="hint">I confirm I have completed this ${d.phase === "end_of_day" ? "end of day" : "pre-use"} check and reported all defects found.</div></div>`;
+  if (!blocking) $("#safe").onclick = (e) => { d.safeToDrive = !d.safeToDrive; e.currentTarget.classList.toggle("on", d.safeToDrive); saveDraft(d); };
+  $("#notes").oninput = (e) => { d.notes = e.target.value; saveDraft(d); };
+  const pad = signaturePad($("#sig"));
+  $("#sigClear").onclick = pad.clear;
+  setBottomAction(`<button class="btn btn-soft back-sq" id="wzBack" aria-label="Back">${ICON.back}</button><button class="btn btn-ok" id="wzSubmit">Submit Check</button>`);
+  $("#wzBack").onclick = () => { d.step--; saveDraft(d); renderWalkaround(); };
+  $("#wzSubmit").onclick = (e) => busy(e.currentTarget, async () => {
+    if (pad.isEmpty()) throw new Error("Sign to confirm the check.");
+    const photos = [{ item: "Odometer", image: d.odometerPhoto }];
+    const body = {
+      vehicle_reg: d.reg, check_type: d.checkType, phase: d.phase, shift_id: d.shiftId,
+      odometer_km: d.odometer ? parseInt(d.odometer, 10) : null, fuel_level: d.fuel, adblue_level: d.adblue,
+      duration_seconds: Math.round((Date.now() - new Date(d.startedAt).getTime()) / 1000),
+      notes: d.notes || null, safe_to_drive: !blocking && d.safeToDrive,
+      defects: faults.map((it) => { const a = d.answers[it.name]; return { item: it.name, severity: a.severity, description: a.description, photo: a.photo }; }),
+      photos: photos.filter((p) => p.image), signature: pad.toDataURL(),
+    };
+    const res = await api("POST", "api/driver/walkaround", body);
+    store.del(draftKey());
+    toast(res.defect_count ? res.advice : "Check submitted — no faults");
+    location.hash = "#/live";
+  });
+}
+
+function signaturePad(canvas) {
+  const strokes = []; let cur = null;
+  const ctx = canvas.getContext("2d");
+  function size() {
+    const r = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    canvas.width = r.width * dpr; canvas.height = r.height * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); draw();
+  }
+  function draw() {
+    const r = canvas.getBoundingClientRect();
+    ctx.clearRect(0, 0, r.width, r.height);
+    ctx.strokeStyle = getComputedStyle(document.body).color; ctx.lineWidth = 2.4; ctx.lineCap = "round"; ctx.lineJoin = "round";
+    for (const s of strokes) { ctx.beginPath(); s.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.stroke(); }
+  }
+  const pt = (e) => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  canvas.onpointerdown = (e) => { canvas.setPointerCapture(e.pointerId); cur = [pt(e)]; strokes.push(cur); };
+  canvas.onpointermove = (e) => { if (!cur) return; cur.push(pt(e)); draw(); };
+  canvas.onpointerup = canvas.onpointercancel = () => { cur = null; };
+  document.addEventListener("themechange", draw);
+  size();
+  return {
+    clear() { strokes.length = 0; draw(); },
+    isEmpty() { return !strokes.some((s) => s.length > 1); },
+    toDataURL() { // always dark ink on white, whatever the theme
+      const r = canvas.getBoundingClientRect(), c = document.createElement("canvas");
+      c.width = r.width * 2; c.height = r.height * 2;
+      const x = c.getContext("2d"); x.scale(2, 2); x.fillStyle = "#fff"; x.fillRect(0, 0, r.width, r.height);
+      x.strokeStyle = "#111"; x.lineWidth = 2.4; x.lineCap = "round"; x.lineJoin = "round";
+      for (const s of strokes) { x.beginPath(); s.forEach(([px, py], i) => i ? x.lineTo(px, py) : x.moveTo(px, py)); x.stroke(); }
+      return c.toDataURL("image/png");
+    },
+  };
+}
+
+// ---------- JOB DETAIL ----------
+async function renderJob(id) {
+  clearTimers();
+  setNav(null);
+  setTopbar({ title: "Job", back: () => { location.hash = "#/live"; } });
+  const view = $("#view");
+  view.innerHTML = `<div class="empty"><span class="spinner"></span></div>`;
+  let j;
+  try { j = await api("GET", "api/shifts/jobs/" + encodeURIComponent(id)); } catch (e) { return fail(e); }
+  if (!location.hash.startsWith("#/job/")) return;
+  setTopbar({ title: j.ref || "Job", back: () => { location.hash = "#/live"; } });
+  const order = ["pending", "accepted", "in_progress", "completed"];
+  const idx = order.indexOf(j.status);
+  const steps = [["Allocated", 0], ["Accepted", 1], ["In Progress", 2], ["Completed", 3]];
+  const instructions = [j.description, j.pickup_location && `Pickup: ${j.pickup_location}`, j.dropoff_location && `Drop-off: ${j.dropoff_location}`].filter(Boolean).join("\n");
+  let banner = "", primary = "";
+  if (j.status === "pending") { banner = `<div class="banner pending">New job — accept or decline</div>`; primary = `<div class="btn-row"><button class="btn btn-outline-bad" id="jDeny">Decline</button><button class="btn btn-primary" id="jAccept">Accept Job</button></div>`; }
+  else if (j.status === "accepted") { banner = `<div class="banner ok">${ICON.okCircle} Job Accepted</div>`; primary = `<button class="btn btn-teal" id="jStart">Start Job</button>`; }
+  else if (j.status === "in_progress") { banner = `<div class="banner warn">● In Progress</div>`; primary = `<button class="btn btn-ok" id="jComplete">${ICON.okCircle} Complete Job</button>`; }
+  else if (j.status === "completed") banner = `<div class="banner ok">${ICON.okCircle} Completed ${esc(fmtWhen(j.completed_at))}</div>`;
+  else banner = `<div class="banner pending">${esc((JOB_STATUS[j.status] || [j.status])[0])}${j.deny_reason ? " — " + esc(j.deny_reason) : ""}</div>`;
+  const canTalk = !["denied", "cancelled"].includes(j.status);
+
+  view.innerHTML = `<div class="card">
+      ${jobChip(j.status)}
+      <div style="font-weight:700;text-transform:uppercase;margin-top:10px">${esc(j.title)}</div>
+      <div class="loc" style="margin-top:6px">${ICON.cal} ${esc(fmtWhen(j.scheduled_at || j.assigned_at))}</div>
+      <div class="loc" style="margin-top:4px">${ICON.user} ${esc(j.driver_name)}</div>
+      ${j.vehicle_reg ? `<div style="margin-top:8px"><span class="plate">${esc(fmtReg(j.vehicle_reg))}</span></div>` : ""}
+    </div>
+    <div class="card" style="padding:4px 8px">${idx >= 0 ? `<div class="stepper">${steps.map(([l, i]) => `<div class="s ${i <= idx ? "done" : ""}"><div class="c">${i <= idx ? ICON.check : ""}</div>${l}</div>`).join("")}</div>` : ""}</div>
+    ${instructions ? `<div class="overline">Instructions</div><div class="card instructions">${esc(instructions)}</div>` : ""}
+    ${banner}${primary}
+    ${["accepted", "in_progress"].includes(j.status) ? `<button class="btn btn-soft" id="jChange">Report Change</button><button class="btn btn-soft" id="jPaper">Upload POD / paperwork</button>` : ""}
+    <div class="overline">Messages</div>
+    <div class="msgs"><div class="msg-list" id="msgList">${messagesHtml(j.messages)}</div>
+      ${canTalk ? `<div class="composer"><input id="msgIn" placeholder="Type a message…" maxlength="4000"><button class="send" id="msgSend" aria-label="Send">${ICON.send}</button></div>` : ""}</div>`;
+  const ml = $("#msgList"); ml.scrollTop = ml.scrollHeight;
+
+  const act = (sel, fn) => { const b = $(sel); if (b) b.onclick = fn; };
+  act("#jAccept", (e) => busy(e.currentTarget, async () => { await api("POST", `api/shifts/jobs/${j.id}/accept`); toast("Job accepted"); renderJob(id); }));
+  act("#jDeny", () => openSheet("Decline Job", `<label class="lbl" for="dr">Reason</label><textarea class="input" id="dr" placeholder="Let your office know why"></textarea><button class="btn btn-bad" id="drGo" style="margin-top:14px">Decline Job</button>`, (sh) => {
+    $("#drGo", sh).onclick = (e) => busy(e.currentTarget, async () => { await api("POST", `api/shifts/jobs/${j.id}/deny`, { reason: $("#dr", sh).value.trim() || null }); closeSheet(); toast("Job declined"); location.hash = "#/live"; });
+  }));
+  act("#jStart", () => openSheet("Start Job", `<p class="mut" style="margin:12px 0">You are about to begin this job.</p>
+      ${instructions ? `<div class="sheet-group">Current instructions</div><div class="card instructions" style="box-shadow:none">${esc(instructions)}</div>` : ""}
+      <button class="btn btn-teal" id="sjGo">Start Job</button><button class="btn btn-soft" id="sjNo">Not yet</button>`, (sh) => {
+    $("#sjNo", sh).onclick = closeSheet;
+    $("#sjGo", sh).onclick = (e) => busy(e.currentTarget, async () => { await api("POST", `api/shifts/jobs/${j.id}/start`); closeSheet(); toast("Job started"); renderJob(id); });
+  }));
+  act("#jComplete", () => confirmSheet("Complete Job", "Mark this job as completed? Upload any POD first if your office needs one.", "Complete Job", "btn-ok", async () => {
+    await api("POST", `api/shifts/jobs/${j.id}/complete`); toast("Job completed"); renderJob(id);
+  }));
+  act("#jChange", () => openSheet("Report Change", `<p class="mut" style="margin:12px 0 4px">Tell your office what's changed — delays, a different address, load issues.</p><textarea class="input" id="chg" placeholder="What has changed?"></textarea><button class="btn btn-primary" id="chgGo" style="margin-top:14px">Send to Office</button>`, (sh) => {
+    $("#chgGo", sh).onclick = (e) => busy(e.currentTarget, async () => {
+      const body = $("#chg", sh).value.trim(); if (!body) throw new Error("Describe the change.");
+      await api("POST", `api/shifts/jobs/${j.id}/messages`, { body, kind: "change" });
+      closeSheet(); toast("Change reported"); renderJob(id);
+    });
+  }));
+  act("#jPaper", async () => { if (!S.state) { try { await loadState(); } catch (e) { return fail(e); } } openPaperwork(j.id); });
+  const send = async () => {
+    const inp = $("#msgIn"), body = inp.value.trim(); if (!body) return;
+    inp.value = "";
+    try { const msgs = await api("POST", `api/shifts/jobs/${j.id}/messages`, { body }); ml.innerHTML = messagesHtml(msgs); ml.scrollTop = ml.scrollHeight; }
+    catch (e) { inp.value = body; fail(e); }
+  };
+  act("#msgSend", send);
+  const mi = $("#msgIn"); if (mi) mi.onkeydown = (e) => { if (e.key === "Enter") send(); };
+  S.timers.push(setInterval(async () => {
+    try { const fresh = await api("GET", "api/shifts/jobs/" + encodeURIComponent(id)); if (fresh.messages.length !== j.messages.length) { j.messages = fresh.messages; ml.innerHTML = messagesHtml(fresh.messages); ml.scrollTop = ml.scrollHeight; } if (fresh.status !== j.status) renderJob(id); } catch (e) {}
+  }, 10000));
+}
+function messagesHtml(msgs) {
+  if (!msgs || !msgs.length) return `<div class="mut small">No messages yet</div>`;
+  return msgs.map((m) => `<div class="bubble ${m.sender === "driver" ? "me" : "them"} ${m.kind === "change" ? "change" : ""}">
+    ${m.kind === "change" ? "<b>Change reported</b><br>" : ""}${esc(m.body)}
+    <div class="t">${m.sender === "driver" ? "" : esc(m.author || "Office") + " · "}${esc(fmtWhen(m.created_at))}</div></div>`).join("");
+}
+
+// ---------- HOME ----------
+async function renderHome() {
+  setTopbar({ title: "Home", avatar: true, bell: true }); setNav("home");
+  const view = $("#view");
+  view.innerHTML = `<div class="empty"><span class="spinner"></span></div>`;
+  let st, hist;
+  try { [st, hist] = await Promise.all([loadState(), api("GET", "api/driver/history?limit=10")]); } catch (e) { return fail(e); }
+  if (!location.hash.startsWith("#/home")) return;
+  const hour = Number(new Date().toLocaleString("en-GB", { hour: "2-digit", hour12: false, timeZone: TZ }));
+  const greet = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const open = (st.jobs || []).filter((j) => ["pending", "accepted", "in_progress"].includes(j.status)).length;
+  const done = (st.jobs || []).filter((j) => j.status === "completed").length;
+  view.innerHTML = `<div style="font-size:22px;font-weight:600;margin:6px 0 14px">${greet}, ${esc(S.driver.split(" ")[0])}</div>
+    <div class="card">
+      ${st.shift ? `<div class="row between"><span class="plate">${esc(fmtReg(st.shift.vehicle_reg))}</span><span class="chip chip-ok">On shift</span></div>
+        <div class="stat-grid" style="margin-top:14px"><div class="stat"><div class="n" data-since="${esc(st.shift.clocked_in_at)}" data-fmt="short"></div><div class="l">On shift</div></div>
+        <div class="stat"><div class="n">${open}</div><div class="l">Open jobs</div></div><div class="stat"><div class="n">${done}</div><div class="l">Done today</div></div></div>
+        <a class="btn btn-primary" href="#/live" style="margin-top:14px;text-decoration:none">Go to Live</a>`
+      : `<div class="card-title">No active shift</div><p class="mut" style="margin:0 0 12px">Start a shift from Live by searching for your vehicle.</p><a class="btn btn-ok" href="#/live" style="text-decoration:none">Start Shift</a>`}
+    </div>
+    <div class="section-title">Recent shifts</div>
+    <div class="card">${(hist || []).length ? hist.map((s) => `<div class="list-item"><span class="plate">${esc(fmtReg(s.vehicle_reg))}</span>
+      <div style="flex:1"><div style="font-weight:600;font-size:14px">${esc(fmtWhen(s.clocked_in_at))}</div><div class="mut small">${s.clocked_out_at ? "Ended " + esc(fmtTime(s.clocked_out_at)) + " · " + fmtDuration(new Date(s.clocked_out_at) - new Date(s.clocked_in_at), false) : "In progress"}</div></div>
+      ${s.odometer_km != null && s.odometer_out_km != null ? `<span class="mut small">${(s.odometer_out_km - s.odometer_km).toLocaleString()} km</span>` : ""}</div>`).join("") : `<div class="empty">No shifts yet</div>`}</div>`;
+  $$("[data-fmt=short]").forEach((el) => { el.dataset.fmt = "short"; });
+  const tick = () => $$("[data-fmt=short]").forEach((el) => { el.textContent = fmtDuration(Date.now() - new Date(el.dataset.since), false); });
+  S.timers.push(setInterval(tick, 30000)); tick();
+}
+
+// ---------- DOCUMENTS ----------
+async function renderDocuments(tab = "paperwork") {
+  setTopbar({ title: "Documents", avatar: true, bell: true }); setNav("documents");
+  const view = $("#view");
+  view.innerHTML = `<div class="empty"><span class="spinner"></span></div>`;
+  let docs;
+  try { [docs] = await Promise.all([api("GET", "api/driver/documents?days=60"), S.state ? null : loadState()]); } catch (e) { return fail(e); }
+  if (!location.hash.startsWith("#/documents")) return;
+  const KIND = { job_sheet: "Job sheet", pod: "POD", receipt: "Receipt", other: "Document" };
+  const PHASE = { pre_use: "Pre-use check", end_of_day: "End of day check", fault_report: "Fault report" };
+  const lists = {
+    paperwork: docs.paperwork.map((p) => `<div class="list-item"><span class="ai teal" style="width:34px;height:34px;border-radius:9px;display:grid;place-items:center">${ICON.doc}</span>
+      <div style="flex:1"><div style="font-weight:600;font-size:14px">${esc(KIND[p.kind] || p.kind)}${p.vehicle_reg ? ` · ${esc(fmtReg(p.vehicle_reg))}` : ""}</div><div class="mut small">${esc(fmtWhen(p.created_at))}${p.note ? " · " + esc(p.note) : ""}</div></div>
+      <a href="#" data-file="paperwork/${esc(p.id)}">View</a></div>`),
+    walkarounds: docs.walkarounds.map((c) => `<div class="list-item"><span class="ai ${c.result === "pass" ? "ok" : "bad"}" style="width:34px;height:34px;border-radius:9px;display:grid;place-items:center">${c.result === "pass" ? ICON.shieldCheck : ICON.warn}</span>
+      <div style="flex:1"><div style="font-weight:600;font-size:14px">${esc(PHASE[c.phase] || "Walkaround")} · ${esc(fmtReg(c.vehicle_reg))}</div><div class="mut small">${esc(fmtWhen(c.created_at))} · ${c.result === "pass" ? "No faults" : "Faults reported"}</div></div></div>`),
+    fuel: docs.fuel.map((f) => `<div class="list-item"><span class="ai primary" style="width:34px;height:34px;border-radius:9px;display:grid;place-items:center">${ICON.fuel}</span>
+      <div style="flex:1"><div style="font-weight:600;font-size:14px">${f.litres != null ? esc(f.litres) + " L" : ""} ${esc(f.fuel_type === "adblue" ? "AdBlue" : "Diesel")} · ${esc(fmtReg(f.vehicle_reg))}</div><div class="mut small">${esc(fmtWhen(f.created_at))}${f.cost != null ? " · £" + Number(f.cost).toFixed(2) : ""}</div></div>
+      ${f.has_receipt ? `<a href="#" data-file="fuel/${esc(f.id)}">Receipt</a>` : ""}</div>`),
+  };
+  const draw = () => {
+    view.innerHTML = `<div class="tabs">${[["paperwork", "Paperwork"], ["walkarounds", "Checks"], ["fuel", "Fuel"]].map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? "on" : ""}">${l} (${lists[k].length})</button>`).join("")}</div>
+      ${tab === "paperwork" ? `<button class="btn btn-primary" id="upBtn" style="margin-bottom:14px">${ICON.doc} Upload Paperwork</button>` : ""}
+      <div class="card">${lists[tab].length ? lists[tab].join("") : `<div class="empty">Nothing in the last 60 days</div>`}</div>`;
+    $$("[data-tab]").forEach((b) => b.onclick = () => { tab = b.dataset.tab; draw(); });
+    const up = $("#upBtn"); if (up) up.onclick = () => openPaperwork();
+    $$("[data-file]").forEach((a) => a.onclick = (e) => { e.preventDefault(); openFile(a.dataset.file); });
+  };
+  draw();
+}
+
+// Files need the sign-in header, so fetch them and open the blob.
+async function openFile(path) {
+  const win = window.open("", "_blank");
+  try {
+    const r = await fetch(BASE + "api/driver/files/" + path, { headers: { Authorization: "Bearer " + S.token } });
+    if (!r.ok) throw new Error("Couldn't open that file.");
+    const url = URL.createObjectURL(await r.blob());
+    if (win) win.location = url; else location.href = url;
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) { if (win) win.close(); fail(e); }
+}
+
+// ---------- CONTACTS ----------
+async function renderContacts() {
+  setTopbar({ title: "Contacts", avatar: true, bell: true }); setNav("contacts");
+  const view = $("#view");
+  view.innerHTML = `<div class="empty"><span class="spinner"></span></div>`;
+  let list;
+  try { list = await api("GET", "api/driver/contacts"); } catch (e) { return fail(e); }
+  if (!location.hash.startsWith("#/contacts")) return;
+  view.innerHTML = `<div class="card">${list.length ? list.map((c) => `<div class="list-item"><div class="avatar" style="display:grid;place-items:center;flex:none">${esc(initials(c.name))}</div>
+      <div style="flex:1"><div style="font-weight:600">${esc(c.name)}</div><div class="mut small">${esc(c.role)}</div></div>
+      ${c.phone ? `<a class="btn btn-soft btn-sm" style="text-decoration:none" href="tel:${esc(c.phone.replace(/[^\d+]/g, ""))}">Call</a>` : ""}</div>`).join("")
+    : `<div class="empty">No contacts have been set up yet.<br>Ask your transport office for their number.</div>`}</div>`;
+}
+
+$("#bellBtn").onclick = () => {
+  if (!location.hash.startsWith("#/live")) { location.hash = "#/live"; return; }
+  const first = $(".job.pending") || $(".section-title"); if (first) first.scrollIntoView({ behavior: "smooth", block: "start" });
+};
+route();
+</script>
+</body>
+</html>

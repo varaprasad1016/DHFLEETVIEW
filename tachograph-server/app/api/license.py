@@ -9,6 +9,7 @@ Endpoints (all under /api/license):
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -22,6 +23,12 @@ from app.models.licensing import LicenseState
 from app.services import licensing
 
 router = APIRouter(prefix="/api/license", tags=["licence"])
+
+# Wrong-PIN throttle: pairing is only open while unpaired, but a 6-digit PIN
+# must not be brute-forceable in that window.
+_PAIR_MAX_FAILURES = 5
+_PAIR_LOCKOUT_SECONDS = 900
+_pair_failures: list[float] = []
 
 
 async def _load(session: AsyncSession) -> LicenseState | None:
@@ -54,7 +61,12 @@ async def pair(body: PairRequest, session: AsyncSession = Depends(get_session)) 
     state = await _load(session)
     if state and state.public_key:
         raise HTTPException(status_code=409, detail="This server is already paired to a phone.")
+    now_mono = time.monotonic()
+    _pair_failures[:] = [t for t in _pair_failures if now_mono - t < _PAIR_LOCKOUT_SECONDS]
+    if len(_pair_failures) >= _PAIR_MAX_FAILURES:
+        raise HTTPException(status_code=429, detail="Too many wrong PINs; pairing locked for 15 minutes.")
     if body.pin != settings.license_pairing_pin:
+        _pair_failures.append(now_mono)
         raise HTTPException(status_code=401, detail="Incorrect pairing PIN.")
     # Validate the key parses before storing.
     if not licensing._load_public_key_safe(body.public_key):

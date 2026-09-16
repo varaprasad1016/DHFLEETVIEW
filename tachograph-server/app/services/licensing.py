@@ -116,6 +116,8 @@ def status_dict(state: LicenseState | None, now: datetime | None = None) -> dict
         "server_id": settings.license_server_id,
         "enforced": settings.license_enforce,
         "paired": bool(state and state.public_key),
+        # Short public-key id so the phone can tell whether its key is the paired one.
+        "key_id": state.public_key[:16] if (state and state.public_key) else None,
         "licensed": licensed,
         "current_period": period,
         "approved_period": state.period if state else None,

@@ -8,12 +8,12 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_license
+from app.api.deps import require_license, require_manager
 from app.database import get_session
 from app.models.vehicle import VehicleStatus
 from app.services import caz
 
-router = APIRouter(prefix="/api/caz", tags=["caz"], dependencies=[Depends(require_license)])
+router = APIRouter(prefix="/api/caz", tags=["caz"], dependencies=[Depends(require_license), Depends(require_manager)])
 
 
 @router.get("/exposure")

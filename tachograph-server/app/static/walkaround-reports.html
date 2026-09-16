@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Walkaround Reports</title>
+<title>${title} — Walkaround reports</title>
 <style>
   :root{color-scheme:dark;--bg:#0b1220;--card:#131c2e;--line:#22304a;--fg:#e6edf7;--mut:#8aa0c0;--acc:#38bdf8;--ok:#34d399;--warn:#f59e0b;--bad:#f87171;}
   *{box-sizing:border-box;}
@@ -13,14 +13,14 @@
   main{padding:0 16px 60px;max-width:820px;margin:0 auto;}
   .filters{display:flex;gap:8px;flex-wrap:wrap;align-items:end;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px;}
   .filters div{display:flex;flex-direction:column;} label{font-size:11px;color:var(--mut);margin-bottom:3px;}
-  input{background:#0d1526;border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:8px;font:inherit;}
-  .btn{background:var(--acc);color:#04121f;font-weight:700;border:none;border-radius:8px;padding:9px 15px;font:inherit;cursor:pointer;}
+  input,select{background:var(--input);border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:8px;font:inherit;}
+  .btn{background:var(--acc);color:var(--on-acc);font-weight:700;border:none;border-radius:8px;padding:9px 15px;font:inherit;cursor:pointer;}
   .btn.small{background:transparent;color:var(--acc);border:1px solid var(--line);padding:5px 10px;font-size:12px;}
   .check{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px;}
   .check .h{display:flex;justify-content:space-between;gap:10px;align-items:baseline;cursor:pointer;}
   .reg{font-weight:700;font-size:16px;}
   .tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;text-transform:uppercase;}
-  .pass{background:#0f2a1f;color:var(--ok);} .defects{background:#2a1113;color:var(--bad);}
+  .pass{background:var(--ok-soft);color:var(--ok);} .defects{background:var(--bad-soft);color:var(--bad);}
   .meta{color:var(--mut);font-size:12px;margin-top:3px;}
   .detail{margin-top:10px;border-top:1px solid var(--line);padding-top:10px;display:none;}
   .detail.show{display:block;}
@@ -46,6 +46,7 @@
       <div><label>To</label><input type="date" id="end"></div>
       <div><label>Registration</label><input id="reg" placeholder="any" autocapitalize="characters"></div>
       <div><label>Driver</label><input id="driver" placeholder="any"></div>
+      <div><label>Check</label><select id="phase"><option value="">All checks</option><option value="pre_use">Pre-use</option><option value="end_of_day">End of day</option><option value="fault_report">Fault reports</option></select></div>
       <div><label>&nbsp;</label><button class="btn" id="go">Search</button></div>
     </div>
     <div id="list"></div>
@@ -56,6 +57,9 @@
   const $=(id)=>document.getElementById(id);
   const esc=s=>(s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
   const dt=s=>s?new Date(s).toLocaleString('en-GB',{timeZone:'Europe/London'}):'';
+  const PHASE={pre_use:'Pre-use check',end_of_day:'End of day check',fault_report:'Fault report'};
+  const LEVEL=v=>({'empty':'empty','1/4':'¼','1/2':'½','3/4':'¾','full':'full'}[v]||v);
+  const mins=s=>s<60?s+'s':Math.round(s/60)+' min';
 
   async function search(){
     const p=new URLSearchParams();
@@ -63,20 +67,27 @@
     if($('end').value)p.set('end',$('end').value);
     if($('reg').value.trim())p.set('reg',$('reg').value.trim());
     if($('driver').value.trim())p.set('driver',$('driver').value.trim());
+    if($('phase').value)p.set('phase',$('phase').value);
+    p.set('limit','500');
     let rows;
     try{ const r=await fetch('api/walkaround/checks?'+p.toString(),{cache:'no-store'});
-      if(r.status===403){ $('app').classList.add('hidden'); $('lock').classList.remove('hidden'); return; }
+      if(r.status===401){ $('list').innerHTML='<div class="empty">Sign in to DH FleetView to see reports.</div>'; return; }
+      if(r.status===403){ const b=await r.clone().json().catch(()=>null); if(b&&b.detail&&b.detail.error==='not_manager'){ $('list').innerHTML='<div class="empty">Your account can\'t view walkaround reports.</div>'; return; }
+        $('app').classList.add('hidden'); $('lock').classList.remove('hidden'); return; }
       rows=await r.json(); }
     catch{ $('list').innerHTML='<div class="empty">Cannot reach service.</div>'; return; }
     if(!rows.length){ $('list').innerHTML='<div class="empty">No walkaround checks match.</div>'; return; }
-    $('list').innerHTML='';
+    $('list').innerHTML=`<div class="meta" style="margin:0 0 8px">${rows.length} check${rows.length===1?'':'s'}${rows.length>=500?' (showing the latest 500 — narrow the dates)':''}</div>`;
     rows.forEach(c=>{
       const el=document.createElement('div'); el.className='check';
       el.innerHTML=`<div class="h">
           <span class="reg">${esc(c.vehicle_reg)}</span>
+          <span class="meta" style="flex:1;margin-left:8px">${PHASE[c.phase]||'Walkaround'}</span>
           <span class="tag ${c.result}">${c.result==='pass'?'pass':'defects ('+c.defect_count+')'}</span>
         </div>
         <div class="meta">${dt(c.created_at)}${c.driver_name?' · '+esc(c.driver_name):''}${c.odometer_km?' · '+c.odometer_km+' km':''}
+          ${c.fuel_level?' · fuel '+LEVEL(c.fuel_level):''}${c.adblue_level?' · AdBlue '+LEVEL(c.adblue_level):''}
+          ${c.duration_seconds?' · took '+mins(c.duration_seconds):''}${c.safe_to_drive===false?' · <b style="color:var(--bad)">not safe to drive</b>':''}
           ${c.photo_count?' · 📷 '+c.photo_count:''}${c.has_signature?' · ✍ signed':''}</div>
         <div class="detail" id="det-${c.id}"></div>`;
       el.querySelector('.h').onclick=()=>toggle(c.id);
@@ -113,8 +124,8 @@
     let s; try{ s=await (await fetch('api/license/status',{cache:'no-store'})).json(); }catch{}
     if(!s||!s.licensed){ $('lock').classList.remove('hidden'); return; }
     $('app').classList.remove('hidden');
-    // default: last 7 days
-    const today=new Date(); const wk=new Date(Date.now()-6*86400000);
+    // default: last 30 days
+    const today=new Date(); const wk=new Date(Date.now()-29*86400000);
     $('end').value=today.toISOString().slice(0,10); $('start').value=wk.toISOString().slice(0,10);
     search();
   }

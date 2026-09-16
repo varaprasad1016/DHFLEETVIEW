@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>${title} — Shift Reports</title>
+<style>
+  :root { color-scheme: dark; --bg:#0b1220; --card:#131c2e; --line:#22304a; --fg:#e6edf7; --mut:#8aa0c0; --acc:#38bdf8; --ok:#34d399; --warn:#f59e0b; --bad:#f87171; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif; }
+  header { padding:16px 18px 6px; display:flex; align-items:center; gap:12px; }
+  header a { color:var(--acc); text-decoration:none; font-size:20px; }
+  h1 { font-size:20px; margin:0; flex:1; }
+  main { padding:12px 16px 40px; max-width:1000px; margin:0 auto; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; margin-bottom:14px; }
+  .tabs { display:flex; gap:6px; margin-bottom:14px; }
+  .tab { padding:6px 14px; border-radius:999px; border:1px solid var(--line); background:transparent; color:var(--mut); cursor:pointer; font-size:13px; }
+  .tab.active { background:var(--acc); color:var(--on-acc); border-color:var(--acc); font-weight:600; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { text-align:left; padding:8px 10px; border-bottom:2px solid var(--line); color:var(--mut); font-size:11px; text-transform:uppercase; }
+  td { padding:8px 10px; border-bottom:1px solid var(--line); }
+  .pill { display:inline-block; font-size:11px; padding:2px 8px; border-radius:999px; font-weight:600; }
+  .pill-in { background:var(--ok); color:var(--on-acc); }
+  .pill-break { background:var(--warn); color:var(--on-acc); }
+  .pill-out { background:var(--mut); color:var(--on-acc); }
+  .btn { padding:6px 12px; border:none; border-radius:6px; font-size:12px; cursor:pointer; background:var(--acc); color:var(--on-acc); }
+  .empty { text-align:center; padding:30px; color:var(--mut); }
+  .detail-overlay { position:fixed; inset:0; background:rgba(0,0,0,.7); z-index:100; display:flex; align-items:center; justify-content:center; padding:20px; }
+  .detail-box { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:24px; max-width:700px; width:100%; max-height:90vh; overflow:auto; }
+  .photo-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:10px; margin-top:10px; }
+  .photo-grid img { width:100%; height:150px; object-fit:cover; border-radius:8px; }
+  .photo-grid .cap { font-size:11px; color:var(--mut); text-align:center; margin-top:4px; }
+  .stat-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-top:10px; }
+  .stat { background:var(--input); border-radius:8px; padding:10px; text-align:center; }
+  .stat small { display:block; color:var(--mut); font-size:11px; }
+  .stat b { font-size:16px; }
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+<header>
+  <a href="compliance">←</a>
+  <h1>Shift Reports</h1>
+  <button class="btn" onclick="loadData()">Refresh</button>
+</header>
+<main>
+  <div class="tabs">
+    <button class="tab active" id="tabActive" onclick="showTab('active')">Active (<span id="activeCount">0</span>)</button>
+    <button class="tab" id="tabHistory" onclick="showTab('history')">History (<span id="historyCount">0</span>)</button>
+  </div>
+  <div class="card">
+    <table>
+      <thead id="tableHead"></thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+    <div class="empty hidden" id="emptyMsg">No shifts found</div>
+  </div>
+</main>
+<div class="detail-overlay hidden" id="detailOverlay" onclick="closeDetail(event)">
+  <div class="detail-box" id="detailBox" onclick="event.stopPropagation()"></div>
+</div>
+<script>
+// Same-origin: works at /tacho/<page> behind Apache and at :8000/<page> directly.
+const API = location.pathname.replace(/\/[^\/]*$/, '') + '/api/shifts';
+let activeShifts = [];
+let historyShifts = [];
+let currentTab = 'active';
+
+function $(id){ return document.getElementById(id); }
+function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function loadData(){
+  try { activeShifts = await api('GET', '/active'); } catch(e){ activeShifts = []; }
+  try { historyShifts = await api('GET', '/history'); } catch(e){ historyShifts = []; }
+  $('activeCount').textContent = activeShifts.length;
+  $('historyCount').textContent = historyShifts.length;
+  render();
+}
+
+async function api(method, path){
+  const res = await fetch(API+path, { method });
+  if(!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+function showTab(t){
+  currentTab = t;
+  $('tabActive').className = 'tab' + (t==='active'?' active':'');
+  $('tabHistory').className = 'tab' + (t==='history'?' active':'');
+  render();
+}
+
+function render(){
+  if(currentTab === 'active'){
+    $('tableHead').innerHTML = '<tr><th>Driver</th><th>Vehicle</th><th>Status</th><th>Odometer</th><th>Fuel</th><th>Started</th><th></th></tr>';
+    $('tableBody').innerHTML = activeShifts.map(s => `<tr>
+      <td>${esc(s.driver_name)}</td>
+      <td>${esc(s.vehicle_reg||'-')}</td>
+      <td><span class="pill pill-${s.status==='on_break'?'break':'in'}">${s.status==='on_break'?'BREAK':'CLOCKED IN'}</span></td>
+      <td>${s.odometer_km??'-'} km</td>
+      <td>${s.fuel_level_pct??'-'}%</td>
+      <td>${s.clocked_in_at ? new Date(s.clocked_in_at).toLocaleString() : '-'}</td>
+      <td><button class="btn" onclick="viewDetail('${s.id}')">View</button></td>
+    </tr>`).join('');
+    $('emptyMsg').classList.toggle('hidden', !!activeShifts.length);
+  } else {
+    $('tableHead').innerHTML = '<tr><th>Driver</th><th>Vehicle</th><th>Odo In/Out</th><th>Fuel In/Out</th><th>AdBlue In/Out</th><th>Clock In</th><th>Clock Out</th><th></th></tr>';
+    $('tableBody').innerHTML = historyShifts.map(s => `<tr>
+      <td>${esc(s.driver_name)}</td>
+      <td>${esc(s.vehicle_reg||'-')}</td>
+      <td>${s.odometer_km??'-'} / ${s.odometer_out_km??'-'} km</td>
+      <td>${s.fuel_level_pct??'-'} / ${s.fuel_level_out_pct??'-'}%</td>
+      <td>${s.adblue_level_pct??'-'} / ${s.adblue_level_out_pct??'-'}%</td>
+      <td>${s.clocked_in_at ? new Date(s.clocked_in_at).toLocaleString() : '-'}</td>
+      <td>${s.clocked_out_at ? new Date(s.clocked_out_at).toLocaleString() : '-'}</td>
+      <td><button class="btn" onclick="viewDetail('${s.id}')">View</button></td>
+    </tr>`).join('');
+    $('emptyMsg').classList.toggle('hidden', !!historyShifts.length);
+  }
+}
+
+async function viewDetail(id){
+  try {
+    const s = await api('GET', `/${id}`);
+    let html = `<h2 style="margin:0 0 12px">${esc(s.driver_name)} — ${s.vehicle_reg||'No vehicle'}</h2>`;
+    html += `<span class="pill pill-${s.status==='clocked_out'?'out':s.status==='on_break'?'break':'in'}">${s.status.toUpperCase()}</span>`;
+    html += `<div class="stat-grid">
+      <div class="stat"><small>Odometer In</small><b>${s.odometer_km??'-'} km</b></div>
+      <div class="stat"><small>Odometer Out</small><b>${s.odometer_out_km??'-'} km</b></div>
+      <div class="stat"><small>Fuel In/Out</small><b>${s.fuel_level_pct??'-'} / ${s.fuel_level_out_pct??'-'}%</b></div>
+      <div class="stat"><small>AdBlue In/Out</small><b>${s.adblue_level_pct??'-'} / ${s.adblue_level_out_pct??'-'}%</b></div>
+      <div class="stat"><small>Clock In</small><b>${s.clocked_in_at ? new Date(s.clocked_in_at).toLocaleString() : '-'}</b></div>
+      <div class="stat"><small>Clock Out</small><b>${s.clocked_out_at ? new Date(s.clocked_out_at).toLocaleString() : '-'}</b></div>
+    </div>`;
+    if(s.photos && s.photos.length){
+      html += `<h3 style="margin-top:16px">Photos</h3><div class="photo-grid">`;
+      s.photos.forEach(p => {
+        html += `<div><img src="${API}/photos/${p.id}" loading="lazy" /><div class="cap">${esc(p.photo_type.replace('_',' '))}</div></div>`;
+      });
+      html += '</div>';
+    }
+    if(s.jobs && s.jobs.length){
+      html += `<h3 style="margin-top:16px">Jobs</h3>`;
+      s.jobs.forEach(j => {
+        html += `<div style="padding:8px;background:var(--input);border-radius:8px;margin-top:6px"><b>${esc(j.title)}</b> <span class="pill pill-${j.status==='accepted'?'accepted':'out'}" style="font-size:10px">${j.status}</span></div>`;
+      });
+    }
+    html += `<div style="margin-top:16px;text-align:right"><button class="btn" onclick="closeDetail()">Close</button></div>`;
+    $('detailBox').innerHTML = html;
+    $('detailOverlay').classList.remove('hidden');
+  } catch(e){ console.error(e); }
+}
+
+function closeDetail(e){
+  if(!e || e.target === $('detailOverlay')) $('detailOverlay').classList.add('hidden');
+}
+
+loadData();
+setInterval(loadData, 15000);
+</script>
+</body>
+</html>

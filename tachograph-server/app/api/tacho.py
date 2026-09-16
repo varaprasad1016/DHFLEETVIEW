@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_license
+from app.api.deps import require_license, require_manager
 from app.config import settings
 from app.database import get_session
 from app.models.core import Company, Vehicle
@@ -22,7 +22,7 @@ from app.models.tacho import Infringement, TachoFile
 from app.services import archive, ddd_go, ddd_parser, tacho_compliance, tacho_pdf, tacho_report
 from app.services.tacho_rules import Activity, Infringement as RuleInfringement, analyse
 
-router = APIRouter(prefix="/api/tacho", tags=["tacho"], dependencies=[Depends(require_license)])
+router = APIRouter(prefix="/api/tacho", tags=["tacho"], dependencies=[Depends(require_license), Depends(require_manager)])
 
 
 # --- schemas ----------------------------------------------------------------
@@ -558,18 +558,23 @@ async def _report_for(session: AsyncSession, file_id: uuid.UUID | None,
 
 
 @router.get("/timeline")
-async def timeline(driver_ref: str | None = None, vehicle_ref: str | None = None,
+async def timeline(driver_ref: str | None = None,
                    start: datetime | None = None, end: datetime | None = None,
                    company_id: uuid.UUID | None = None,
                    session: AsyncSession = Depends(get_session)) -> list[dict]:
-    """Return canonical tachograph spans for an interactive driver/vehicle timeline."""
-    stmt = select(TachoActivity).order_by(TachoActivity.started_at)
+    """Return driver-card activities for the driver timeline.
+
+    Vehicle-unit activities are deliberately excluded. Registrations come from
+    the vehicle spells recorded on the driver's card for each activity day.
+    """
+    stmt = (select(TachoActivity)
+            .join(TachoFile, TachoFile.id == TachoActivity.source_file_id)
+            .where(TachoFile.file_kind == "driver_card")
+            .order_by(TachoActivity.started_at))
     if company_id:
         stmt = stmt.where(TachoActivity.company_id == company_id)
     if driver_ref:
         stmt = stmt.where(TachoActivity.driver_ref == driver_ref)
-    if vehicle_ref:
-        stmt = stmt.where(TachoActivity.vehicle_ref == vehicle_ref)
     if start:
         stmt = stmt.where(TachoActivity.ended_at >= _aware(start))
     if end:
@@ -582,6 +587,22 @@ async def timeline(driver_ref: str | None = None, vehicle_ref: str | None = None
              "start": a.started_at.isoformat(), "end": a.ended_at.isoformat(),
              "source": a.source, "confidence": a.confidence}
             for a in rows]
+
+
+@router.get("/timeline.pdf")
+async def timeline_pdf(driver_ref: str | None = None,
+                       start: datetime | None = None, end: datetime | None = None,
+                       company_id: uuid.UUID | None = None,
+                       session: AsyncSession = Depends(get_session)) -> Response:
+    """Export driver-card activities as daily 24-hour tachograph charts."""
+    rows = await timeline(driver_ref=driver_ref, start=start, end=end,
+                          company_id=company_id, session=session)
+    safe = "".join(c if c.isalnum() else "_"
+                   for c in (driver_ref or "timeline")).strip("_") or "timeline"
+    return Response(
+        content=tacho_pdf.render_timeline(rows, driver_ref=driver_ref),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{safe}_timeline.pdf"'})
 
 
 @router.get("/report")

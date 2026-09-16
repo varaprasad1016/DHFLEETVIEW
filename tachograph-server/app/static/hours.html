@@ -13,7 +13,7 @@
   main{padding:0 16px 60px;max-width:1400px;margin:0 auto;}
   .tabs{display:flex;gap:8px;margin:6px 0 14px;flex-wrap:wrap;}
   .tabs button{background:var(--card);border:1px solid var(--line);color:var(--mut);border-radius:999px;padding:7px 14px;font:inherit;cursor:pointer;}
-  .tabs button.on{background:var(--acc);color:#04121f;font-weight:700;border-color:var(--acc);}
+  .tabs button.on{background:var(--acc);color:var(--on-acc);font-weight:700;border-color:var(--acc);}
   table{width:100%;border-collapse:collapse;font-size:14px;}
   th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);}
   .report-table-wrap{width:100%;overflow-x:auto;overflow-y:hidden;border:1px solid var(--line);border-radius:8px;}
@@ -28,12 +28,34 @@
   .report-controls .note{max-width:340px;}
   .report-controls select{min-width:220px;}
   .infringement-filters select{min-width:180px;}
-  .timeline-segment{display:block;min-width:90px;border:0;border-radius:6px;color:#04121f;text-align:left;padding:8px 10px;cursor:pointer;font:inherit;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}
-  .timeline-segment:hover{filter:brightness(1.12);}
+  .timeline-chart{overflow-x:auto;padding-bottom:4px;}
+  .timeline-day{min-width:760px;border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:12px;background:#f8f8d8;color:#172033;}
+  .timeline-day-head{display:flex;justify-content:space-between;gap:12px;align-items:baseline;margin-bottom:9px;}
+  .timeline-day-head strong{font-size:15px;color:#172033;}
+  .timeline-day-head span{font-size:12px;color:#526174;}
+  .timeline-legend{display:flex;gap:14px;flex-wrap:wrap;margin:4px 0 10px;color:var(--mut);font-size:12px;}
+  .timeline-legend i{display:inline-block;width:12px;height:12px;border-radius:2px;vertical-align:-2px;margin-right:4px;}
+  .timeline-lane{display:grid;grid-template-columns:118px 1fr;gap:8px;align-items:center;margin:8px 0 14px;}
+  .timeline-lane-label{font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#172033;}
+  .timeline-lane-label small{display:block;font-size:10px;font-weight:500;color:#526174;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .timeline-track{position:relative;height:48px;background:#ffffd5;border:1px solid #6b7280;}
+  .timeline-grid{position:absolute;inset:0;display:grid;grid-template-columns:repeat(24,1fr);pointer-events:none;}
+  .timeline-grid span{border-left:1px solid #7d8490;position:relative;}
+  .timeline-grid span:last-child{border-right:1px solid #7d8490;}
+  .timeline-grid b{position:absolute;top:50px;left:-4px;font-size:10px;font-weight:500;color:#374151;}
+  .timeline-grid span:last-child b{left:auto;right:-5px;}
+  .timeline-block{position:absolute;top:6px;height:34px;border-radius:1px;min-width:1px;border:0;padding:0;cursor:pointer;}
+  .timeline-block:hover{filter:brightness(1.12);outline:2px solid #111827;z-index:2;}
+  .timeline-block.drive{background:#ef1717;}.timeline-block.work{background:#1d9b3a;}
+  .timeline-block.available{background:#f1cf35;}.timeline-block.rest{background:#3f46c9;}
+  .timeline-axis{display:grid;grid-template-columns:118px 1fr;gap:8px;margin-top:2px;}
+  .timeline-axis>div:last-child{height:18px;}
+  .timeline-action{margin-left:auto;}
+  .timeline-detail{min-height:22px;padding:8px 10px;border-radius:7px;background:var(--card);border:1px solid var(--line);color:var(--fg);font-size:13px;}
   th{color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.03em;}
   .tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;text-transform:uppercase;}
-  .compliant{background:#0f2a1f;color:var(--ok);} .due_soon{background:#2a230f;color:var(--warn);}
-  .overdue{background:#2a1113;color:var(--bad);} .no_data{background:#1b2233;color:var(--mut);}
+  .compliant{background:var(--ok-soft);color:var(--ok);} .due_soon{background:var(--warn-soft);color:var(--warn);}
+  .overdue{background:var(--bad-soft);color:var(--bad);} .no_data{background:var(--card2);color:var(--mut);}
   .sev{font-size:11px;font-weight:700;text-transform:uppercase;}
   .sev.serious{color:var(--warn);} .sev.very_serious{color:var(--bad);} .sev.minor{color:var(--acc);}
   .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px;}
@@ -52,13 +74,13 @@
   }
   .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;text-align:center;}
   .kpi b{display:block;font-size:22px;} .kpi span{color:var(--mut);font-size:12px;}
-  .btn{background:var(--acc);color:#04121f;font-weight:700;border:none;border-radius:9px;padding:10px 16px;font:inherit;cursor:pointer;}
+  .btn{background:var(--acc);color:var(--on-acc);font-weight:700;border:none;border-radius:9px;padding:10px 16px;font:inherit;cursor:pointer;}
   .btn.small{padding:6px 10px;font-size:13px;background:transparent;color:var(--acc);border:1px solid var(--line);}
-  input,select{background:#0d1526;border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:9px;font:inherit;}
+  input,select{background:var(--input);border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:9px;font:inherit;}
   label{font-size:12px;color:var(--mut);display:block;margin:8px 0 3px;}
   .row{display:flex;gap:10px;flex-wrap:wrap;align-items:end;}
   .row>div{min-width:0;}
-  .msg{padding:10px;border-radius:9px;margin-top:8px;display:none;} .msg.ok{background:#0f2a1f;border:1px solid var(--ok);display:block;} .msg.bad{background:#2a1113;border:1px solid var(--bad);display:block;}
+  .msg{padding:10px;border-radius:9px;margin-top:8px;display:none;} .msg.ok{background:var(--ok-soft);border:1px solid var(--ok);display:block;} .msg.bad{background:var(--bad-soft);border:1px solid var(--bad);display:block;}
   .empty{color:var(--mut);padding:24px;text-align:center;}
   .lock{text-align:center;color:var(--mut);padding:40px 16px;} .lock a{color:var(--acc);}
   .note{color:var(--mut);font-size:12px;margin-top:6px;}
@@ -82,14 +104,19 @@
   </div>
 </main>
 <script>
-  const $=(id)=>document.getElementById(id); let tab='compliance';
+  const $=(id)=>document.getElementById(id);
+  // The service is mounted at /tacho in production and at / when run directly.
+  const pagePath=window.location.pathname.replace(/\/+$/,'');
+  const pagePrefix=pagePath==='\/hours'?'':pagePath.slice(0,pagePath.lastIndexOf('/'));
+  const apiUrl=(path)=>`${pagePrefix}${path}`;
+  const api=(path,options)=>fetch(apiUrl(path),options);
   const esc=s=>(s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
   const hrs=m=>m==null?'':Math.floor(m/60)+'h'+String(m%60).padStart(2,'0');
   const dt=s=>s?new Date(s).toLocaleString('en-GB',{timeZone:'Europe/London'}):'';
   const dd=s=>s?new Date(s).toLocaleDateString('en-GB',{timeZone:'Europe/London'}):'—';
 
   async function kpis(){
-    const s=await (await fetch('api/tacho/summary',{cache:'no-store'})).json();
+    const s=await (await api('/api/tacho/summary',{cache:'no-store'})).json();
     $('kpis').innerHTML=`
       <div class="kpi"><b style="color:var(--bad)">${s.open_serious}</b><span>Serious infringements</span></div>
       <div class="kpi"><b>${s.open_infringements}</b><span>Open infringements</span></div>
@@ -98,7 +125,7 @@
   }
 
   async function renderCompliance(){
-    const c=await (await fetch('api/tacho/compliance',{cache:'no-store'})).json();
+    const c=await (await api('/api/tacho/compliance',{cache:'no-store'})).json();
     const tbl=(title,rows,unit)=>{
       let h=`<div class="card"><h3 style="margin:0 0 8px">${title} <span class="note">(window ${unit} days)</span></h3>`;
       if(!rows.length){ return h+'<div class="empty">Nothing to show.</div></div>'; }
@@ -112,35 +139,62 @@
   }
 
   let sevFilter='all', driverFilter='all', vehicleFilter='all';
-  let timelineDriver='', timelineVehicle='', timelineDate='';
+  let timelineDriver='', timelineFrom='', timelineTo='';
+  const timelineColours={drive:'#ef1717',work:'#1d9b3a',available:'#f1cf35',rest:'#3f46c9'};
+  const timelineNames={drive:'Driving',work:'Work',available:'Availability',rest:'Rest'};
+  const localDay=s=>new Date(s).toLocaleDateString('en-CA',{timeZone:'Europe/London'});
+  const localMinutes=s=>{const p=new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/London',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).formatToParts(new Date(s));const v=Object.fromEntries(p.map(x=>[x.type,x.value]));return (+v.hour||0)*60+(+v.minute||0)+(+v.second||0)/60;};
+  const nextDay=d=>{const [y,m,day]=d.split('-').map(Number);const x=new Date(Date.UTC(y,m-1,day+1));return x.toISOString().slice(0,10);};
+  const timelineDateLabel=d=>{const [y,m,day]=d.split('-').map(Number);return new Date(Date.UTC(y,m-1,day)).toLocaleDateString('en-GB',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric',timeZone:'UTC'});};
+  function timelineFragments(rows){
+    const out=[];
+    rows.forEach(row=>{
+      let day=localDay(row.start), endDay=localDay(row.end), guard=0;
+      while(day<=endDay && guard++<370){
+        const start=day===localDay(row.start)?localMinutes(row.start):0;
+        const end=day===endDay?localMinutes(row.end):1440;
+        if(end>start)out.push({...row,day,startMinute:start,endMinute:end});
+        if(day===endDay)break;
+        day=nextDay(day);
+      }
+    });
+    return out;
+  }
   async function renderTimeline(){
-    const files=await (await fetch('api/tacho/files',{cache:'no-store'})).json();
-    const drivers=[...new Set(files.filter(f=>f.driver_ref).map(f=>f.driver_ref))].sort();
-    const vehicles=[...new Set(files.filter(f=>f.vehicle_ref).map(f=>f.vehicle_ref))].sort();
-    if(!timelineDriver && drivers.length===1) timelineDriver=drivers[0];
+    const files=await (await api('/api/tacho/files',{cache:'no-store'})).json();
+    const drivers=[...new Set(files.filter(f=>f.file_kind==='driver_card'&&f.driver_ref).map(f=>f.driver_ref))].sort();
+    if(!timelineDriver && drivers.length===1)timelineDriver=drivers[0];
+    const q=new URLSearchParams(); if(timelineDriver)q.set('driver_ref',timelineDriver);
+    if(timelineFrom)q.set('start',timelineFrom+'T00:00:00');
+    if(timelineTo)q.set('end',timelineTo+'T23:59:59');
+    const pdfUrl=apiUrl('/api/tacho/timeline.pdf?'+q.toString());
     let h=`<div class="card"><div class="row infringement-filters">
-      <div><label>Driver</label><select id="tl-driver"><option value="">All drivers</option>${drivers.map(d=>`<option value="${esc(d)}"${d===timelineDriver?' selected':''}>${esc(d)}</option>`).join('')}</select></div>
-      <div><label>Vehicle</label><select id="tl-vehicle"><option value="">All vehicles</option>${vehicles.map(v=>`<option value="${esc(v)}"${v===timelineVehicle?' selected':''}>${esc(v)}</option>`).join('')}</select></div>
-      <div><label>Date</label><input type="date" id="tl-date" value="${timelineDate}"></div>
-      <div><button class="btn small" id="tl-show">Show timeline</button></div>
-    </div><div class="note">Click an activity to inspect its source span and confidence.</div></div><div id="timeline-body" class="card"><div class="empty">Choose a driver or vehicle, then press Show timeline.</div></div>`;
+      <div><label>Driver</label><select id="tl-driver"><option value="">Select driver</option>${drivers.map(d=>`<option value="${esc(d)}"${d===timelineDriver?' selected':''}>${esc(d)}</option>`).join('')}</select></div>
+      <div><label>From</label><input type="date" id="tl-from" value="${timelineFrom}"></div>
+      <div><label>To</label><input type="date" id="tl-to" value="${timelineTo}"></div>
+      <div><button class="btn small" id="tl-show">Show timeline</button> <a class="btn small timeline-action" href="${pdfUrl}" style="text-decoration:none">Download timeline PDF</a></div>
+    </div><div class="timeline-legend"><span><i style="background:${timelineColours.drive}"></i>Driving</span><span><i style="background:${timelineColours.work}"></i>Work</span><span><i style="background:${timelineColours.available}"></i>Availability</span><span><i style="background:${timelineColours.rest}"></i>Rest</span></div><div class="note">Timeline data is taken from driver-card downloads. The registration shown under each driver is the vehicle recorded on the card for that activity.</div></div><div id="timeline-body" class="card"><div class="empty">Choose a driver and date range, then press Show timeline.</div></div>`;
     $('view').innerHTML=h;
-    $('tl-show').onclick=()=>{ timelineDriver=$('tl-driver').value; timelineVehicle=$('tl-vehicle').value; timelineDate=$('tl-date').value; renderTimeline(); };
-    if(!timelineDriver&&!timelineVehicle) return;
-    const q=new URLSearchParams(); if(timelineDriver)q.set('driver_ref',timelineDriver); if(timelineVehicle)q.set('vehicle_ref',timelineVehicle);
-    if(timelineDate){q.set('start',timelineDate+'T00:00:00');q.set('end',timelineDate+'T23:59:59');}
-    const res=await fetch('api/tacho/timeline?'+q,{cache:'no-store'}); const rows=await res.json();
-    if(!rows.length){$('timeline-body').innerHTML='<div class="empty">No canonical activities match these filters.</div>';return;}
-    const colours={DRIVE:'#38bdf8',WORK:'#f59e0b',AVAILABLE:'#a78bfa',REST:'#34d399'};
-    const min=rows.reduce((m,r)=>Math.min(m,new Date(r.start).getTime()),Infinity), max=rows.reduce((m,r)=>Math.max(m,new Date(r.end).getTime()),-Infinity), span=Math.max(max-min,60000);
-    let b='<h3 style="margin-top:0">Activity timeline</h3><div style="display:grid;gap:8px">';
-    rows.forEach((r,i)=>{const left=((new Date(r.start).getTime()-min)/span*100).toFixed(2), width=Math.max((new Date(r.end).getTime()-new Date(r.start).getTime())/span*100,1).toFixed(2); b+=`<button class="timeline-segment" data-tl="${i}" style="margin-left:${left}%;width:${width}%;background:${colours[r.activity]||'var(--mut)'}"><b>${r.activity}</b> ${dt(r.start)} – ${dt(r.end)}</button>`;});
-    b+='</div><div id="timeline-detail" class="note" style="margin-top:14px">Select an activity.</div>';
+    $('tl-show').onclick=()=>{timelineDriver=$('tl-driver').value;timelineFrom=$('tl-from').value;timelineTo=$('tl-to').value;if(timelineFrom&&timelineTo&&timelineFrom>timelineTo){$('timeline-body').innerHTML='<div class="empty">From date must be before the To date.</div>';return;}renderTimeline();};
+    if(!timelineDriver){$('timeline-body').innerHTML='<div class="empty">Choose a driver and date range, then press Show timeline.</div>';return;}
+    const res=await api('/api/tacho/timeline?'+q,{cache:'no-store'}); const rows=await res.json();
+    if(!rows.length){$('timeline-body').innerHTML='<div class="empty">No driver-card activities match these filters.</div>';return;}
+    const fragments=timelineFragments(rows), byDay={}; fragments.forEach((r,i)=>(byDay[r.day]??=[]).push({...r,index:i}));
+    let b='<h3 style="margin-top:0">Daily driver timeline</h3><div class="timeline-chart">';
+    Object.keys(byDay).sort().forEach(day=>{
+      const dayRows=byDay[day];
+      b+=`<section class="timeline-day"><div class="timeline-day-head"><strong>${timelineDateLabel(day)}</strong><span>Daily values 00:00 to 24:00 local time</span></div>`;
+      const laneNames=[...new Set(dayRows.map(r=>r.driver_ref||'Driver activity'))];
+      laneNames.forEach(lane=>{const regs=[...new Set(dayRows.filter(r=>(r.driver_ref||'Driver activity')===lane).map(r=>r.vehicle_ref).filter(Boolean))];b+=`<div class="timeline-lane"><div class="timeline-lane-label" title="${esc(lane)}"><strong>${esc(lane)}</strong><small>${esc(regs.join(', ')||'Registration unavailable')}</small></div><div class="timeline-track"><div class="timeline-grid">${Array.from({length:25},(_,hour)=>`<span>${hour<24?`<b>${hour}</b>`:''}</span>`).join('')}</div>`;
+        dayRows.filter(r=>(r.driver_ref||'Driver activity')===lane).forEach(r=>{const kind=(r.activity||'').toLowerCase(),left=(r.startMinute/1440*100).toFixed(4),width=((r.endMinute-r.startMinute)/1440*100).toFixed(4);b+=`<button class="timeline-block ${kind}" data-tl="${r.index}" title="${timelineNames[kind]||r.activity} ${Math.floor(r.startMinute/60).toString().padStart(2,'0')}:${Math.floor(r.startMinute%60).toString().padStart(2,'0')} – ${Math.floor(r.endMinute/60).toString().padStart(2,'0')}:${Math.floor(r.endMinute%60).toString().padStart(2,'0')}" style="left:${left}%;width:${width}%"></button>`;});
+        b+='</div></div>';});
+      b+='</section>';});
+    b+='</div><div id="timeline-detail" class="timeline-detail" style="margin-top:14px">Select a coloured activity for details.</div>';
     $('timeline-body').innerHTML=b;
-    $('timeline-body').querySelectorAll('[data-tl]').forEach(btn=>btn.onclick=()=>{const r=rows[Number(btn.dataset.tl)];$('timeline-detail').innerHTML=`<b>${r.activity}</b><br>${dt(r.start)} – ${dt(r.end)}<br>Driver: ${esc(r.driver_ref||'—')} · Vehicle: ${esc(r.vehicle_ref||'—')}<br>Source: ${esc(r.source)} · Confidence: ${esc(r.confidence)}<br>Source file: ${esc(r.source_file_id)}`;});
+    $('timeline-body').querySelectorAll('[data-tl]').forEach(btn=>btn.onclick=()=>{const r=fragments[Number(btn.dataset.tl)],kind=(r.activity||'').toLowerCase();$('timeline-detail').innerHTML=`<b>${timelineNames[kind]||esc(r.activity)}</b> · ${dt(r.start)} – ${dt(r.end)}<br>Driver: ${esc(r.driver_ref||'—')} · Vehicle: ${esc(r.vehicle_ref||'—')} · Source: ${esc(r.source)} · Confidence: ${esc(r.confidence)}`;});
   }
   async function renderInfringements(){
-    const all=await (await fetch('api/tacho/infringements?status=open',{cache:'no-store'})).json();
+    const all=await (await api('/api/tacho/infringements?status=open',{cache:'no-store'})).json();
     if(!all.length){ $('view').innerHTML='<div class="empty">No open infringements. 🎉</div>'; return; }
     const drivers=[...new Set(all.map(r=>r.driver_ref).filter(Boolean))].sort();
     const vehicles=[...new Set(all.map(r=>r.vehicle_ref).filter(Boolean))].sort();
@@ -154,9 +208,9 @@
     let h=`<div class="card"><div class="row infringement-filters" style="margin-bottom:10px">
       <div><label>Driver</label><select id="if-driver">${option('all','All drivers',driverFilter)}${drivers.map(d=>option(d,d,driverFilter)).join('')}</select></div>
       <div><label>Vehicle</label><select id="if-vehicle">${option('all','All vehicles',vehicleFilter)}${vehicles.map(v=>option(v,v,vehicleFilter)).join('')}${option('unassigned','Unassigned',vehicleFilter)}</select></div>
-      <div><label>Severity</label><button class="btn small" data-sev="all"${sevFilter==='all'?' style="background:var(--acc);color:#04121f"':''}>All (${counts.all})</button>
-      <button class="btn small" data-sev="serious"${sevFilter==='serious'?' style="background:var(--acc);color:#04121f"':''}>Serious &amp; above (${counts.serious})</button>
-      <button class="btn small" data-sev="minor"${sevFilter==='minor'?' style="background:var(--acc);color:#04121f"':''}>Minor (${counts.minor})</button></div>
+      <div><label>Severity</label><button class="btn small" data-sev="all"${sevFilter==='all'?' style="background:var(--acc);color:var(--on-acc)"':''}>All (${counts.all})</button>
+      <button class="btn small" data-sev="serious"${sevFilter==='serious'?' style="background:var(--acc);color:var(--on-acc)"':''}>Serious &amp; above (${counts.serious})</button>
+      <button class="btn small" data-sev="minor"${sevFilter==='minor'?' style="background:var(--acc);color:var(--on-acc)"':''}>Minor (${counts.minor})</button></div>
       <div class="note" style="align-self:center">Vehicle is taken from the assigned source download. Unassigned items have no vehicle link.</div>
     </div>`;
     if(!rows.length){ h+='<div class="empty">Nothing matches these filters.</div>'; }
@@ -176,7 +230,7 @@
     $('view').querySelectorAll('[data-dis]').forEach(b=>b.onclick=()=>setStatus(b.dataset.dis,'dismissed'));
   }
   async function setStatus(id,status){
-    await fetch('api/tacho/infringements/'+id+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
+    await api('/api/tacho/infringements/'+id+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
     kpis(); renderInfringements();
   }
 
@@ -216,7 +270,7 @@
     const m=$('remsg'); $('re').disabled=true;
     m.className='msg'; m.textContent='Re-analysing…';
     try{
-      const res=await fetch('api/tacho/reanalyse',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+      const res=await api('/api/tacho/reanalyse',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
       const d=await res.json();
       if(!res.ok){ m.className='msg bad'; m.textContent=(d.detail&&d.detail.message)||d.detail||'Re-analysis failed.'; }
       else{ m.className='msg ok';
@@ -227,7 +281,7 @@
     $('re').disabled=false;
   }
   async function listFiles(){
-    const rows=await (await fetch('api/tacho/files',{cache:'no-store'})).json();
+    const rows=await (await api('/api/tacho/files',{cache:'no-store'})).json();
     let h='<h3 style="margin:0 0 8px">Archive</h3>';
     if(!rows.length){ $('filelist').innerHTML=h+'<div class="empty">No files yet.</div>'; return; }
     h+='<table><tr><th>File</th><th>Type</th><th>Ref</th><th>Parsed</th><th>Uploaded</th><th>Retain to</th></tr>';
@@ -246,7 +300,7 @@
     try{
       const payload=await Promise.all(files.map(async file=>({filename:file.name,content_base64:await readFileBase64(file),file_kind:kind,
         driver_ref:kind==='driver_card'?($('ref').value||null):null})));
-      const res=await fetch('api/tacho/upload-batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      const res=await api('/api/tacho/upload-batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
       const batch=await res.json();
       if(!res.ok){ m.className='msg bad'; m.textContent=(batch.detail&&batch.detail.message)||batch.detail||'Upload failed.'; }
       else{
@@ -269,7 +323,7 @@
 
   let repFrom='', repTo='', repDriver='';
   async function renderReport(){
-    const files=await (await fetch('api/tacho/files',{cache:'no-store'})).json();
+    const files=await (await api('/api/tacho/files',{cache:'no-store'})).json();
     const drivers=[...new Set(files.filter(f=>f.file_kind==='driver_card'&&f.driver_ref).map(f=>f.driver_ref))].sort();
     if(!repDriver && drivers.length===1)repDriver=drivers[0];
     const q=new URLSearchParams();
@@ -291,7 +345,7 @@
       return;
     }
     let d;
-    try{ const res=await fetch('api/tacho/report?'+q,{cache:'no-store'});
+    try{ const res=await api('/api/tacho/report?'+q,{cache:'no-store'});
          d=await res.json();
          if(!res.ok){ $('rbody').textContent=(d.detail&&d.detail.message)||d.detail||'Could not build the report.'; return; }
     }catch(e){ $('rbody').textContent='Network error.'; return; }
@@ -333,7 +387,7 @@
     tab=b.dataset.t; document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); render();
   });
   async function init(){
-    let s; try{ s=await (await fetch('api/license/status',{cache:'no-store'})).json(); }catch{}
+    let s; try{ s=await (await api('/api/license/status',{cache:'no-store'})).json(); }catch{}
     if(!s||!s.licensed){ $('lock').classList.remove('hidden'); return; }
     $('app').classList.remove('hidden'); await kpis(); render();
   }

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>DH FleetView Compliance</title>
+<title>${title} Compliance</title>
 <style>
   :root { color-scheme: dark; --bg:#0b1220; --card:#131c2e; --line:#22304a; --fg:#e6edf7; --mut:#8aa0c0; --acc:#38bdf8; --ok:#34d399; --warn:#f59e0b; --bad:#f87171; }
   * { box-sizing: border-box; }
@@ -27,14 +27,14 @@
   .pill{ display:inline-block; font-size:11px; color:var(--acc); border:1px solid var(--line); border-radius:999px; padding:1px 8px; margin-left:6px; vertical-align:middle;}
   .lock { background:var(--card); border:1px solid var(--bad); border-radius:14px; padding:20px; text-align:center; }
   .lock h2{ margin:0 0 8px; } .lock p{ color:var(--mut); }
-  .btn{ display:inline-block; background:var(--acc); color:#04121f; font-weight:700; text-decoration:none; padding:11px 18px; border-radius:10px; margin-top:8px; }
+  .btn{ display:inline-block; background:var(--acc); color:var(--on-acc); font-weight:700; text-decoration:none; padding:11px 18px; border-radius:10px; margin-top:8px; }
   .hidden{ display:none !important; }
 </style>
 </head>
 <body>
 <header>
   <h1>Compliance</h1>
-  <div class="sub">DH FleetView — UK fleet compliance suite</div>
+  <div class="sub">${title} — fleet compliance suite</div>
 </header>
 <main>
   <div class="status" id="status">
@@ -44,10 +44,6 @@
 
   <section id="tools" class="hidden">
     <div class="grid">
-      <a class="card" href="walkaround">
-        <h3>Daily walkaround check</h3>
-        <p>Driver first-use vehicle check &amp; defect reporting (DVSA).</p>
-      </a>
       <a class="card" href="defects">
         <h3>Defects <span class="pill" id="defPill">—</span></h3>
         <p>Open defects, severity and rectification audit trail.</p>
@@ -67,6 +63,22 @@
       <a class="card" href="hours">
         <h3>Tacho compliance <span class="pill" id="tachoPill">—</span></h3>
         <p>Drivers' hours &amp; WTD infringements, downloads, archive.</p>
+      </a>
+      <a class="card" href="driver">
+        <h3>Driver App <span class="pill">new</span></h3>
+        <p>Mobile shift start/end, walkaround checks, jobs, fuel, faults &amp; paperwork.</p>
+      </a>
+      <a class="card" href="/settings/drivers">
+        <h3>Drivers &amp; app PINs</h3>
+        <p>Add drivers and set their 6-digit PIN for the driver screens (DH FleetView Settings → Drivers).</p>
+      </a>
+      <a class="card" href="jobs">
+        <h3>Job Management <span class="pill" id="jobsPill">—</span></h3>
+        <p>Send &amp; manage driver job assignments — accept/deny workflow.</p>
+      </a>
+      <a class="card" href="shifts">
+        <h3>Shift Reports</h3>
+        <p>View active shifts, history &amp; clock-in/out photos.</p>
       </a>
       <a class="card soon" href="#">
         <h3>Earned Recognition <span class="pill">soon</span></h3>
@@ -101,6 +113,9 @@
         $('motPill').textContent = (r.overdue+r.due_soon) + ((r.overdue)? ' ⚠':''); } catch {}
       try { const z = await (await fetch('api/caz/summary',{cache:'no-store'})).json();
         $('cazPill').textContent = (z.non_compliant||0) + (z.non_compliant? ' ⚠':''); } catch {}
+      try { const j = await (await fetch('api/shifts/jobs?status=pending',{cache:'no-store'})).json();
+        const pending = Array.isArray(j) ? j.length : 0;
+        if (pending > 0) { $('jobsPill').textContent = pending + ' pending'; } else { $('jobsPill').textContent = '0'; } } catch {}
     } else {
       $('dot').className='dot bad';
       $('stTitle').textContent = s.paired ? 'Licence lapsed' : 'Not paired';
