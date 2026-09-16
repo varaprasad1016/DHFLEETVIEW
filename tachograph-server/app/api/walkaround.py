@@ -17,13 +17,15 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_license, require_manager
+from app.api.deps import require_license, require_manager, require_module
 from app.database import get_session
 from app.models.walkaround import WalkaroundCheck, WalkaroundDefect, WalkaroundPhoto
 from app.services import media_store
 
 router = APIRouter(prefix="/api/walkaround", tags=["walkaround"], dependencies=[Depends(require_license)])
 MANAGER = [Depends(require_manager)]
+REPORTS = MANAGER + [Depends(require_module("walkaround_reports"))]
+DEFECTS = MANAGER + [Depends(require_module("defects"))]
 
 
 # --- DVSA "Guide to maintaining roadworthiness" first-use walkaround items ---
@@ -112,12 +114,12 @@ def _store(data_url: str) -> dict:
         raise HTTPException(status_code=400, detail=f"Bad image: {e}")
 
 
-@router.get("/items", dependencies=MANAGER)
+@router.get("/items", dependencies=REPORTS)
 async def items(check_type: str = "hgv") -> dict:
     return {"check_type": check_type, "items": CHECK_ITEMS.get(check_type, CHECK_ITEMS["hgv"])}
 
 
-@router.post("/checks", status_code=201, dependencies=MANAGER)
+@router.post("/checks", status_code=201, dependencies=REPORTS)
 async def submit_check(body: CheckIn, session: AsyncSession = Depends(get_session)) -> dict:
     reg = body.vehicle_reg.strip().upper().replace(" ", "")
     if not reg:
@@ -174,7 +176,7 @@ async def submit_check(body: CheckIn, session: AsyncSession = Depends(get_sessio
     }
 
 
-@router.get("/checks", dependencies=MANAGER)
+@router.get("/checks", dependencies=REPORTS)
 async def list_checks(limit: int = 100, start: str | None = None, end: str | None = None,
                       reg: str | None = None, driver: str | None = None, phase: str | None = None,
                       session: AsyncSession = Depends(get_session)) -> list[dict]:
@@ -216,7 +218,7 @@ async def list_checks(limit: int = 100, start: str | None = None, end: str | Non
     } for c in rows]
 
 
-@router.get("/checks/{check_id}", dependencies=MANAGER)
+@router.get("/checks/{check_id}", dependencies=REPORTS)
 async def get_check(check_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> dict:
     c = (await session.execute(
         select(WalkaroundCheck).where(WalkaroundCheck.id == check_id))).scalar_one_or_none()
@@ -242,7 +244,7 @@ async def get_check(check_id: uuid.UUID, session: AsyncSession = Depends(get_ses
     }
 
 
-@router.get("/photos/{photo_id}", dependencies=MANAGER)
+@router.get("/photos/{photo_id}", dependencies=REPORTS)
 async def get_photo(photo_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> Response:
     p = (await session.execute(
         select(WalkaroundPhoto).where(WalkaroundPhoto.id == photo_id))).scalar_one_or_none()
@@ -254,7 +256,7 @@ async def get_photo(photo_id: uuid.UUID, session: AsyncSession = Depends(get_ses
         raise HTTPException(status_code=404, detail="Photo file missing.")
 
 
-@router.get("/checks/{check_id}/signature", dependencies=MANAGER)
+@router.get("/checks/{check_id}/signature", dependencies=REPORTS)
 async def get_signature(check_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> Response:
     c = (await session.execute(
         select(WalkaroundCheck).where(WalkaroundCheck.id == check_id))).scalar_one_or_none()
@@ -267,7 +269,7 @@ async def get_signature(check_id: uuid.UUID, session: AsyncSession = Depends(get
         raise HTTPException(status_code=404, detail="Signature file missing.")
 
 
-@router.get("/defects", dependencies=MANAGER)
+@router.get("/defects", dependencies=DEFECTS)
 async def list_defects(status: str = "open", session: AsyncSession = Depends(get_session)) -> list[dict]:
     stmt = select(WalkaroundDefect).order_by(WalkaroundDefect.created_at.desc())
     if status != "all":
@@ -288,7 +290,7 @@ async def list_defects(status: str = "open", session: AsyncSession = Depends(get
     } for d in rows]
 
 
-@router.post("/defects/{defect_id}/rectify", dependencies=MANAGER)
+@router.post("/defects/{defect_id}/rectify", dependencies=DEFECTS)
 async def rectify_defect(
     defect_id: uuid.UUID, body: RectifyIn, session: AsyncSession = Depends(get_session)) -> dict:
     defect = (await session.execute(
@@ -304,7 +306,7 @@ async def rectify_defect(
     return {"id": str(defect.id), "status": defect.status}
 
 
-@router.get("/summary", dependencies=MANAGER)
+@router.get("/summary", dependencies=DEFECTS)
 async def summary(session: AsyncSession = Depends(get_session)) -> dict:
     open_defects = (await session.execute(
         select(func.count()).select_from(WalkaroundDefect).where(WalkaroundDefect.status == "open")

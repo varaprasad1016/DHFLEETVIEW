@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_license, require_manager
+from app.api.deps import require_license, require_manager, require_module
 from app.database import get_session
 from app.models.core import Company, CompanyCard, Driver, DriverCompany, TbaInstance, Vehicle
 from app.models.tacho import TachoFile
@@ -25,7 +25,7 @@ from app.models.tacho import TachoFile
 router = APIRouter(
     prefix="/api/customers",
     tags=["customers"],
-    dependencies=[Depends(require_license), Depends(require_manager)],
+    dependencies=[Depends(require_license), Depends(require_manager), Depends(require_module("tacho"))],
 )
 
 

@@ -62,5 +62,55 @@
     apply();
   });
 
+  // Narrow screens: turn tables that don't fit into stacked cards (see theme.css).
+  var STACK_BELOW = 700;
+  function labelCells(table) {
+    var head = table.querySelector("thead tr") ||
+      Array.prototype.find.call(table.rows, function (r) { return r.cells.length && Array.prototype.every.call(r.cells, function (c) { return c.tagName === "TH"; }); });
+    if (!head) return false;
+    if (head.parentNode.tagName !== "THEAD") head.classList.add("tt-head");
+    var labels = Array.prototype.map.call(head.cells, function (c) { return c.textContent.trim(); });
+    Array.prototype.forEach.call(table.rows, function (row) {
+      if (row === head) return;
+      Array.prototype.forEach.call(row.cells, function (cell, i) {
+        if (cell.tagName === "TD" && cell.getAttribute("data-label") !== (labels[i] || "")) cell.setAttribute("data-label", labels[i] || "");
+      });
+    });
+    return true;
+  }
+  function fitTables() {
+    var narrow = window.innerWidth <= STACK_BELOW;
+    var tables = document.querySelectorAll("table:not([data-no-stack])");
+    for (var i = 0; i < tables.length; i++) {
+      var t = tables[i];
+      t.classList.remove("tt-stack");
+      if (!narrow || !t.parentElement || !labelCells(t)) continue;
+      if (t.scrollWidth > t.parentElement.clientWidth + 1 || t.getBoundingClientRect().right > document.documentElement.clientWidth + 1) {
+        t.classList.add("tt-stack");
+      }
+    }
+  }
+  var fitTimer;
+  function scheduleFit() { clearTimeout(fitTimer); fitTimer = setTimeout(fitTables, 60); }
+  window.addEventListener("resize", scheduleFit);
+  document.addEventListener("DOMContentLoaded", function () {
+    scheduleFit();
+    if (window.MutationObserver) new MutationObserver(scheduleFit).observe(document.body, { childList: true, subtree: true });
+  });
+
+  // Home + Compliance hub shortcuts on every office page (not the driver screens,
+  // which have their own navigation).
+  document.addEventListener("DOMContentLoaded", function () {
+    if (/\/driver\/?$/.test(location.pathname) || document.body.hasAttribute("data-no-shortcuts")) return;
+    var nav = document.createElement("nav");
+    nav.className = "dhfv-shortcuts";
+    nav.setAttribute("aria-label", "Shortcuts");
+    nav.innerHTML =
+      '<a href="/" title="Home" aria-label="Home"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M10.3 3.4a2.5 2.5 0 0 1 3.4 0l6.5 6A2.5 2.5 0 0 1 21 11.2V19a2 2 0 0 1-2 2h-3.5a1 1 0 0 1-1-1v-4.5h-5V20a1 1 0 0 1-1 1H5a2 2 0 0 1-2-2v-7.8a2.5 2.5 0 0 1 .8-1.8z"/></svg></a>' +
+      '<a href="/tacho/compliance" title="Compliance hub" aria-label="Compliance hub"' + (/\/compliance\/?$/.test(location.pathname) ? ' aria-current="page"' : '') + '>' +
+      '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M5 3h10.6L20 7.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm2.3 9.6a1 1 0 0 0-1.4 1.4l2.6 2.6a1 1 0 0 0 1.4 0l5.3-5.3a1 1 0 1 0-1.4-1.4l-4.6 4.6z"/></svg></a>';
+    document.body.appendChild(nav);
+  });
+
   window.dhfvTheme = { get: effective, set: set, toggle: toggle };
 })();

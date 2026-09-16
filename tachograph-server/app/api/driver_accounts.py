@@ -23,7 +23,7 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_driver, require_license, require_manager
+from app.api.deps import require_driver, require_license, require_manager, require_module
 from app.config import settings
 from app.database import get_session
 from app.models.driver_auth import DriverAccount, DriverSession
@@ -32,7 +32,8 @@ from app.services.auth import Principal
 
 auth_router = APIRouter(prefix="/api/driver/auth", tags=["driver auth"])
 accounts_router = APIRouter(prefix="/api/driver-accounts", tags=["driver accounts"],
-                            dependencies=[Depends(require_license), Depends(require_manager)])
+                            dependencies=[Depends(require_license), Depends(require_manager),
+                                          Depends(require_module("driver_pins"))])
 
 _MAX_FAILURES = 5
 _LOCK_MINUTES = 15
@@ -51,7 +52,7 @@ class LoginIn(BaseModel):
     pin: str = Field(..., min_length=4, max_length=12)
 
 
-@auth_router.post("/login")
+@auth_router.post("/login", dependencies=[Depends(require_module("driver_app"))])
 async def login(body: LoginIn, request: Request, session: AsyncSession = Depends(get_session)) -> dict:
     now_mono = time.monotonic()
     _global_failures[:] = [t for t in _global_failures if now_mono - t < _GLOBAL_WINDOW]

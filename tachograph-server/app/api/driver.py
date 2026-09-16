@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import shifts as shifts_api
 from app.api import walkaround as walkaround_api
-from app.api.deps import ensure_own, require_driver, require_license
+from app.api.deps import ensure_own, require_driver, require_license, require_module
 from app.config import settings
 from app.database import get_session
 from app.models.core import Company, Device, Vehicle
@@ -34,7 +34,7 @@ from app.services import media_store
 from app.services.auth import Principal
 
 router = APIRouter(prefix="/api/driver", tags=["driver"],
-                   dependencies=[Depends(require_license), Depends(require_driver)])
+                   dependencies=[Depends(require_license), Depends(require_driver), Depends(require_module("driver_app"))])
 
 LONDON = ZoneInfo("Europe/London")
 ACTIVE_SHIFT = ("clocked_in", "on_break", "active")
@@ -210,6 +210,8 @@ async def driver_state(principal: Principal = Depends(require_driver),
                        session: AsyncSession = Depends(get_session)) -> dict:
     name = principal.name
     shift = await _active_shift(session, name)
+    from app.services import modules as modules_service
+    flags = await modules_service.get_flags(session)
     vehicle = None
     if shift and shift.vehicle_reg:
         reg = norm_reg(shift.vehicle_reg)
@@ -222,7 +224,8 @@ async def driver_state(principal: Principal = Depends(require_driver),
         "driver": name,
         "shift": shifts_api._shift_summary(shift) if shift else None,
         "vehicle": vehicle,
-        "jobs": await _driver_jobs(session, name),
+        "jobs": await _driver_jobs(session, name) if flags["jobs"] else [],
+        "modules": {"jobs": flags["jobs"]},
         "server_time": datetime.now(timezone.utc).isoformat(),
     }
 

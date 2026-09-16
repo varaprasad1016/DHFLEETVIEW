@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_license, require_manager
+from app.api.deps import require_license, require_manager, require_module
 from app.config import settings
 from app.database import get_session
 from app.models.core import Company, Vehicle
@@ -22,7 +22,7 @@ from app.models.tacho import Infringement, TachoFile
 from app.services import archive, ddd_go, ddd_parser, tacho_compliance, tacho_pdf, tacho_report
 from app.services.tacho_rules import Activity, Infringement as RuleInfringement, analyse
 
-router = APIRouter(prefix="/api/tacho", tags=["tacho"], dependencies=[Depends(require_license), Depends(require_manager)])
+router = APIRouter(prefix="/api/tacho", tags=["tacho"], dependencies=[Depends(require_license), Depends(require_manager), Depends(require_module("tacho"))])
 
 
 # --- schemas ----------------------------------------------------------------

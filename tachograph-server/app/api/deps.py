@@ -109,6 +109,7 @@ async def _manager_principal(request: Request) -> Principal | None:
     authorization = request.headers.get("authorization") or ""
     return Principal(kind="manager", name=user.get("name") or user.get("email") or "Office",
                      user_id=user.get("id"), administrator=bool(user.get("administrator")),
+                     email=user.get("email") or "",
                      cookie=auth.session_cookie(request.headers.get("cookie") or ""),
                      authorization="" if authorization.startswith("Bearer " + auth.DRIVER_TOKEN_PREFIX) else authorization)
 
@@ -145,3 +146,22 @@ def ensure_own(principal: Principal, driver_name: str | None) -> None:
         return
     if (driver_name or "").strip().lower() != principal.name.strip().lower():
         raise HTTPException(status_code=404, detail="Not found.")
+
+
+# --- module switches ---------------------------------------------------------------------
+
+def require_module(key: str):
+    """Refuse requests to a module the super administrator has switched off."""
+    from app.services import modules
+
+    async def dependency(session: AsyncSession = Depends(get_session)) -> None:
+        flags = await modules.get_flags(session)
+        if not flags.get(key, True):
+            label = next((lbl for k, lbl, _ in modules.MODULES if k == key), key)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"error": "module_disabled", "module": key,
+                        "message": f"{label} isn't switched on. Ask your administrator."},
+            )
+    dependency.__name__ = f"require_module_{key}"
+    return dependency

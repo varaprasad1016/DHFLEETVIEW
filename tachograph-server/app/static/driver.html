@@ -329,7 +329,9 @@ function fmtDuration(ms, withSeconds = true) {
 function fmtClock(ms) { const s = Math.max(0, Math.floor(ms / 1000)); const m = Math.floor(s / 60); return `${String(m).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`; }
 
 // ---------- api ----------
-class LicenceLocked extends Error {}
+class LicenceLocked extends Error {
+  constructor(message, kind = "licence") { super(message); this.kind = kind; }
+}
 class SignedOut extends Error {}
 async function api(method, path, body, isForm = false) {
   const opts = { method, headers: {} };
@@ -342,6 +344,7 @@ async function api(method, path, body, isForm = false) {
   let data = null;
   try { data = await r.json(); } catch (e) {}
   if (r.status === 403 && data && data.detail && data.detail.error === "licence_suspended") throw new LicenceLocked(data.detail.message);
+  if (r.status === 403 && data && data.detail && data.detail.error === "module_disabled") throw new LicenceLocked(data.detail.message, "module");
   if (r.status === 401 && data && data.detail && data.detail.error === "login_required") { signedOut(); throw new SignedOut(); }
   if (!r.ok) {
     const d = data && data.detail;
@@ -363,7 +366,7 @@ function toast(msg, bad = false) {
 }
 function fail(e) {
   if (e instanceof SignedOut) return;
-  if (e instanceof LicenceLocked) { renderLocked(e.message); return; }
+  if (e instanceof LicenceLocked) { renderLocked(e.message, e.kind); return; }
   toast(e.message || String(e), true);
 }
 async function busy(btn, fn) {
@@ -479,12 +482,12 @@ function route() {
 }
 window.addEventListener("hashchange", route);
 
-function renderLocked(message) {
+function renderLocked(message, kind = "licence") {
   clearTimers();
   setTopbar({ title: "Driver", avatar: !!S.driver }); setNav(null); setSubbar(null); setBottomAction(null);
   $("#view").innerHTML = `<div class="card locked"><div style="font-size:40px">🔒</div><h2 style="margin:8px 0">Driver app locked</h2>
     <p class="mut">${esc(message || "The compliance licence for this month hasn't been approved yet.")}</p>
-    <p class="mut small">Ask your transport office to approve this month's licence, then try again.</p>
+    <p class="mut small">${kind === "module" ? "Your transport office can switch it on." : "Ask your transport office to approve this month's licence, then try again."}</p>
     <button class="btn btn-primary" onclick="route()">Try again</button></div>`;
 }
 
@@ -566,7 +569,7 @@ async function renderLive() {
     html += vehicleCard(st, draft);
   }
 
-  html += jobsSection(st.jobs || []);
+  if (!st.modules || st.modules.jobs !== false) html += jobsSection(st.jobs || []);
   view.innerHTML = html;
 
   S.timers.push(setInterval(tickTimers, 1000)); tickTimers();
@@ -1197,6 +1200,19 @@ async function renderDocuments(tab = "paperwork") {
 
 // Files need the sign-in header, so fetch them and open the blob.
 async function openFile(path) {
+  if (window.flutter_inappwebview) {
+    // Inside the mobile app: hand the file to the app to save/share.
+    try {
+      const r = await fetch(BASE + "api/driver/files/" + path, { headers: { Authorization: "Bearer " + S.token } });
+      if (!r.ok) throw new Error("Couldn't open that file.");
+      const blob = await r.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = path.replace("/", "-") + "." + ((blob.type.split("/")[1] || "bin").replace("jpeg", "jpg"));
+      a.click();
+    } catch (e) { fail(e); }
+    return;
+  }
   const win = window.open("", "_blank");
   try {
     const r = await fetch(BASE + "api/driver/files/" + path, { headers: { Authorization: "Bearer " + S.token } });

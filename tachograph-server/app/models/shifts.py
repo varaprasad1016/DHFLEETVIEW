@@ -95,7 +95,12 @@ class Job(Base):
     priority: Mapped[str] = mapped_column(
         String(10), server_default=text("'normal'"))  # low|normal|urgent
     status: Mapped[str] = mapped_column(
-        String(20), server_default=text("'pending'"))  # pending|accepted|denied|completed|cancelled
+        String(20), server_default=text("'pending'"))  # pending|accepted|in_progress|denied|completed|cancelled
+    # Human job number shown to drivers as JOB-<number>; filled by job_number_seq.
+    number: Mapped[int] = mapped_column(
+        Integer, server_default=text("nextval('job_number_seq')"), nullable=False)
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     assigned_by: Mapped[str | None] = mapped_column(String(100))
     assigned_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now())
@@ -108,6 +113,26 @@ class Job(Base):
 
     shift_jobs: Mapped[list["ShiftJob"]] = relationship(
         back_populates="job", cascade="all, delete-orphan")
+    messages: Mapped[list["JobMessage"]] = relationship(
+        back_populates="job", cascade="all, delete-orphan", order_by="JobMessage.created_at")
+
+
+class JobMessage(Base):
+    """Driver <-> office thread on a job; `kind='change'` flags a reported change."""
+    __tablename__ = "job_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    job_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False)
+    sender: Mapped[str] = mapped_column(String(10), server_default=text("'driver'"))  # driver|office
+    author: Mapped[str | None] = mapped_column(String(100))
+    kind: Mapped[str] = mapped_column(String(12), server_default=text("'message'"))  # message|change
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now())
+
+    job: Mapped["Job"] = relationship(back_populates="messages")
 
 
 class ShiftJob(Base):

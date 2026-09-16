@@ -32,6 +32,7 @@ class Principal:
     user_id: int | None = None
     driver_id: str | None = None
     administrator: bool = False
+    email: str = ""
     cookie: str = ""          # the caller's DH FleetView session, to act as them in Traccar
     authorization: str = ""
 

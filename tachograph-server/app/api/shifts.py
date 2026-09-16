@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import ensure_own, require_driver_or_manager, require_license, require_manager
+from app.api.deps import ensure_own, require_driver_or_manager, require_license, require_manager, require_module
 from app.config import settings
 from app.database import get_session
 from app.models.shifts import Shift, ShiftPhoto, Job, JobMessage, ShiftJob
@@ -24,12 +24,9 @@ from app.services.auth import Principal
 
 router = APIRouter(prefix="/api/shifts", tags=["shifts"], dependencies=[Depends(require_license)])
 MANAGER = [Depends(require_manager)]
-from app.config import settings
-from app.database import get_session
-from app.models.shifts import Shift, ShiftPhoto, Job, ShiftJob
-from app.services import media_store
-
-router = APIRouter(prefix="/api/shifts", tags=["shifts"])
+SHIFTS = MANAGER + [Depends(require_module("shifts"))]
+JOBS = MANAGER + [Depends(require_module("jobs"))]
+JOBS_ANY = [Depends(require_module("jobs"))]
 
 
 # --- Pydantic request models ---
@@ -65,10 +62,18 @@ class JobCreateRequest(BaseModel):
     pickup_location: str | None = None
     dropoff_location: str | None = None
     priority: str = Field(default="normal", pattern="^(low|normal|urgent)$")
+    scheduled_at: datetime | None = None
 
 
 class JobActionRequest(BaseModel):
     reason: str | None = None
+
+
+class JobMessageRequest(BaseModel):
+    body: str = Field(..., min_length=1, max_length=4000)
+    author: str | None = None
+    sender: str = Field(default="driver", pattern="^(driver|office)$")
+    kind: str = Field(default="message", pattern="^(message|change)$")
 
 
 class BreakRequest(BaseModel):
@@ -109,7 +114,7 @@ def _store_upload(file: UploadFile) -> dict:
 
 # --- Clock In ---
 
-@router.post("/clock-in", status_code=201)
+@router.post("/clock-in", status_code=201, dependencies=SHIFTS)
 async def clock_in(body: ClockInRequest, session: AsyncSession = Depends(get_session)) -> dict:
     """Driver clocks in with vehicle readings and photos."""
     existing = (await session.execute(
@@ -152,7 +157,7 @@ async def clock_in(body: ClockInRequest, session: AsyncSession = Depends(get_ses
     }
 
 
-@router.post("/{shift_id}/photos")
+@router.post("/{shift_id}/photos", dependencies=SHIFTS)
 async def upload_photos(
     shift_id: uuid.UUID,
     photo_type: str = Query(..., pattern="^(odometer|fuel|adblue)_(in|out)$"),
@@ -178,7 +183,7 @@ async def upload_photos(
 
 # --- Query endpoints (before /{shift_id}) ---
 
-@router.get("/active")
+@router.get("/active", dependencies=SHIFTS)
 async def active_shifts(session: AsyncSession = Depends(get_session)) -> list[dict]:
     """List all currently active shifts."""
     rows = (await session.execute(
@@ -189,7 +194,7 @@ async def active_shifts(session: AsyncSession = Depends(get_session)) -> list[di
     return [_shift_summary(s) for s in rows]
 
 
-@router.get("/history")
+@router.get("/history", dependencies=SHIFTS)
 async def shift_history(
     limit: int = 100,
     driver_name: str | None = None,
@@ -207,8 +212,9 @@ async def shift_history(
 
 # --- Job endpoints (before /{shift_id}) ---
 
-@router.post("/jobs", status_code=201)
-async def create_job(body: JobCreateRequest, session: AsyncSession = Depends(get_session)) -> dict:
+@router.post("/jobs", status_code=201, dependencies=JOBS)
+async def create_job(body: JobCreateRequest, session: AsyncSession = Depends(get_session),
+                     principal: Principal = Depends(require_manager)) -> dict:
     """Owner/admin sends a job to a driver."""
     job = Job(
         driver_name=body.driver_name,
@@ -218,6 +224,8 @@ async def create_job(body: JobCreateRequest, session: AsyncSession = Depends(get
         pickup_location=body.pickup_location,
         dropoff_location=body.dropoff_location,
         priority=body.priority,
+        scheduled_at=body.scheduled_at,
+        assigned_by=principal.name,
         status="pending",
     )
     session.add(job)
@@ -226,11 +234,7 @@ async def create_job(body: JobCreateRequest, session: AsyncSession = Depends(get
     return _job_summary(job)
 
 
-@router.get("/jobs", dependencies=MANAGER)
-    return _job_summary(job)
-
-
-@router.get("/jobs")
+@router.get("/jobs", dependencies=JOBS)
 async def list_jobs(
     status: str | None = None,
     driver_name: str | None = None,
@@ -248,10 +252,9 @@ async def list_jobs(
     return [_job_summary(j) for j in rows]
 
 
-@router.get("/jobs/{job_id}")
+@router.get("/jobs/{job_id}", dependencies=JOBS_ANY)
 async def get_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_session),
                   principal: Principal = Depends(require_driver_or_manager)) -> dict:
-async def get_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> dict:
     """Get full job details."""
     job = (await session.execute(
         select(Job).where(Job.id == job_id)
@@ -280,7 +283,7 @@ async def _job_messages(session: AsyncSession, job_id: uuid.UUID) -> list[dict]:
     } for m in rows]
 
 
-@router.post("/jobs/{job_id}/messages", status_code=201)
+@router.post("/jobs/{job_id}/messages", status_code=201, dependencies=JOBS_ANY)
 async def post_job_message(
     job_id: uuid.UUID, body: JobMessageRequest,
     session: AsyncSession = Depends(get_session),
@@ -298,7 +301,7 @@ async def post_job_message(
     return await _job_messages(session, job.id)
 
 
-@router.post("/jobs/{job_id}/start")
+@router.post("/jobs/{job_id}/start", dependencies=JOBS_ANY)
 async def start_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_session),
                     principal: Principal = Depends(require_driver_or_manager)) -> dict:
     """Driver starts an accepted job (Allocated -> Accepted -> In Progress -> Completed)."""
@@ -314,20 +317,16 @@ async def start_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_sessi
     return _job_summary(job)
 
 
-@router.post("/jobs/{job_id}/accept")
+@router.post("/jobs/{job_id}/accept", dependencies=JOBS_ANY)
 async def accept_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_session),
                      principal: Principal = Depends(require_driver_or_manager)) -> dict:
-    }
-
-
-@router.post("/jobs/{job_id}/accept")
-async def accept_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> dict:
     """Driver accepts a job."""
     job = (await session.execute(
         select(Job).where(Job.id == job_id)
     )).scalar_one_or_none()
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found.")
+    ensure_own(principal, job.driver_name)
     if job.status != "pending":
         raise HTTPException(status_code=400, detail=f"Job is already {job.status}.")
 
@@ -347,10 +346,11 @@ async def accept_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_sess
     return _job_summary(job)
 
 
-@router.post("/jobs/{job_id}/deny")
+@router.post("/jobs/{job_id}/deny", dependencies=JOBS_ANY)
 async def deny_job(
     job_id: uuid.UUID, body: JobActionRequest,
     session: AsyncSession = Depends(get_session),
+    principal: Principal = Depends(require_driver_or_manager),
 ) -> dict:
     """Driver denies a job with an optional reason."""
     job = (await session.execute(
@@ -358,6 +358,7 @@ async def deny_job(
     )).scalar_one_or_none()
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found.")
+    ensure_own(principal, job.driver_name)
     if job.status != "pending":
         raise HTTPException(status_code=400, detail=f"Job is already {job.status}.")
 
@@ -369,15 +370,17 @@ async def deny_job(
     return _job_summary(job)
 
 
-@router.post("/jobs/{job_id}/complete")
-async def complete_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> dict:
+@router.post("/jobs/{job_id}/complete", dependencies=JOBS_ANY)
+async def complete_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+                       principal: Principal = Depends(require_driver_or_manager)) -> dict:
     """Mark a job as completed."""
     job = (await session.execute(
         select(Job).where(Job.id == job_id)
     )).scalar_one_or_none()
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found.")
-    if job.status != "accepted":
+    ensure_own(principal, job.driver_name)
+    if job.status not in ("accepted", "in_progress"):
         raise HTTPException(status_code=400, detail=f"Job must be accepted first (currently {job.status}).")
 
     job.status = "completed"
@@ -387,7 +390,7 @@ async def complete_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_se
     return _job_summary(job)
 
 
-@router.post("/jobs/{job_id}/cancel")
+@router.post("/jobs/{job_id}/cancel", dependencies=JOBS)
 async def cancel_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> dict:
     """Owner cancels a job."""
     job = (await session.execute(
@@ -404,9 +407,79 @@ async def cancel_job(job_id: uuid.UUID, session: AsyncSession = Depends(get_sess
     return _job_summary(job)
 
 
+class JobResendRequest(BaseModel):
+    driver_name: str | None = Field(default=None, max_length=100)  # None = same driver
+    scheduled_at: datetime | None = None
+
+
+@router.post("/jobs/{job_id}/resend", dependencies=JOBS)
+async def resend_job(
+    job_id: uuid.UUID, body: JobResendRequest,
+    session: AsyncSession = Depends(get_session),
+    principal: Principal = Depends(require_manager),
+) -> dict:
+    """Send a declined or cancelled job again, to the same or a different driver."""
+    job = (await session.execute(select(Job).where(Job.id == job_id))).scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    if job.status not in ("denied", "cancelled"):
+        raise HTTPException(status_code=400, detail=f"Only declined or cancelled jobs can be resent (this one is {job.status}).")
+    new_driver = " ".join((body.driver_name or "").split()) or job.driver_name
+    previous = f"declined by {job.driver_name}" + (f": {job.deny_reason}" if job.deny_reason else "") \
+        if job.status == "denied" else "cancelled"
+    note = f"Resent to {new_driver} by {principal.name} (previously {previous})."
+    job.driver_name = new_driver
+    job.status = "pending"
+    job.assigned_at = datetime.now(timezone.utc)
+    job.assigned_by = principal.name
+    job.accepted_at = job.denied_at = job.started_at = job.completed_at = None
+    job.deny_reason = None
+    if body.scheduled_at is not None:
+        job.scheduled_at = body.scheduled_at
+    for link in (await session.execute(select(ShiftJob).where(ShiftJob.job_id == job.id))).scalars().all():
+        await session.delete(link)
+    session.add(JobMessage(job_id=job.id, sender="office", author=principal.name, kind="message", body=note))
+    await session.commit()
+    return _job_summary(job)
+
+
+@router.get("/drivers", dependencies=JOBS)
+async def job_drivers(session: AsyncSession = Depends(get_session),
+                      principal: Principal = Depends(require_manager)) -> list[dict]:
+    """Every driver a job can go to: DH FleetView drivers (as this user sees them),
+    driver app accounts, and names already used on jobs/shifts."""
+    from app.models.driver_auth import DriverAccount
+    from app.services import auth as auth_service
+
+    by_name: dict[str, dict] = {}
+
+    def add(name: str | None, source: str, **extra) -> None:
+        name = " ".join((name or "").split())
+        if not name:
+            return
+        entry = by_name.setdefault(name.lower(), {"name": name, "unique_id": None, "in_fleetview": False, "app_access": False})
+        if source == "fleetview":
+            entry["in_fleetview"] = True
+        entry.update({k: v for k, v in extra.items() if v})
+
+    try:
+        drivers = await auth_service.traccar_get(principal, "/api/drivers?all=true" if principal.administrator else "/api/drivers")
+    except Exception:
+        drivers = None
+    for d in drivers or []:
+        add(d.get("name"), "fleetview", unique_id=d.get("uniqueId"))
+    for a in (await session.execute(select(DriverAccount))).scalars().all():
+        add(a.name, "account", unique_id=a.unique_id, app_access=bool(a.active))
+    for (name,) in (await session.execute(select(Job.driver_name).distinct())).all():
+        add(name, "history")
+    for (name,) in (await session.execute(select(Shift.driver_name).distinct())).all():
+        add(name, "history")
+    return sorted(by_name.values(), key=lambda e: e["name"].lower())
+
+
 # --- Photo endpoint (before /{shift_id}) ---
 
-@router.get("/photos/{photo_id}")
+@router.get("/photos/{photo_id}", dependencies=SHIFTS)
 async def get_photo(photo_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> Response:
     p = (await session.execute(
         select(ShiftPhoto).where(ShiftPhoto.id == photo_id)
@@ -421,7 +494,7 @@ async def get_photo(photo_id: uuid.UUID, session: AsyncSession = Depends(get_ses
 
 # --- Parameterised shift endpoints (LAST) ---
 
-@router.get("/{shift_id}")
+@router.get("/{shift_id}", dependencies=SHIFTS)
 async def get_shift(shift_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> dict:
     """Get full shift details including photos and jobs."""
     shift = (await session.execute(
@@ -452,7 +525,7 @@ async def get_shift(shift_id: uuid.UUID, session: AsyncSession = Depends(get_ses
     }
 
 
-@router.post("/{shift_id}/clock-out")
+@router.post("/{shift_id}/clock-out", dependencies=SHIFTS)
 async def clock_out(
     shift_id: uuid.UUID, body: ClockOutRequest,
     session: AsyncSession = Depends(get_session),
@@ -495,6 +568,7 @@ async def clock_out(
 async def toggle_break(
     shift_id: uuid.UUID, body: BreakRequest,
     session: AsyncSession = Depends(get_session),
+    principal: Principal = Depends(require_driver_or_manager),
 ) -> dict:
     """Start or end a break during an active shift."""
     shift = (await session.execute(
@@ -502,6 +576,7 @@ async def toggle_break(
     )).scalar_one_or_none()
     if shift is None:
         raise HTTPException(status_code=404, detail="Shift not found.")
+    ensure_own(principal, shift.driver_name)
     if shift.status == "clocked_out":
         raise HTTPException(status_code=400, detail="Shift is already clocked out.")
 
@@ -545,6 +620,8 @@ def _shift_summary(s: Shift) -> dict:
 def _job_summary(j: Job) -> dict:
     return {
         "id": str(j.id),
+        "number": j.number,
+        "ref": f"JOB-{j.number}" if j.number else None,
         "driver_name": j.driver_name,
         "vehicle_reg": j.vehicle_reg,
         "title": j.title,
@@ -554,5 +631,7 @@ def _job_summary(j: Job) -> dict:
         "accepted_at": j.accepted_at.isoformat() if j.accepted_at else None,
         "denied_at": j.denied_at.isoformat() if j.denied_at else None,
         "completed_at": j.completed_at.isoformat() if j.completed_at else None,
+        "scheduled_at": j.scheduled_at.isoformat() if j.scheduled_at else None,
+        "started_at": j.started_at.isoformat() if j.started_at else None,
         "deny_reason": j.deny_reason,
     }
