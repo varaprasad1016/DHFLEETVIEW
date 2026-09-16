@@ -109,29 +109,27 @@ class _MainScreenState extends State<MainScreen> {
     return url.endsWith('/') ? url.substring(0, url.length - 1) : url;
   }
 
+  static const _downloadExtensions = [
+    'xlsx', 'xls', 'csv', 'gpx', 'kml', 'kmz', 'pdf', 'exe', 'msi', 'ddd', 'mp4', 'mov', 'avi', 'zip', 'png', 'jpg', 'jpeg',
+  ];
+
   bool _isDownloadable(Uri uri) {
     final path = uri.path.toLowerCase();
     final lastSegment = uri.pathSegments.isNotEmpty ? uri.pathSegments.last.toLowerCase() : '';
     final extension = lastSegment.contains('.') ? lastSegment.split('.').last : '';
+    final format = uri.queryParameters['format']?.toLowerCase();
     final downloadQuery = uri.queryParameters['download'] == 'true'
-        || uri.queryParameters['format'] != null && ['csv', 'gpx', 'kml', 'kmz', 'xlsx', 'pdf'].contains(uri.queryParameters['format']!.toLowerCase());
-    return ['xlsx', 'kml', 'kmz', 'csv', 'gpx', 'pdf', 'exe', 'ddd', 'mp4', 'zip'].contains(extension)
+        || (format != null && _downloadExtensions.contains(format));
+    // Report exports end in the format itself, e.g. /api/reports/route/xlsx
+    // or /api/positions/kml, without a file extension.
+    final exportPath = (path.startsWith('/api/reports/') || path.startsWith('/api/positions/'))
+        && _downloadExtensions.contains(lastSegment);
+    return (extension.isNotEmpty && _downloadExtensions.contains(extension) && !path.startsWith('/assets/'))
+        || exportPath
         || lastSegment == 'download'
         || path.contains('/download/')
         || downloadQuery
         || path.contains('/export/');
-  }
-
-  Future<void> _shareFile(String fileName, Uint8List bytes) async {
-    final directory = Platform.isAndroid
-      ? await getExternalStorageDirectory()
-      : await getApplicationDocumentsDirectory();
-    if (directory == null) {
-      throw StateError('No writable storage directory is available');
-    }
-    final file = File('${directory.path}/$fileName');
-    await file.writeAsBytes(bytes, flush: true);
-    await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
   }
 
   String _safeFileName(String value) {
@@ -140,7 +138,7 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   String _extensionForMime(String? mimeType) {
-    switch (mimeType?.toLowerCase()) {
+    switch (mimeType?.split(';').first.trim().toLowerCase()) {
       case 'application/pdf':
         return 'pdf';
       case 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
@@ -153,11 +151,72 @@ class _MainScreenState extends State<MainScreen> {
         return 'kml';
       case 'application/vnd.google-earth.kmz':
         return 'kmz';
-      case 'application/octet-stream':
-        return 'bin';
+      case 'video/mp4':
+        return 'mp4';
+      case 'image/png':
+        return 'png';
+      case 'image/jpeg':
+        return 'jpg';
+      case 'application/zip':
+        return 'zip';
       default:
-        return 'download';
+        return 'bin';
     }
+  }
+
+  // Pick a sensible file name: server header, then the page's suggestion, then the URL.
+  String _fileNameFor({String? contentDisposition, String? suggested, Uri? uri, String? mimeType}) {
+    String? name;
+    if (contentDisposition != null && contentDisposition.isNotEmpty) {
+      final encoded = RegExp(r"filename\*=(?:UTF-8|utf-8)''([^;]+)").firstMatch(contentDisposition);
+      final plain = RegExp(r'filename="?([^";]+)"?').firstMatch(contentDisposition);
+      name = encoded != null ? Uri.decodeComponent(encoded.group(1)!) : plain?.group(1);
+    }
+    if ((name == null || name.trim().isEmpty) && suggested != null && suggested.trim().isNotEmpty) {
+      name = suggested;
+    }
+    if ((name == null || name.trim().isEmpty) && uri != null && uri.pathSegments.isNotEmpty) {
+      final last = uri.pathSegments.last;
+      name = last.contains('.') ? last : '${last}_${DateTime.now().millisecondsSinceEpoch}';
+    }
+    name = _safeFileName((name ?? 'download').trim());
+    if (!name.contains('.') && mimeType != null) {
+      name = '$name.${_extensionForMime(mimeType)}';
+    }
+    return name;
+  }
+
+  Future<Directory> _downloadDirectory() async {
+    final base = Platform.isAndroid
+        ? (await getExternalStorageDirectory() ?? await getApplicationDocumentsDirectory())
+        : await getApplicationDocumentsDirectory();
+    final dir = Directory('${base.path}/Downloads');
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return dir;
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(SnackBar(content: Text(message), duration: const Duration(seconds: 3)));
+  }
+
+  // Hand the saved file to the system share sheet (Save to Files, Drive, email...).
+  // iPad needs an anchor rectangle or the sheet fails to open.
+  Future<void> _shareSavedFile(File file, {String? mimeType}) async {
+    Rect? origin;
+    final box = context.findRenderObject() as RenderBox?;
+    if (box != null && box.hasSize) {
+      final size = box.size;
+      origin = Rect.fromCenter(center: box.localToGlobal(Offset(size.width / 2, size.height / 2)), width: 1, height: 1);
+    }
+    await SharePlus.instance.share(ShareParams(
+      files: [XFile(file.path, mimeType: mimeType)],
+      sharePositionOrigin: origin,
+    ));
   }
 
   Future<void> _saveDownloadedBytes(
@@ -165,36 +224,89 @@ class _MainScreenState extends State<MainScreen> {
     String? fileName,
     String? mimeType,
   }) async {
-    final name = _safeFileName(fileName ?? '${DateTime.now().millisecondsSinceEpoch}.${_extensionForMime(mimeType)}');
-    await _shareFile(name, bytes);
+    try {
+      final name = _fileNameFor(suggested: fileName, mimeType: mimeType);
+      final file = File('${(await _downloadDirectory()).path}/$name');
+      await file.writeAsBytes(bytes, flush: true);
+      await _shareSavedFile(file, mimeType: mimeType);
+    } catch (e) {
+      developer.log('Failed to save downloaded file', error: e);
+      _showMessage('The file could not be saved. Please try again.');
+    }
   }
+
+  // Cookies the WebView holds for this URL, so downloads use the same signed-in
+  // session as the page (DH FleetView and the /tacho pages).
+  Future<String?> _cookieHeaderFor(Uri uri) async {
+    try {
+      final cookies = await CookieManager.instance().getCookies(url: WebUri(uri.toString()));
+      if (cookies.isEmpty) return null;
+      return cookies.map((c) => '${c.name}=${c.value}').join('; ');
+    } catch (e) {
+      developer.log('Failed to read cookies', error: e);
+      return null;
+    }
+  }
+
+  final Set<String> _activeDownloads = {};
 
   Future<void> _downloadFile(
     Uri uri, {
     String? suggestedFileName,
     String? mimeType,
   }) async {
+    final key = uri.toString();
+    if (!_activeDownloads.add(key)) return; // same file already downloading
+    final client = http.Client();
+    File? file;
     try {
+      _showMessage('Downloading…');
+      final headers = <String, String>{};
+      final cookie = await _cookieHeaderFor(uri);
+      if (cookie != null) headers['Cookie'] = cookie;
       final token = await _loginTokenStore.read(false);
-      if (token == null) return;
-      final response = await http.get(uri, headers: {'Authorization': 'Bearer $token'});
-      if (response.statusCode == 200) {
-        final disposition = response.headers['content-disposition'] ?? '';
-        final match = RegExp(r'''filename\*?=(?:UTF-8''|utf-8'')?"?([^";]+)"?''').firstMatch(disposition);
-        final headerFileName = match?.group(1);
-        final fileName = headerFileName != null && headerFileName.isNotEmpty
-            ? Uri.decodeComponent(headerFileName)
-            : suggestedFileName;
-        await _saveDownloadedBytes(
-          response.bodyBytes,
-          fileName: fileName,
-          mimeType: mimeType ?? response.headers['content-type'],
-        );
-      } else {
-        developer.log('Failed file download request: ${response.statusCode}');
+      if (token != null && cookie == null) headers['Authorization'] = 'Bearer $token';
+      final driverToken = await _driverToken();
+      if (driverToken != null && uri.path.startsWith('/tacho/')) headers['Authorization'] = 'Bearer $driverToken';
+
+      final request = http.Request('GET', uri)..headers.addAll(headers);
+      final response = await client.send(request);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        developer.log('Failed file download request: ${response.statusCode} $uri');
+        await response.stream.drain<void>();
+        _showMessage(response.statusCode == 401 || response.statusCode == 403
+            ? 'Please sign in again, then retry the download.'
+            : 'The file could not be downloaded (${response.statusCode}).');
+        return;
       }
+      final type = mimeType ?? response.headers['content-type'];
+      final name = _fileNameFor(
+        contentDisposition: response.headers['content-disposition'],
+        suggested: suggestedFileName,
+        uri: uri,
+        mimeType: type,
+      );
+      file = File('${(await _downloadDirectory()).path}/$name');
+      final sink = file.openWrite();
+      await response.stream.pipe(sink);
+      await _shareSavedFile(file, mimeType: type);
     } catch (e) {
       developer.log('Failed to download file', error: e);
+      _showMessage('The file could not be downloaded. Please try again.');
+    } finally {
+      client.close();
+      _activeDownloads.remove(key);
+    }
+  }
+
+  // The driver screens keep their sign-in token in localStorage.
+  Future<String?> _driverToken() async {
+    try {
+      final value = await _controller?.evaluateJavascript(
+          source: "(function(){try{return JSON.parse(localStorage.getItem('drv:token')||'null')}catch(e){return null}})()");
+      return value is String && value.isNotEmpty ? value : null;
+    } catch (_) {
+      return null;
     }
   }
 
@@ -247,10 +359,11 @@ class _MainScreenState extends State<MainScreen> {
       case 'logout':
         await _loginTokenStore.delete();
       case 'download':
+        // download|mime|name|base64 (blob: and data: files built in the page)
         try {
           if (parts.length >= 4) {
             await _saveDownloadedBytes(
-              base64Decode(parts[3]),
+              base64Decode(parts.sublist(3).join('|')),
               fileName: parts[2],
               mimeType: parts[1],
             );
@@ -264,6 +377,15 @@ class _MainScreenState extends State<MainScreen> {
           }
         } catch (e) {
           developer.log('Failed to save downloaded file', error: e);
+          _showMessage('The file could not be saved. Please try again.');
+        }
+      case 'downloadUrl':
+        // downloadUrl|suggested name|absolute url (links with a download attribute)
+        if (parts.length >= 3) {
+          final target = Uri.tryParse(parts.sublist(2).join('|'));
+          if (target != null && (target.scheme == 'https' || target.scheme == 'http')) {
+            await _downloadFile(target, suggestedFileName: parts[1].isEmpty ? null : parts[1]);
+          }
         }
       case 'server':
         final url = parts[1];
@@ -377,6 +499,7 @@ class _MainScreenState extends State<MainScreen> {
             initialSettings: InAppWebViewSettings(
               javaScriptEnabled: true,
               useShouldOverrideUrlLoading: true,
+              useOnDownloadStart: true,
               supportZoom: false,
               builtInZoomControls: false,
             ),
@@ -393,34 +516,75 @@ class _MainScreenState extends State<MainScreen> {
                       }
                     }
                   };
-                  const originalCreateObjectURL = URL.createObjectURL;
-                  const downloadableBlobs = new Map();
-                  URL.createObjectURL = function(object) {
-                    const url = originalCreateObjectURL.apply(this, arguments);
-                    if (object instanceof Blob) {
-                      downloadableBlobs.set(url, object);
-                    }
-                    return url;
-                  };
-                  document.addEventListener('click', function(event) {
-                    const anchor = event.target && event.target.closest
-                      ? event.target.closest('a[download]')
-                      : null;
-                    if (!anchor) return;
-                    const blob = downloadableBlobs.get(anchor.href);
-                    if (!blob) return;
-                    event.preventDefault();
-                    event.stopPropagation();
-                    const reader = new FileReader();
-                    reader.onload = () => {
-                      const encodedName = (anchor.download || 'download').replace(/\|/g, '_');
-                      window.appInterface.postMessage(
-                        'download|' + (blob.type || 'application/octet-stream')
-                        + '|' + encodedName + '|' + reader.result.split(',')[1],
-                      );
+                  (function() {
+                    if (window.__dhfvDownloads) return;
+                    window.__dhfvDownloads = true;
+                    var blobs = new Map();
+                    var originalCreateObjectURL = URL.createObjectURL;
+                    URL.createObjectURL = function(object) {
+                      var url = originalCreateObjectURL.apply(this, arguments);
+                      if (object instanceof Blob) blobs.set(url, object);
+                      return url;
                     };
-                    reader.readAsDataURL(blob);
-                  }, true);
+                    var clean = function(value) { return String(value || '').replace(/[|\\r\\n]/g, '_'); };
+                    var post = function(message) { window.appInterface.postMessage(message); };
+                    var sendBlob = function(blob, name) {
+                      var reader = new FileReader();
+                      reader.onload = function() {
+                        post('download|' + clean(blob.type || 'application/octet-stream') + '|' + clean(name || 'download')
+                          + '|' + String(reader.result).split(',')[1]);
+                      };
+                      reader.readAsDataURL(blob);
+                    };
+                    // blob: and data: files exist only inside the page, so read them here.
+                    var handleInPage = function(href, name) {
+                      if (href.indexOf('blob:') === 0) {
+                        var blob = blobs.get(href);
+                        if (blob) { sendBlob(blob, name); return true; }
+                        fetch(href).then(function(r) { return r.blob(); }).then(function(b) { sendBlob(b, name); });
+                        return true;
+                      }
+                      if (href.indexOf('data:') === 0) {
+                        var match = /^data:([^;,]*)((?:;[^;,]*)*?)(;base64)?,([\\s\\S]*)\$/.exec(href);
+                        if (!match) return false;
+                        var b64 = match[3] ? match[4] : btoa(unescape(encodeURIComponent(decodeURIComponent(match[4]))));
+                        post('download|' + clean(match[1] || 'application/octet-stream') + '|' + clean(name || 'download') + '|' + b64);
+                        return true;
+                      }
+                      return false;
+                    };
+                    var handleAnchor = function(anchor) {
+                      var href = anchor.href || '';
+                      var name = anchor.getAttribute('download');
+                      if (href.indexOf('blob:') === 0 || href.indexOf('data:') === 0) return handleInPage(href, name);
+                      if (name !== null && /^https?:/.test(href)) { post('downloadUrl|' + clean(name) + '|' + href); return true; }
+                      return false;
+                    };
+                    document.addEventListener('click', function(event) {
+                      var anchor = event.target && event.target.closest ? event.target.closest('a[href]') : null;
+                      if (anchor && handleAnchor(anchor)) { event.preventDefault(); event.stopImmediatePropagation(); }
+                    }, true);
+                    // Code-triggered downloads (e.g. file-saver) click links that aren't in the page.
+                    var originalClick = HTMLAnchorElement.prototype.click;
+                    HTMLAnchorElement.prototype.click = function() {
+                      if (handleAnchor(this)) return;
+                      return originalClick.apply(this, arguments);
+                    };
+                    var originalDispatch = EventTarget.prototype.dispatchEvent;
+                    EventTarget.prototype.dispatchEvent = function(event) {
+                      if (event && event.type === 'click' && this instanceof HTMLAnchorElement && !this.isConnected && handleAnchor(this)) {
+                        return false;
+                      }
+                      return originalDispatch.apply(this, arguments);
+                    };
+                    var originalOpen = window.open;
+                    window.open = function(url) {
+                      if (typeof url === 'string' && (url.indexOf('blob:') === 0 || url.indexOf('data:') === 0) && handleInPage(url, 'download')) {
+                        return null;
+                      }
+                      return originalOpen.apply(this, arguments);
+                    };
+                  })();
                   window.addEventListener('flutterInAppWebViewPlatformReady', function() {
                     if (window.__traccarMessageQueue && window.flutter_inappwebview && window.flutter_inappwebview.callHandler) {
                       window.__traccarMessageQueue.forEach(function(message) {
@@ -455,6 +619,10 @@ class _MainScreenState extends State<MainScreen> {
                 return NavigationActionPolicy.ALLOW;
               }
               final uri = Uri.parse(target.toString());
+              if (uri.scheme == 'blob' || uri.scheme == 'data') {
+                // Handled by the injected page script; never navigate to them.
+                return NavigationActionPolicy.CANCEL;
+              }
               if (['response_type', 'client_id', 'redirect_uri', 'scope'].every(uri.queryParameters.containsKey)) {
                 _launchAuthorizeRequest(uri);
                 return NavigationActionPolicy.CANCEL;
