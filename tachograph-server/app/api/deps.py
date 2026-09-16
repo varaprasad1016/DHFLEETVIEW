@@ -13,12 +13,12 @@ import urllib.error
 from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import and_, false, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_session
-from app.models.driver_auth import DriverAccount, DriverSession
+from app.models.driver_auth import DriverAccount, DriverMembership, DriverSession
 from app.models.licensing import LicenseState
 from app.services import auth, licensing
 from app.services.auth import Principal
@@ -85,7 +85,14 @@ async def _driver_principal(request: Request, session: AsyncSession) -> Principa
         sess.last_seen_at = now
         sess.expires_at = now + timedelta(days=settings.driver_session_days)
         await session.commit()
-    return Principal(kind="driver", name=account.name, driver_id=str(account.id))
+    memberships = (await session.execute(
+        select(DriverMembership.traccar_driver_id, DriverMembership.active)
+        .where(DriverMembership.account_id == account.id)
+    )).all()
+    if memberships and not any(active for _, active in memberships):
+        raise _login_required("driver")  # every company has switched off this driver's access
+    return Principal(kind="driver", name=account.name, driver_id=str(account.id),
+                     driver_ids=tuple(tid for tid, active in memberships if active))
 
 
 async def _manager_principal(request: Request) -> Principal | None:
@@ -140,11 +147,51 @@ async def require_driver_or_manager(request: Request, session: AsyncSession = De
     return principal
 
 
-def ensure_own(principal: Principal, driver_name: str | None) -> None:
-    """Drivers may only touch their own shifts, jobs and files; office staff may touch any."""
+class Scope:
+    """Which driver records the caller may see.
+
+    Records carry the company driver record they belong to (traccar_driver_id).
+    Office users see records for the drivers linked to their DH FleetView account;
+    drivers see records for their own company links. Older untagged records are
+    matched by driver name."""
+
+    def __init__(self, principal: Principal, driver_ids: set[int], names: set[str]):
+        self.principal = principal
+        self.driver_ids = driver_ids
+        self.names = names
+
+    @property
+    def is_driver(self) -> bool:
+        return not self.principal.is_manager
+
+    def condition(self, model):
+        parts = []
+        if self.driver_ids:
+            parts.append(model.traccar_driver_id.in_(self.driver_ids))
+        if self.names:
+            parts.append(and_(model.traccar_driver_id.is_(None), func.lower(model.driver_name).in_(self.names)))
+        return or_(*parts) if parts else false()
+
+    def allows(self, traccar_driver_id: int | None, driver_name: str | None) -> bool:
+        if traccar_driver_id is not None:
+            return traccar_driver_id in self.driver_ids
+        return " ".join((driver_name or "").split()).lower() in self.names
+
+
+async def record_scope(principal: Principal = Depends(require_driver_or_manager)) -> Scope:
     if principal.is_manager:
-        return
-    if (driver_name or "").strip().lower() != principal.name.strip().lower():
+        try:
+            drivers = await auth.visible_drivers(principal)
+        except (urllib.error.URLError, OSError, ValueError):
+            raise HTTPException(status_code=503, detail="Can't reach DH FleetView to check your drivers. Try again shortly.")
+        return Scope(principal, {int(d["id"]) for d in drivers},
+                     {" ".join((d.get("name") or "").split()).lower() for d in drivers if d.get("name")})
+    return Scope(principal, set(principal.driver_ids), {" ".join(principal.name.split()).lower()})
+
+
+def ensure_scope(scope: Scope, record) -> None:
+    """404 unless the record belongs to one of the caller's drivers."""
+    if record is None or not scope.allows(getattr(record, "traccar_driver_id", None), getattr(record, "driver_name", None)):
         raise HTTPException(status_code=404, detail="Not found.")
 
 

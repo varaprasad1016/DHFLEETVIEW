@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func, text
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, Text, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,6 +26,8 @@ class Shift(Base):
     driver_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("drivers.id"))
     driver_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    # The company's DH FleetView driver record this belongs to (company scoping).
+    traccar_driver_id: Mapped[int | None] = mapped_column(BigInteger)
     company_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("companies.id"))
     vehicle_reg: Mapped[str | None] = mapped_column(String(20))
@@ -87,6 +89,8 @@ class Job(Base):
     driver_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("drivers.id"))
     driver_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    # The company's DH FleetView driver record this belongs to (company scoping).
+    traccar_driver_id: Mapped[int | None] = mapped_column(BigInteger)
     vehicle_reg: Mapped[str | None] = mapped_column(String(20))
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)

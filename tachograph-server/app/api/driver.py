@@ -10,6 +10,7 @@ uploads. Licence-gated like the rest of the compliance suite.
 from __future__ import annotations
 
 import uuid
+import re
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -17,16 +18,18 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import shifts as shifts_api
 from app.api import walkaround as walkaround_api
-from app.api.deps import ensure_own, require_driver, require_license, require_module
+from app.api.deps import Scope, record_scope, require_driver, require_license, require_module
 from app.config import settings
 from app.database import get_session
 from app.models.core import Company, Device, Vehicle
 from app.models.driver_app import DriverPaperwork, FuelLog
+from app.models.driver_auth import DriverAccount, DriverMembership
+from app.models.tacho import Infringement, TachoActivity, TachoFile
 from app.models.shifts import Job, Shift
 from app.models.vehicle import VehicleStatus
 from app.models.walkaround import WalkaroundCheck, WalkaroundDefect, WalkaroundPhoto
@@ -137,11 +140,31 @@ def _london_midnight(now: datetime) -> datetime:
     return local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
 
 
-async def _active_shift(session: AsyncSession, driver: str) -> Shift | None:
+async def _active_shift(session: AsyncSession, scope: Scope) -> Shift | None:
     return (await session.execute(
-        select(Shift).where(func.lower(Shift.driver_name) == driver.lower(), Shift.status.in_(ACTIVE_SHIFT))
+        select(Shift).where(scope.condition(Shift), Shift.status.in_(ACTIVE_SHIFT))
         .order_by(Shift.clocked_in_at.desc())
     )).scalars().first()
+
+
+async def _companies(session: AsyncSession, principal: Principal) -> dict[int, str]:
+    """This driver's active company links: DH FleetView driver id -> company label."""
+    if not principal.driver_ids:
+        return {}
+    rows = (await session.execute(
+        select(DriverMembership.traccar_driver_id, DriverMembership.company_label)
+        .where(DriverMembership.traccar_driver_id.in_(principal.driver_ids), DriverMembership.active.is_(True))
+        .order_by(DriverMembership.created_at)
+    )).all()
+    return {tid: (label or "Company") for tid, label in rows}
+
+
+def _company_for(scope: Scope, shift: Shift | None) -> int | None:
+    """Which company a new record belongs to: the shift's, else the only one."""
+    if shift is not None and shift.traccar_driver_id is not None:
+        return shift.traccar_driver_id
+    ids = sorted(scope.driver_ids)
+    return ids[0] if len(ids) == 1 else None
 
 
 async def _compliance(session: AsyncSession, reg: str, shift: Shift | None) -> dict:
@@ -183,35 +206,34 @@ async def _open_faults(session: AsyncSession, reg: str) -> list[dict]:
              "created_at": d.created_at.isoformat() if d.created_at else None} for d in rows]
 
 
-async def _driver_jobs(session: AsyncSession, driver: str) -> list[dict]:
+async def _driver_jobs(session: AsyncSession, scope: Scope, companies: dict[int, str]) -> list[dict]:
     today = _london_midnight(datetime.now(timezone.utc))
     rows = (await session.execute(
         select(Job).where(
-            Job.driver_name.ilike(driver),
+            scope.condition(Job),
             or_(Job.status.in_(OPEN_JOB), Job.completed_at >= today),
         ).order_by(Job.scheduled_at.asc().nulls_last(), Job.assigned_at.asc())
     )).scalars().all()
     return [{**shifts_api._job_summary(j), "description": j.description,
-             "pickup_location": j.pickup_location, "dropoff_location": j.dropoff_location} for j in rows]
+             "pickup_location": j.pickup_location, "dropoff_location": j.dropoff_location,
+             "company": companies.get(j.traccar_driver_id)} for j in rows]
 
 
-async def _own_shift(session: AsyncSession, principal: Principal, shift_id: uuid.UUID | None) -> Shift | None:
+async def _own_shift(session: AsyncSession, scope: Scope, shift_id: uuid.UUID | None) -> Shift | None:
     if shift_id is None:
         return None
     shift = (await session.execute(select(Shift).where(Shift.id == shift_id))).scalar_one_or_none()
-    if shift is None:
+    if shift is None or not scope.allows(shift.traccar_driver_id, shift.driver_name):
         raise HTTPException(status_code=404, detail="Shift not found.")
-    ensure_own(principal, shift.driver_name)
     return shift
 
 
 @router.get("/state")
-async def driver_state(principal: Principal = Depends(require_driver),
+async def driver_state(principal: Principal = Depends(require_driver), scope: Scope = Depends(record_scope),
                        session: AsyncSession = Depends(get_session)) -> dict:
     name = principal.name
-    shift = await _active_shift(session, name)
-    from app.services import modules as modules_service
-    flags = await modules_service.get_flags(session)
+    shift = await _active_shift(session, scope)
+    companies = await _companies(session, principal)
     vehicle = None
     if shift and shift.vehicle_reg:
         reg = norm_reg(shift.vehicle_reg)
@@ -222,10 +244,12 @@ async def driver_state(principal: Principal = Depends(require_driver),
         }
     return {
         "driver": name,
-        "shift": shifts_api._shift_summary(shift) if shift else None,
+        "shift": ({**shifts_api._shift_summary(shift), "company": companies.get(shift.traccar_driver_id)}
+                  if shift else None),
+        "companies": [{"id": tid, "label": label} for tid, label in companies.items()],
         "vehicle": vehicle,
-        "jobs": await _driver_jobs(session, name) if flags["jobs"] else [],
-        "modules": {"jobs": flags["jobs"]},
+        "jobs": await _driver_jobs(session, scope, companies),
+        "modules": {"jobs": True},
         "server_time": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -235,6 +259,7 @@ async def driver_state(principal: Principal = Depends(require_driver),
 class StartShiftIn(BaseModel):
     driver_name: str | None = None  # ignored: the signed-in driver is used
     vehicle_reg: str = Field(..., min_length=2, max_length=20)
+    company_id: int | None = None   # which company (DH FleetView driver id) the driver is working for
 
 
 class EndShiftIn(BaseModel):
@@ -247,25 +272,35 @@ class EndShiftIn(BaseModel):
 @router.post("/shift/start", status_code=201)
 async def start_shift(body: StartShiftIn, principal: Principal = Depends(require_driver),
                       session: AsyncSession = Depends(get_session)) -> dict:
-    return await shifts_api.clock_in(
-        shifts_api.ClockInRequest(driver_name=principal.name, vehicle_reg=norm_reg(body.vehicle_reg)),
-        session,
-    )
+    ids = list(principal.driver_ids)
+    if body.company_id is not None:
+        if body.company_id not in ids:
+            raise HTTPException(status_code=404, detail="Company not found.")
+        company = body.company_id
+    elif len(ids) == 1:
+        company = ids[0]
+    elif ids:
+        raise HTTPException(status_code=400, detail="Choose which company you're driving for.")
+    else:
+        company = None
+    shift = await shifts_api.create_shift(session, principal.name, company, norm_reg(body.vehicle_reg),
+                                          same_person=principal.driver_ids)
+    await session.commit()
+    return shifts_api._shift_summary(shift)
 
 
 @router.post("/shift/{shift_id}/end")
-async def end_shift(shift_id: uuid.UUID, body: EndShiftIn, principal: Principal = Depends(require_driver),
+async def end_shift(shift_id: uuid.UUID, body: EndShiftIn, scope: Scope = Depends(record_scope),
                     session: AsyncSession = Depends(get_session)) -> dict:
-    await _own_shift(session, principal, shift_id)
-    return await shifts_api.clock_out(
-        shift_id,
+    shift = await _own_shift(session, scope, shift_id)
+    return await shifts_api.end_shift(
+        session, shift,
         shifts_api.ClockOutRequest(
             odometer_out_km=body.odometer_km,
             fuel_level_out_pct=LEVEL_PCT.get(body.fuel_level) if body.fuel_level else None,
             adblue_level_out_pct=LEVEL_PCT.get(body.adblue_level) if body.adblue_level else None,
             notes=body.notes,
         ),
-        session,
     )
 
 
@@ -273,10 +308,14 @@ async def end_shift(shift_id: uuid.UUID, body: EndShiftIn, principal: Principal 
 
 @router.post("/walkaround", status_code=201)
 async def submit_walkaround(body: walkaround_api.CheckIn, principal: Principal = Depends(require_driver),
+                            scope: Scope = Depends(record_scope),
                             session: AsyncSession = Depends(get_session)) -> dict:
-    await _own_shift(session, principal, body.shift_id)
+    own = await _own_shift(session, scope, body.shift_id)
     body.driver_name = principal.name
     result = await walkaround_api.submit_check(body, session)
+    await session.execute(update(WalkaroundCheck).where(WalkaroundCheck.id == uuid.UUID(result["id"]))
+                          .values(traccar_driver_id=_company_for(scope, own)))
+    await session.commit()
     if body.shift_id and body.phase in ("pre_use", "end_of_day"):
         shift = (await session.execute(select(Shift).where(Shift.id == body.shift_id))).scalar_one_or_none()
         if shift is not None:
@@ -337,9 +376,10 @@ async def add_fuel(
     shift_id: uuid.UUID | None = Form(None),
     receipt: UploadFile | None = File(None),
     principal: Principal = Depends(require_driver),
+    scope: Scope = Depends(record_scope),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    await _own_shift(session, principal, shift_id)
+    own = await _own_shift(session, scope, shift_id)
     driver_name = principal.name
     if fuel_type not in ("diesel", "adblue", "petrol", "electric"):
         raise HTTPException(status_code=400, detail="Unknown fuel type.")
@@ -347,7 +387,7 @@ async def add_fuel(
     log = FuelLog(
         vehicle_reg=norm_reg(vehicle_reg), driver_name=driver_name.strip(), fuel_type=fuel_type,
         litres=_dec(litres), cost=_dec(cost), odometer_km=odometer_km, full_tank=full_tank,
-        location=location, shift_id=shift_id,
+        location=location, shift_id=shift_id, traccar_driver_id=_company_for(scope, own),
         receipt_path=meta["storage_path"] if meta else None,
         content_type=meta["content_type"] if meta else None,
     )
@@ -366,11 +406,12 @@ async def report_fault(
     shift_id: uuid.UUID | None = Form(None),
     photo: UploadFile | None = File(None),
     principal: Principal = Depends(require_driver),
+    scope: Scope = Depends(record_scope),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     """An ad-hoc fault outside a walkaround. Stored as a one-defect walkaround check
     (phase=fault_report) so it lands on the manager's existing defects board."""
-    await _own_shift(session, principal, shift_id)
+    own = await _own_shift(session, scope, shift_id)
     driver_name = principal.name
     if severity not in ("dangerous", "major", "minor"):
         raise HTTPException(status_code=400, detail="Unknown severity.")
@@ -378,6 +419,7 @@ async def report_fault(
     check = WalkaroundCheck(
         vehicle_reg=reg, driver_name=driver_name.strip(), phase="fault_report", result="defects",
         safe_to_drive=severity == "minor", notes=description, shift_id=shift_id,
+        traccar_driver_id=_company_for(scope, own),
     )
     session.add(check)
     await session.flush()
@@ -401,15 +443,17 @@ async def upload_paperwork(
     shift_id: uuid.UUID | None = Form(None),
     file: UploadFile = File(...),
     principal: Principal = Depends(require_driver),
+    scope: Scope = Depends(record_scope),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    await _own_shift(session, principal, shift_id)
+    own = await _own_shift(session, scope, shift_id)
     driver_name = principal.name
+    company = _company_for(scope, own)
     if job_id is not None:
         job = (await session.execute(select(Job).where(Job.id == job_id))).scalar_one_or_none()
-        if job is None:
+        if job is None or not scope.allows(job.traccar_driver_id, job.driver_name):
             raise HTTPException(status_code=404, detail="Job not found.")
-        ensure_own(principal, job.driver_name)
+        company = job.traccar_driver_id if job.traccar_driver_id is not None else company
     if kind not in ("job_sheet", "pod", "receipt", "other"):
         raise HTTPException(status_code=400, detail="Unknown paperwork type.")
     meta = await _save_upload(file)
@@ -417,7 +461,7 @@ async def upload_paperwork(
         raise HTTPException(status_code=400, detail="Choose a photo or PDF to upload.")
     doc = DriverPaperwork(
         driver_name=driver_name.strip(), kind=kind, vehicle_reg=norm_reg(vehicle_reg) or None,
-        note=note, job_id=job_id, shift_id=shift_id,
+        note=note, job_id=job_id, shift_id=shift_id, traccar_driver_id=company,
         storage_path=meta["storage_path"], content_type=meta["content_type"],
     )
     session.add(doc)
@@ -428,20 +472,19 @@ async def upload_paperwork(
 # --- documents tab, files, contacts, history -------------------------------------------------------
 
 @router.get("/documents")
-async def documents(days: int = Query(30, ge=1, le=365), principal: Principal = Depends(require_driver),
+async def documents(days: int = Query(30, ge=1, le=365), scope: Scope = Depends(record_scope),
                     session: AsyncSession = Depends(get_session)) -> dict:
     since = datetime.now(timezone.utc) - timedelta(days=days)
-    name = principal.name
     papers = (await session.execute(
-        select(DriverPaperwork).where(DriverPaperwork.driver_name.ilike(name), DriverPaperwork.created_at >= since)
+        select(DriverPaperwork).where(scope.condition(DriverPaperwork), DriverPaperwork.created_at >= since)
         .order_by(DriverPaperwork.created_at.desc())
     )).scalars().all()
     checks = (await session.execute(
-        select(WalkaroundCheck).where(WalkaroundCheck.driver_name.ilike(name), WalkaroundCheck.created_at >= since)
+        select(WalkaroundCheck).where(scope.condition(WalkaroundCheck), WalkaroundCheck.created_at >= since)
         .order_by(WalkaroundCheck.created_at.desc())
     )).scalars().all()
     fuel = (await session.execute(
-        select(FuelLog).where(FuelLog.driver_name.ilike(name), FuelLog.created_at >= since)
+        select(FuelLog).where(scope.condition(FuelLog), FuelLog.created_at >= since)
         .order_by(FuelLog.created_at.desc())
     )).scalars().all()
     return {
@@ -459,7 +502,7 @@ async def documents(days: int = Query(30, ge=1, le=365), principal: Principal = 
 
 
 @router.get("/files/{kind}/{file_id}")
-async def get_file(kind: str, file_id: uuid.UUID, principal: Principal = Depends(require_driver),
+async def get_file(kind: str, file_id: uuid.UUID, scope: Scope = Depends(record_scope),
                    session: AsyncSession = Depends(get_session)) -> Response:
     if kind == "paperwork":
         row = (await session.execute(select(DriverPaperwork).where(DriverPaperwork.id == file_id))).scalar_one_or_none()
@@ -471,7 +514,8 @@ async def get_file(kind: str, file_id: uuid.UUID, principal: Principal = Depends
         raise HTTPException(status_code=404, detail="Unknown file kind.")
     if not path:
         raise HTTPException(status_code=404, detail="File not found.")
-    ensure_own(principal, row.driver_name)
+    if not scope.allows(row.traccar_driver_id, row.driver_name):
+        raise HTTPException(status_code=404, detail="File not found.")
     try:
         return Response(content=media_store.read(path), media_type=ct or "application/octet-stream")
     except OSError:
@@ -490,10 +534,92 @@ async def contacts() -> list[dict]:
 
 
 @router.get("/history")
-async def history(limit: int = Query(20, ge=1, le=100), principal: Principal = Depends(require_driver),
+async def history(limit: int = Query(20, ge=1, le=100), scope: Scope = Depends(record_scope),
                   session: AsyncSession = Depends(get_session)) -> list[dict]:
     rows = (await session.execute(
-        select(Shift).where(func.lower(Shift.driver_name) == principal.name.lower())
+        select(Shift).where(scope.condition(Shift))
         .order_by(Shift.clocked_in_at.desc()).limit(limit)
     )).scalars().all()
     return [shifts_api._shift_summary(s) for s in rows]
+
+
+# --- the driver's own tachograph data (Hours tab) ------------------------------------------------
+
+def _card_key(value: str | None) -> str:
+    """Driver card numbers compare on the 14-character driver identification
+    (the last two characters are replacement/renewal indexes)."""
+    return re.sub(r"[^A-Z0-9]", "", (value or "").upper())[:14]
+
+
+async def _tacho_refs(session: AsyncSession, principal: Principal) -> tuple[str | None, list[str]]:
+    """(card key, tachograph driver refs) for the signed-in driver. Linked only by
+    driver card number, never by name, so nobody sees someone else's hours."""
+    account = (await session.execute(
+        select(DriverAccount).where(DriverAccount.id == uuid.UUID(principal.driver_id))
+    )).scalar_one_or_none()
+    key = _card_key(account.unique_id if account else None)
+    if len(key) < 14:
+        return None, []
+    rows = (await session.execute(
+        select(TachoFile.card_number, TachoFile.driver_ref)
+        .where(TachoFile.file_kind == "driver_card", TachoFile.card_number.is_not(None), TachoFile.driver_ref.is_not(None))
+    )).all()
+    return key, sorted({ref for card, ref in rows if _card_key(card) == key})
+
+
+@router.get("/tacho")
+async def my_tacho(days: int = Query(28, ge=1, le=90), principal: Principal = Depends(require_driver),
+                   session: AsyncSession = Depends(get_session)) -> dict:
+    key, refs = await _tacho_refs(session, principal)
+    if not key:
+        return {"linked": False, "reason": "no_card_number"}
+    if not refs:
+        return {"linked": False, "reason": "no_card_downloads"}
+    since = _london_midnight(datetime.now(timezone.utc)) - timedelta(days=days - 1)
+    acts = (await session.execute(
+        select(TachoActivity).join(TachoFile, TachoFile.id == TachoActivity.source_file_id)
+        .where(TachoFile.file_kind == "driver_card", TachoActivity.driver_ref.in_(refs), TachoActivity.ended_at >= since)
+        .order_by(TachoActivity.started_at)
+    )).scalars().all()
+    by_day: dict[str, dict[str, int]] = {}
+    for a in acts:
+        start, end = max(a.started_at, since), a.ended_at
+        if end <= start:
+            continue
+        day = start.astimezone(LONDON).date().isoformat()
+        bucket = by_day.setdefault(day, {"drive": 0, "work": 0, "available": 0, "rest": 0})
+        kind = a.activity_type.lower()
+        if kind in bucket:
+            bucket[kind] += int((end - start).total_seconds() // 60)
+    last_download = (await session.execute(
+        select(func.max(TachoFile.created_at)).where(TachoFile.file_kind == "driver_card", TachoFile.driver_ref.in_(refs))
+    )).scalar_one()
+    infringements = (await session.execute(
+        select(Infringement).where(Infringement.driver_ref.in_(refs), Infringement.status == "open")
+        .order_by(Infringement.period_start.desc()).limit(50)
+    )).scalars().all()
+    week_start = _london_midnight(datetime.now(timezone.utc)) - timedelta(days=datetime.now(LONDON).weekday())
+    week_key = week_start.astimezone(LONDON).date().isoformat()
+    return {
+        "linked": True,
+        "name": refs[0],
+        "last_card_download": last_download.isoformat() if last_download else None,
+        "days": [{"date": d, **v} for d, v in sorted(by_day.items(), reverse=True)],
+        "this_week_drive_minutes": sum(v["drive"] for d, v in by_day.items() if d >= week_key),
+        "infringements": [{"id": str(i.id), "title": i.title, "severity": i.severity, "detail": i.detail,
+                           "period_start": i.period_start.isoformat(), "period_end": i.period_end.isoformat(),
+                           "limit_minutes": i.limit_minutes, "actual_minutes": i.actual_minutes} for i in infringements],
+    }
+
+
+@router.get("/tacho/timeline.pdf")
+async def my_tacho_pdf(days: int = Query(28, ge=1, le=90), principal: Principal = Depends(require_driver),
+                       session: AsyncSession = Depends(get_session)) -> Response:
+    from app.api import tacho as tacho_api
+
+    _, refs = await _tacho_refs(session, principal)
+    if not refs:
+        raise HTTPException(status_code=404, detail="No tachograph card data linked to your ID yet.")
+    end = datetime.now(timezone.utc)
+    return await tacho_api.timeline_pdf(driver_ref=refs[0], start=end - timedelta(days=days), end=end,
+                                        company_id=None, session=session)

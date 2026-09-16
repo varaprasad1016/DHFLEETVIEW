@@ -201,16 +201,19 @@ async function loadDrivers(force){
   try { driverList = await api('GET', '/drivers'); } catch(e){ driverList = []; }
   return driverList;
 }
+// selected: {id, name} — your DH FleetView driver (by id), or a typed name.
 async function fillDriverSelect(selectId, otherId, selected){
   const sel = $(selectId);
   const list = await loadDrivers();
-  const known = list.some(d => d.name.toLowerCase() === (selected||'').toLowerCase());
+  selected = selected || {};
+  const name = (selected.name || '').toLowerCase();
+  const match = list.find(d => selected.id != null ? d.id === selected.id : d.name.toLowerCase() === name);
   sel.innerHTML = '<option value="">Choose a driver…</option>' + list.map(d => {
     const extra = [d.unique_id, d.app_access ? null : 'no app PIN'].filter(Boolean).join(' · ');
-    const isSel = selected && d.name.toLowerCase() === selected.toLowerCase();
-    return `<option value="${esc(d.name)}" ${isSel?'selected':''}>${esc(d.name)}${extra?' ('+esc(extra)+')':''}</option>`;
-  }).join('') + `<option value="${OTHER}" ${selected && !known ? 'selected' : ''}>Other driver…</option>`;
-  $(otherId).value = selected && !known ? selected : '';
+    return `<option value="${esc(d.id)}" ${match === d ? 'selected' : ''}>${esc(d.name)}${extra?' ('+esc(extra)+')':''}</option>`;
+  }).join('') + (selected.name && !match ? `<option value="${OTHER}" selected>Other driver…</option>` : '');
+  if(!list.length) sel.innerHTML = '<option value="">No drivers yet — add them in Settings → Drivers</option>';
+  $(otherId).value = selected.name && !match ? selected.name : '';
   toggleOther(selectId, otherId);
 }
 function toggleOther(selectId, otherId){
@@ -218,13 +221,22 @@ function toggleOther(selectId, otherId){
   $(otherId).classList.toggle('hidden', !other);
   if(other) $(otherId).focus();
 }
+// {traccar_driver_id, driver_name, label} for the request, or null when nothing is chosen.
 function chosenDriver(selectId, otherId){
-  return $(selectId).value === OTHER ? $(otherId).value.trim() : $(selectId).value;
+  const v = $(selectId).value;
+  if(v === OTHER){
+    const typed = $(otherId).value.trim();
+    return typed ? { traccar_driver_id: null, driver_name: typed, label: typed } : null;
+  }
+  if(!v) return null;
+  const d = (driverList || []).find(x => String(x.id) === v);
+  return d ? { traccar_driver_id: d.id, driver_name: null, label: d.name } : null;
 }
 
 async function openCreate(){
   $('createDialog').classList.remove('hidden');
-  await fillDriverSelect('cDriver', 'cDriverOther', chosenDriver('cDriver', 'cDriverOther'));
+  const cur = chosenDriver('cDriver', 'cDriverOther');
+  await fillDriverSelect('cDriver', 'cDriverOther', cur && { id: cur.traccar_driver_id, name: cur.label });
 }
 
 let resendJob = null;
@@ -236,7 +248,7 @@ async function openResend(id){
     (j.status === 'denied' ? `declined by ${j.driver_name}${j.deny_reason ? ': ' + j.deny_reason : ''}` : 'cancelled');
   $('rWhen').value = '';
   $('resendDialog').classList.remove('hidden');
-  await fillDriverSelect('rDriver', 'rDriverOther', j.driver_name);
+  await fillDriverSelect('rDriver', 'rDriverOther', { id: j.traccar_driver_id, name: j.driver_name });
 }
 function closeResend(){ resendJob = null; $('resendDialog').classList.add('hidden'); }
 async function doResend(){
@@ -246,10 +258,11 @@ async function doResend(){
   $('resendBtn').disabled = true;
   try {
     await api('POST', `/jobs/${resendJob.id}/resend`, {
-      driver_name: driver,
+      traccar_driver_id: driver.traccar_driver_id,
+      driver_name: driver.driver_name,
       scheduled_at: $('rWhen').value ? new Date($('rWhen').value).toISOString() : null,
     });
-    toast(`Job resent to ${driver}`);
+    toast(`Job resent to ${driver.label}`);
     closeResend();
     loadJobs();
   } catch(e){ toast(e.message, false); }
@@ -263,7 +276,7 @@ async function doCreate(){
   if(!d||!t){ toast('Driver and title required', false); return; }
   try {
     await api('POST', '/jobs', {
-      driver_name: d, title: t,
+      traccar_driver_id: d.traccar_driver_id, driver_name: d.driver_name, title: t,
       description: $('cDesc').value.trim() || null,
       vehicle_reg: $('cVehicle').value.trim() || null,
       pickup_location: $('cPickup').value.trim() || null,

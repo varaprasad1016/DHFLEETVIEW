@@ -333,6 +333,7 @@ async def upload(body: UploadIn, session: AsyncSession = Depends(get_session),
             driver_ref = (body.driver_ref or parsed.get("driver_ref")
                           or f"file:{meta['sha256'][:8]}")[:40]
             tf.driver_ref = driver_ref
+            tf.card_number = parsed.get("card_number") or tf.card_number
             await _persist_activities(session, parsed, tf.id, company_id,
                                       vehicle.id if vehicle else None, vehicle.registration if vehicle else body.vehicle_ref,
                                       driver_ref)
@@ -495,6 +496,7 @@ async def reanalyse(body: ReanalyseIn, session: AsyncSession = Depends(get_sessi
         driver_ref = (parsed.get("driver_ref") or tf.driver_ref
                       or f"file:{(tf.sha256 or '')[:8]}")[:40]
         tf.driver_ref = driver_ref
+        tf.card_number = parsed.get("card_number") or tf.card_number
         tf.parsed = True
         tf.parse_error = None
 
