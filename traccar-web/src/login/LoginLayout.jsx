@@ -3,6 +3,7 @@ import { makeStyles } from 'tss-react/mui';
 import { alpha, useTheme } from '@mui/material/styles';
 import { keyframes } from '@emotion/react';
 import LogoImage from './LogoImage';
+import ThemeModeButton from '../common/components/ThemeModeButton';
 
 const drift = keyframes`
   0% { transform: translate(0, 0) scale(1); }
@@ -128,6 +129,14 @@ const useStyles = makeStyles()((theme) => {
       backgroundColor: theme.palette.success.main,
       boxShadow: `0 0 0 3px ${alpha(theme.palette.success.main, 0.18)}`,
     },
+    themeButton: {
+      position: 'absolute',
+      top: `max(${theme.spacing(2)}, env(safe-area-inset-top))`,
+      right: theme.spacing(2),
+      zIndex: 1,
+      backgroundColor: alpha(theme.palette.background.paper, dark ? 0.6 : 0.8),
+      backdropFilter: 'blur(8px)',
+    },
     form: {
       width: '100%',
       display: 'flex',
@@ -146,6 +155,7 @@ const LoginLayout = ({ children }) => {
       <div className={`${classes.blob} ${classes.blobPrimary}`} />
       <div className={`${classes.blob} ${classes.blobSecondary}`} />
       <div className={`${classes.blob} ${classes.blobAccent}`} />
+      <ThemeModeButton className={classes.themeButton} />
       <Paper className={classes.card} elevation={0}>
         <div className={classes.brand}>
           <LogoImage color={theme.palette.primary.main} />

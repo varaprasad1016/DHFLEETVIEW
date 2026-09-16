@@ -10,6 +10,15 @@ import TableShimmer from '../common/components/TableShimmer';
 import SearchHeader from './components/SearchHeader';
 import useSettingsStyles from './common/useSettingsStyles';
 import fetchOrThrow from '../common/util/fetchOrThrow';
+import { useManager } from '../common/util/permissions';
+import { listDriverAppAccounts, syncDriverAppAccounts } from '../common/util/driverApp';
+
+const appStatus = (account) => {
+  if (!account) return '—';
+  if (!account.active) return 'Off';
+  if (account.locked) return 'Locked';
+  return 'PIN set';
+};
 
 const DriversPage = () => {
   const { classes } = useSettingsStyles();
@@ -19,6 +28,8 @@ const DriversPage = () => {
   const [items, setItems] = useState([]);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [hasMore, setHasMore] = useState(true);
+  const manager = useManager();
+  const [appAccounts, setAppAccounts] = useState(null);
 
   const loadItems = useCallback(
     async (offset, signal) => {
@@ -45,6 +56,19 @@ const DriversPage = () => {
     [reloadKey, loadItems],
   );
 
+  // Driver app status per driver; the sync also switches off app access for deleted drivers.
+  useAsyncTask(async () => {
+    void reloadKey;
+    if (!manager) return;
+    await syncDriverAppAccounts();
+    try {
+      const accounts = await listDriverAppAccounts();
+      setAppAccounts(Object.fromEntries(accounts.map((a) => [a.traccar_driver_id, a])));
+    } catch {
+      setAppAccounts(null);
+    }
+  }, [reloadKey, manager]);
+
   return (
     <PageLayout menu={<SettingsMenu />} breadcrumbs={['settingsTitle', 'sharedDrivers']}>
       <SearchHeader keyword={searchKeyword} setKeyword={setSearchKeyword} />
@@ -53,6 +77,7 @@ const DriversPage = () => {
           <TableRow>
             <TableCell>{t('sharedName')}</TableCell>
             <TableCell>{t('deviceIdentifier')}</TableCell>
+            {appAccounts && <TableCell>Driver app</TableCell>}
             <TableCell className={classes.columnAction} />
           </TableRow>
         </TableHead>
@@ -61,6 +86,7 @@ const DriversPage = () => {
             <TableRow key={item.id}>
               <TableCell>{item.name}</TableCell>
               <TableCell>{item.uniqueId}</TableCell>
+              {appAccounts && <TableCell>{appStatus(appAccounts[item.id])}</TableCell>}
               <TableCell className={classes.columnAction} padding="none">
                 <CollectionActions
                   itemId={item.id}
@@ -72,7 +98,11 @@ const DriversPage = () => {
             </TableRow>
           ))}
           {hasMore && (
-            <TableShimmer ref={items.length > 0 ? sentinelRef : null} columns={3} endAction />
+            <TableShimmer
+              ref={items.length > 0 ? sentinelRef : null}
+              columns={appAccounts ? 4 : 3}
+              endAction
+            />
           )}
         </TableBody>
       </Table>

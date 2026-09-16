@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "tba",
   "version": "0.7.3",
-  "identifier": "com.flespi.tba.dev",
+  "identifier": "com.dhfleetview.tachobridge",
   "build": {
     "frontendDist": "../dist/spa",
     "devUrl": "http://localhost:9000",
