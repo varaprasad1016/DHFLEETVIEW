@@ -51,6 +51,7 @@ const DriverPage = () => {
   const [account, setAccount] = useState(null);
   const [active, setActive] = useState(true);
   const [accountError, setAccountError] = useState(null);
+  const [pinsDisabled, setPinsDisabled] = useState(false);
 
   useAsyncTask(async () => {
     if (!manager || !item?.id || account || accountError) return;
@@ -59,6 +60,7 @@ const DriverPage = () => {
       setAccount(result);
       setActive(result.id ? result.active : true);
     } catch (error) {
+      if (error.code === 'module_disabled') setPinsDisabled(true);
       setAccountError(error.message);
     }
   }, [manager, item?.id, account, accountError]);
@@ -107,7 +109,7 @@ const DriverPage = () => {
               />
             </AccordionDetails>
           </Accordion>
-          {manager && (
+          {manager && !pinsDisabled && (
             <Accordion defaultExpanded>
               <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                 <Typography variant="subtitle1">Driver app sign-in</Typography>

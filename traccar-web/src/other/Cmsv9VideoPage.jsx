@@ -51,6 +51,9 @@ const useStyles = makeStyles()((theme) => ({
   },
   title: {
     flexGrow: 1,
+    [theme.breakpoints.down('sm')]: {
+      display: 'none',
+    },
   },
   video: {
     flexGrow: 1,
@@ -92,6 +95,10 @@ const useStyles = makeStyles()((theme) => ({
   },
   tab: {
     minHeight: 48,
+    minWidth: 0,
+    [theme.breakpoints.down('sm')]: {
+      flexGrow: 1,
+    },
   },
   grid: {
     flexGrow: 1,
@@ -750,7 +757,14 @@ const Cmsv9VideoPage = () => {
           <Typography variant="h6" className={classes.title}>
             {device?.name || t('linkLiveVideo')}
           </Typography>
-          <Tabs value={tab} onChange={(_, value) => setTab(value)} className={classes.tab}>
+          <Tabs
+            value={tab}
+            onChange={(_, value) => setTab(value)}
+            className={classes.tab}
+            variant="scrollable"
+            scrollButtons="auto"
+            allowScrollButtonsMobile
+          >
             <Tab label={t('sharedLive')} icon={<VideocamIcon />} iconPosition="start" />
             <Tab label={t('cmsv9Multi')} icon={<GridViewIcon />} iconPosition="start" />
             <Tab label="Download" icon={<DownloadIcon />} iconPosition="start" />
