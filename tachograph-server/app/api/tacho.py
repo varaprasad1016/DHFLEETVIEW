@@ -20,7 +20,9 @@ from app.database import get_session
 from app.models.core import Company, Vehicle
 from app.models.tacho import TachoActivity
 from app.models.tacho import Infringement, TachoFile
-from app.services import archive, ddd_go, ddd_parser, modules, tacho_compliance, tacho_pdf, tacho_report
+from app.services import (archive, ddd_go, ddd_parser, infringement_reviews, media_store, modules, report_settings,
+                          tacho_compliance, tacho_pdf, tacho_report)
+from app.models.infringement_review import InfringementReview
 from app.services.tacho_scope import TachoScope, scope_for
 from app.services.tacho_rules import Activity, Infringement as RuleInfringement, analyse
 
@@ -53,6 +55,16 @@ class UploadIn(BaseModel):
 
 class StatusIn(BaseModel):
     status: str = Field(pattern="^(open|acknowledged|dismissed)$")
+
+
+class DebriefIn(BaseModel):
+    action: str
+    notes: str | None = Field(default=None, max_length=4000)
+
+
+class ReportSettingsIn(BaseModel):
+    hidden: list[str] = []                # rule codes left off the weekly report
+    for_everyone: bool = False            # super administrator: save as everyone's default
 
 
 class ReanalyseIn(BaseModel):
@@ -544,10 +556,12 @@ async def reanalyse(body: ReanalyseIn, session: AsyncSession = Depends(get_sessi
                 Infringement.source_file_id == tf.id,
                 Infringement.status != "open"))).scalar_one()
         if body.replace_open:
+            reviewed = select(InfringementReview.infringement_id)   # signed or debriefed: keep
             removed = (await session.execute(
                 delete(Infringement).where(
                     Infringement.source_file_id == tf.id,
-                    Infringement.status == "open"))).rowcount or 0
+                    Infringement.status == "open",
+                    Infringement.id.not_in(reviewed)))).rowcount or 0
             out["removed"] += removed
             await session.flush()
 
@@ -569,8 +583,9 @@ async def reanalyse(body: ReanalyseIn, session: AsyncSession = Depends(get_sessi
 
 async def _report_for(session: AsyncSession, file_id: uuid.UUID | None,
                       driver_ref: str | None, start: date | None,
-                      end: date | None, scope: TachoScope) -> dict:
-    """Pick the card file the report is about, then build the report from it."""
+                      end: date | None, scope: TachoScope, hidden_rules: set[str] | None = None) -> dict:
+    """Pick the card file the report is about, then build the report from it.
+    hidden_rules: infringement types the user has chosen to leave off the report."""
     stmt = select(TachoFile).where(TachoFile.file_kind == "driver_card", scope.files())
     if file_id:
         stmt = stmt.where(TachoFile.id == file_id)
@@ -606,11 +621,19 @@ async def _report_for(session: AsyncSession, file_id: uuid.UUID | None,
     else:
         found = analyse(parsed["activities"], parsed.get("places"),
                         parsed.get("card_gaps"))
+    if hidden_rules:
+        found = [i for i in found if i.rule not in hidden_rules]
+    reviews = await infringement_reviews.reviews_for(session, [r.id for r in rows])
+    signoff = {(r.rule, r.period_start.isoformat()): infringement_reviews.view(reviews.get(r.id)) for r in rows}
 
-    return tacho_report.build_report(
+    report = tacho_report.build_report(
         parsed, found, start=start, end=end,
         driver_ref=tf.driver_ref or parsed.get("driver_ref"),
         company_name=await _latest_company_name(session, scope))
+    for week in report.get("weeks", []):
+        for item in week.get("infringements", []) + week.get("working_time_infringements", []):
+            item["review"] = signoff.get((item["rule"], item.get("start")))
+    return report
 
 
 @router.get("/timeline")
@@ -678,22 +701,70 @@ async def timeline_pdf_response(session: AsyncSession, scope: TachoScope, driver
 async def report(file_id: uuid.UUID | None = None, driver_ref: str | None = None,
                  start: date | None = None, end: date | None = None,
                  session: AsyncSession = Depends(get_session),
-                 scope: TachoScope = Depends(tacho_scope)) -> dict:
-    return await _report_for(session, file_id, driver_ref, start, end, scope)
+                 scope: TachoScope = Depends(tacho_scope),
+                 principal: Principal = Depends(require_manager)) -> dict:
+    hidden, _ = await report_settings.hidden_for(session, principal.user_id)
+    return await _report_for(session, file_id, driver_ref, start, end, scope, hidden)
 
 
 @router.get("/report.pdf")
 async def report_pdf(file_id: uuid.UUID | None = None, driver_ref: str | None = None,
                      start: date | None = None, end: date | None = None,
                      session: AsyncSession = Depends(get_session),
-                     scope: TachoScope = Depends(tacho_scope)) -> Response:
-    data = await _report_for(session, file_id, driver_ref, start, end, scope)
+                     scope: TachoScope = Depends(tacho_scope),
+                     principal: Principal = Depends(require_manager)) -> Response:
+    hidden, _ = await report_settings.hidden_for(session, principal.user_id)
+    data = await _report_for(session, file_id, driver_ref, start, end, scope, hidden)
     who = (data["driver"].get("name") or data["driver"].get("ref") or "driver")
     safe = "".join(c if c.isalnum() else "_" for c in who).strip("_") or "driver"
     name = f"{safe}_{data['period']['from']}_{data['period']['to']}.pdf"
     return Response(
         content=tacho_pdf.render(data), media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+@router.get("/report-settings")
+async def get_report_settings(session: AsyncSession = Depends(get_session),
+                              scope: TachoScope = Depends(tacho_scope),
+                              principal: Principal = Depends(require_manager)) -> dict:
+    """Infringement types on the weekly report, with how often each occurs in your data."""
+    hidden, source = await report_settings.hidden_for(session, principal.user_id)
+    default_hidden, _ = await report_settings.hidden_for(session, None)
+    counts = dict((await session.execute(
+        select(Infringement.rule, func.count()).where(scope.infringements()).group_by(Infringement.rule))).all())
+    return {
+        "source": source,
+        "can_set_default": modules.is_super_admin(principal),
+        "rules": [{"code": code, "title": title, "group": group, "shown": code not in hidden,
+                   "shown_by_default": code not in default_hidden, "count": counts.get(code, 0)}
+                  for code, title, group in report_settings.RULES],
+    }
+
+
+@router.put("/report-settings")
+async def put_report_settings(body: ReportSettingsIn, session: AsyncSession = Depends(get_session),
+                              principal: Principal = Depends(require_manager)) -> dict:
+    unknown = set(body.hidden) - report_settings.CODES
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unknown infringement type: {', '.join(sorted(unknown))}")
+    if body.for_everyone:
+        _super_admin_only(principal)
+        hidden = await report_settings.save(session, report_settings.DEFAULT_KEY, body.hidden, principal.name)
+    else:
+        if principal.user_id is None:
+            raise HTTPException(status_code=400, detail="Your account can't store report settings.")
+        hidden = await report_settings.save(session, report_settings.user_key(principal.user_id), body.hidden, principal.name)
+    return {"hidden": hidden, "for_everyone": body.for_everyone}
+
+
+@router.delete("/report-settings")
+async def reset_report_settings(session: AsyncSession = Depends(get_session),
+                                principal: Principal = Depends(require_manager)) -> dict:
+    """Go back to the default choice."""
+    if principal.user_id is not None:
+        await report_settings.clear(session, report_settings.user_key(principal.user_id))
+    hidden, source = await report_settings.hidden_for(session, principal.user_id)
+    return {"hidden": sorted(hidden), "source": source}
 
 
 @router.get("/infringements")
@@ -711,13 +782,60 @@ async def list_infringements(status: str = "open", driver_ref: str | None = None
     if vehicle_ref:
         stmt = stmt.where(TachoFile.vehicle_ref == vehicle_ref)
     rows = (await session.execute(stmt.limit(1000))).all()
+    reviews = await infringement_reviews.reviews_for(session, [r.id for r, _ in rows])
     return [{
         "id": str(r.id), "driver_ref": r.driver_ref, "vehicle_ref": vehicle,
         "rule": r.rule, "title": r.title,
         "severity": r.severity, "status": r.status,
         "period_start": r.period_start.isoformat(), "period_end": r.period_end.isoformat(),
         "detail": r.detail, "limit_minutes": r.limit_minutes, "actual_minutes": r.actual_minutes,
+        "review": infringement_reviews.view(reviews.get(r.id)),
     } for r, vehicle in rows]
+
+
+@router.get("/debrief-actions")
+async def debrief_actions() -> list[dict]:
+    return [{"code": code, "label": label} for code, label in infringement_reviews.ACTIONS.items()]
+
+
+async def _visible_infringement(session: AsyncSession, scope: TachoScope, inf_id: uuid.UUID) -> Infringement:
+    inf = await session.get(Infringement, inf_id)
+    if inf is None or not scope.allows_infringement(inf):
+        raise HTTPException(status_code=404, detail="Infringement not found.")
+    return inf
+
+
+@router.post("/infringements/{inf_id}/debrief")
+async def debrief(inf_id: uuid.UUID, body: DebriefIn, session: AsyncSession = Depends(get_session),
+                  scope: TachoScope = Depends(tacho_scope), principal: Principal = Depends(require_manager)) -> dict:
+    """Record what the office did about an infringement (the driver's debrief)."""
+    if body.action not in infringement_reviews.ACTIONS:
+        raise HTTPException(status_code=400, detail="Choose what was done about this infringement.")
+    inf = await _visible_infringement(session, scope, inf_id)
+    review = (await infringement_reviews.reviews_for(session, [inf.id])).get(inf.id)
+    if review is None:
+        review = InfringementReview(infringement_id=inf.id)
+        session.add(review)
+    review.debriefed_at = datetime.now(timezone.utc)
+    review.debriefed_by = principal.name
+    review.debrief_action = body.action
+    review.debrief_notes = (body.notes or "").strip() or None
+    review.updated_at = review.debriefed_at
+    if inf.status == "open":
+        inf.status = "acknowledged"
+    await session.commit()
+    return {"id": str(inf.id), "status": inf.status, "review": infringement_reviews.view(review)}
+
+
+@router.get("/infringements/{inf_id}/signature")
+async def infringement_signature(inf_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+                                 scope: TachoScope = Depends(tacho_scope)) -> Response:
+    inf = await _visible_infringement(session, scope, inf_id)
+    review = (await infringement_reviews.reviews_for(session, [inf.id])).get(inf.id)
+    if review is None or not review.driver_signature_path:
+        raise HTTPException(status_code=404, detail="Not signed yet.")
+    return Response(content=media_store.read(review.driver_signature_path), media_type="image/png",
+                    headers={"Cache-Control": "private, max-age=3600"})
 
 
 @router.post("/infringements/{inf_id}/status")

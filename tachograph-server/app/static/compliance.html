@@ -42,6 +42,10 @@
     <span class="dot warn" id="dot"></span>
     <div><b id="stTitle">Checking licence…</b><div class="meta" id="stMeta"></div></div>
   </div>
+  <div class="status hidden" id="backup">
+    <span class="dot warn" id="bkDot"></span>
+    <div><b id="bkTitle"></b><div class="meta" id="bkMeta"></div></div>
+  </div>
 
   <section id="tools" class="hidden">
     <div class="grid">
@@ -112,6 +116,7 @@
       $('tools').classList.remove('hidden'); $('locked').classList.add('hidden');
       const mods = await loadModules();
       const on = (k) => !mods || mods.enabled[k] !== false;
+      if (mods && mods.can_manage) loadBackup();
       if (on('defects')) try { const sum = await (await fetch('api/walkaround/summary',{cache:'no-store'})).json();
         $('defPill').textContent = (sum.open_defects||0) + (sum.open_dangerous? ' ⚠':''); } catch {}
       if (on('tacho')) try { const t = await (await fetch('api/tacho/summary',{cache:'no-store'})).json();
@@ -145,6 +150,25 @@
       applyModules(m);
       return m;
     } catch { return null; }
+  }
+  // Super administrator only: nightly backup health.
+  async function loadBackup() {
+    try {
+      const r = await fetch('api/admin/backup-status', { cache: 'no-store' });
+      if (!r.ok) return;
+      const b = await r.json();
+      $('backup').classList.remove('hidden');
+      $('bkDot').className = 'dot ' + (b.healthy ? 'ok' : 'bad');
+      if (!b.configured || !b.last_success) {
+        $('bkTitle').textContent = 'Backups not running';
+        $('bkMeta').textContent = b.message || 'No successful backup yet.';
+        return;
+      }
+      const when = new Date(b.last_success).toLocaleString('en-GB', { timeZone: 'Europe/London', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+      $('bkTitle').textContent = b.healthy ? 'Backups OK' : 'Backup needs attention';
+      $('bkMeta').textContent = 'Last good backup ' + when + (b.size_mb ? ' · ' + b.size_mb + ' MB' : '') +
+        (b.last_result && b.last_result !== 'ok' ? ' · last run ' + b.last_result : '') + ' · visible to the super administrator only';
+    } catch {}
   }
   init();
 </script>

@@ -21,6 +21,7 @@ from app.api.customers import router as customers_router
 from app.api.shifts import router as shifts_router
 from app.api.driver import router as driver_router
 from app.api.modules import router as modules_router
+from app.api.admin import router as admin_router
 from app.api.tacho_live import ingest_router as tacho_live_ingest_router, router as tacho_live_router
 from app.api.driver_accounts import accounts_router as driver_accounts_router, auth_router as driver_auth_router
 from app.services.auth import allowed_origins
@@ -54,6 +55,7 @@ app.include_router(driver_auth_router)
 app.include_router(driver_router)
 app.include_router(driver_accounts_router)
 app.include_router(modules_router)
+app.include_router(admin_router)
 app.include_router(tacho_live_ingest_router)
 app.include_router(tacho_live_router)
 
@@ -119,6 +121,11 @@ async def defects_page() -> str:
 @app.get("/walkaround-reports", response_class=HTMLResponse)
 async def walkaround_reports_page() -> str:
     return _page("walkaround-reports.html")
+
+
+@app.get("/report-settings", response_class=HTMLResponse)
+async def report_settings_page() -> str:
+    return _page("report-settings.html")
 
 
 @app.get("/tacho-live", response_class=HTMLResponse)

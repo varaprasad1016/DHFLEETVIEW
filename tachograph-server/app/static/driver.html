@@ -491,7 +491,7 @@ function pickCompany() {
 async function loadState() {
   S.state = await api("GET", "api/driver/state");
   const pending = (S.state.jobs || []).some((j) => j.status === "pending");
-  $("#bellDot").hidden = !pending;
+  $("#bellDot").hidden = !pending && !S.state.infringements_to_sign;
   return S.state;
 }
 async function loadTemplate(checkType = "hgv") {
@@ -1188,7 +1188,11 @@ async function renderHome() {
   const greet = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   const open = (st.jobs || []).filter((j) => ["pending", "accepted", "in_progress"].includes(j.status)).length;
   const done = (st.jobs || []).filter((j) => j.status === "completed").length;
+  const toSign = st.infringements_to_sign || 0;
   view.innerHTML = `<div style="font-size:22px;font-weight:600;margin:6px 0 14px">${greet}, ${esc(S.driver.split(" ")[0])}</div>
+    ${toSign ? `<a class="card" href="#/hours" style="display:block;text-decoration:none;color:inherit;border:1px solid var(--d-warn)">
+      <div class="row between"><b>${toSign} infringement${toSign === 1 ? "" : "s"} to sign</b><span class="chev">${ICON.chev}</span></div>
+      <div class="mut small" style="margin-top:4px">Your office needs you to confirm you've been told about ${toSign === 1 ? "it" : "them"}.</div></a>` : ""}
     <div class="card">
       ${st.shift ? `<div class="row between"><span class="plate">${esc(fmtReg(st.shift.vehicle_reg))}</span><span class="chip chip-ok">On shift</span></div>
         ${st.shift.company && companies().length > 1 ? `<div style="margin-top:8px">${coChip(st.shift.company)}</div>` : ""}
@@ -1271,7 +1275,8 @@ async function renderHours() {
   const view = $("#view");
   view.innerHTML = `<div class="empty"><span class="spinner"></span></div>`;
   let t;
-  try { t = await api("GET", "api/driver/tacho?days=28"); } catch (e) { return fail(e); }
+  let signoffs = [];
+  try { [t, signoffs] = await Promise.all([api("GET", "api/driver/tacho?days=28"), api("GET", "api/driver/infringements").catch(() => [])]); } catch (e) { return fail(e); }
   if (!location.hash.startsWith("#/hours")) return;
   if (!t.linked) {
     view.innerHTML = `<div class="card" style="margin-top:8px"><div class="card-title">${ICON.clock} Tachograph hours</div>
@@ -1306,7 +1311,8 @@ async function renderHours() {
       ${lv.activity === "rest" && lf.remaining_current_break ? `<p class="mut small" style="margin:10px 0 0">Break still needed: ${fmtMins(lf.remaining_current_break)}</p>` : ""}
       <p class="mut small" style="margin:10px 0 0">${lv.stale ? "Last update " + esc(fmtWhen(lv.recorded_at)) + " — the tracker may be out of signal. " : ""}A guide only: your tachograph is the official record.</p>
     </div>` : "";
-  const inf = t.infringements || [];
+  const inf = signoffs;
+  const toSign = inf.filter((i) => i.needs_signature);
   const dayLabel = (d) => new Date(d + "T12:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", timeZone: "UTC" });
   const bar = (d) => ["drive", "work", "available", "rest"].map((k) => d[k] ? `<i class="h-${k}" style="width:${Math.min(100, (d[k] / DAY_MIN) * 100)}%" title="${k} ${fmtMins(d[k])}"></i>` : "").join("");
   view.innerHTML = `${liveCard}
@@ -1316,15 +1322,19 @@ async function renderHours() {
       <div class="stat-grid" style="margin-top:12px">
         <div class="stat"><div class="n">${fmtMins(weekDriven)}</div><div class="l">Driving this week</div></div>
         <div class="stat"><div class="n">${fmtMins(weekLeft)}</div><div class="l">Left of 56h week</div></div>
-        <div class="stat"><div class="n" style="color:${inf.length ? "var(--d-bad)" : "var(--d-ok)"}">${inf.length}</div><div class="l">Open infringements</div></div>
+        <div class="stat"><div class="n" style="color:${toSign.length ? "var(--d-bad)" : "var(--d-ok)"}">${toSign.length}</div><div class="l">To sign</div></div>
       </div>
       <p class="mut small" style="margin:10px 0 0">${lv || days.some((d) => d.live_minutes) ? "From your card downloads, plus live tachograph data since your last download." : "From your last driver card download — driving since then isn't included."}</p>
       <button class="btn btn-primary" id="hPdf" style="margin-top:12px">${ICON.doc} Download timeline PDF</button>
     </div>
-    ${inf.length ? `<div class="section-title">Infringements</div><div class="card">${inf.map((i) => `<div class="fault-item">
-        <span class="chip ${i.severity === "minor" ? "chip-warn" : "chip-bad"} square">${esc(i.severity || "issue")}</span>
-        <span><b>${esc(i.title)}</b><div class="mut small">${esc(fmtWhen(i.period_start))}${i.limit_minutes != null && i.actual_minutes != null ? ` · ${fmtMins(i.actual_minutes)} (limit ${fmtMins(i.limit_minutes)})` : ""}</div>
-        ${i.detail ? `<div class="mut small">${esc(i.detail)}</div>` : ""}</span></div>`).join("")}</div>` : ""}
+    ${inf.length ? `<div class="section-title">Infringements${toSign.length ? ` <span class="chip chip-bad">${toSign.length} to sign</span>` : ""}</div><div class="card">${inf.map((i) => `<div class="fault-item">
+        <span class="chip ${i.severity === "minor" ? "chip-warn" : "chip-bad"} square">${esc((i.severity || "issue").replace("_", " "))}</span>
+        <span style="flex:1"><b>${esc(i.title)}</b><div class="mut small">${esc(fmtWhen(i.period_start))}${i.limit_minutes != null && i.actual_minutes != null ? ` · ${fmtMins(i.actual_minutes)} (limit ${fmtMins(i.limit_minutes)})` : ""}</div>
+        ${i.detail ? `<div class="mut small">${esc(i.detail)}</div>` : ""}
+        ${i.needs_signature ? `<button class="btn btn-primary btn-sm" data-sign="${esc(i.id)}" style="margin-top:8px;width:auto">Read &amp; sign</button>`
+          : `<div class="small" style="margin-top:6px;color:var(--d-ok)">${ICON.okCircle} Signed ${esc(fmtWhen(i.review.driver_signed_at))}</div>`}
+        ${i.review.debrief_action_label ? `<div class="mut small" style="margin-top:4px">Office: ${esc(i.review.debrief_action_label)}${i.review.debrief_notes ? " — " + esc(i.review.debrief_notes) : ""}</div>` : ""}
+        </span></div>`).join("")}</div>` : ""}
     <div class="section-title">Last 28 days</div>
     <div class="card">
       <div class="hlegend"><span style="--c:#2563eb">Drive</span><span style="--c:#f59e0b">Other work</span><span style="--c:#8b5cf6">Available</span><span style="--c:#10b981">Rest</span></div>
@@ -1333,7 +1343,36 @@ async function renderHours() {
         : `<div class="empty">No card activity in the last 28 days.</div>`}
     </div>`;
   $("#hPdf").onclick = (e) => busy(e.currentTarget, () => fetchAndOpen("api/driver/tacho/timeline.pdf?days=28", "my-tacho-timeline"));
+  $$("[data-sign]").forEach((b) => { b.onclick = () => openSignInfringement(inf.find((i) => i.id === b.dataset.sign)); });
   if (lv) S.timers.push(setInterval(() => { if (location.hash.startsWith("#/hours") && !$("#sheet").classList.contains("open")) renderHours(); }, 60000));
+}
+
+function openSignInfringement(i) {
+  if (!i) return;
+  openSheet("Sign for infringement", `
+    <div class="card" style="margin-top:12px">
+      <span class="chip ${i.severity === "minor" ? "chip-warn" : "chip-bad"} square">${esc((i.severity || "issue").replace("_", " "))}</span>
+      <div style="font-weight:700;margin-top:8px">${esc(i.title)}</div>
+      <div class="mut small">${esc(fmtWhen(i.period_start))}${i.limit_minutes != null && i.actual_minutes != null ? ` · ${fmtMins(i.actual_minutes)} (limit ${fmtMins(i.limit_minutes)})` : ""}</div>
+      ${i.detail ? `<p class="small" style="margin:8px 0 0">${esc(i.detail)}</p>` : ""}
+    </div>
+    <label class="lbl" for="sComment">Comment (optional)</label>
+    <textarea class="input" id="sComment" maxlength="2000" placeholder="e.g. held up by an accident on the M6"></textarea>
+    <div class="card-title" style="margin-top:12px">Your signature</div>
+    <div class="sig-wrap"><canvas id="sSig"></canvas><button type="button" class="btn btn-soft btn-sm sig-clear" id="sSigClear">Clear</button></div>
+    <div class="hint">I confirm I have been told about this infringement and understand the drivers' hours rules it relates to.</div>
+    <button class="btn btn-primary" id="sSubmit" style="margin-top:12px">Sign</button>`, (sh) => {
+    const pad = signaturePad($("#sSig", sh));
+    $("#sSigClear", sh).onclick = pad.clear;
+    $("#sSubmit", sh).onclick = (e) => busy(e.currentTarget, async () => {
+      if (pad.isEmpty()) throw new Error("Sign in the box to confirm.");
+      await api("POST", "api/driver/infringements/" + encodeURIComponent(i.id) + "/sign", { signature: pad.toDataURL(), comment: $("#sComment", sh).value || null });
+      closeSheet();
+      toast("Signed — thank you");
+      try { await loadState(); } catch (err) {}
+      renderHours();
+    });
+  });
 }
 
 // ---------- CONTACTS ----------
@@ -1351,6 +1390,8 @@ async function renderContacts() {
 }
 
 $("#bellBtn").onclick = () => {
+  const pendingJobs = S.state && (S.state.jobs || []).some((j) => j.status === "pending");
+  if (!pendingJobs && S.state && S.state.infringements_to_sign) { location.hash = "#/hours"; return; }
   if (!location.hash.startsWith("#/live")) { location.hash = "#/live"; return; }
   const first = $(".job.pending") || $(".section-title"); if (first) first.scrollIntoView({ behavior: "smooth", block: "start" });
 };

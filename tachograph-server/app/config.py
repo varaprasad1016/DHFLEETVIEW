@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     # --- Live tacho data (FMC650 via DH FleetView position forwarding) ---
     # Shared key DH FleetView sends in the X-Tacho-Live-Key header; blank = forwarding refused.
     tacho_live_key: str = ""
+
+    # Written by scripts/backup.ps1; shown to the super administrator on the compliance hub.
+    backup_status_file: str = "D:/Backups/dhfleetview/last-backup.json"
     tacho_parser_fallback: bool = False
 
     # Uploads are assigned to the company belonging to the signed-in account.
