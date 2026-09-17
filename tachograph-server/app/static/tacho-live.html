@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>${title} — Live tacho</title>
+<style>
+  :root{color-scheme:dark;--bg:#0b1220;--card:#131c2e;--line:#22304a;--fg:#e6edf7;--mut:#8aa0c0;--acc:#38bdf8;--ok:#34d399;--warn:#f59e0b;--bad:#f87171;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif;}
+  header{padding:16px;max-width:1100px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;}
+  h1{font-size:19px;margin:0;} a.back{color:var(--acc);text-decoration:none;font-size:13px;}
+  main{padding:0 16px 60px;max-width:1100px;margin:0 auto;}
+  .kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:14px;}
+  @media (max-width:700px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr));}}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;}
+  .kpi b{display:block;font-size:22px;font-variant-numeric:tabular-nums;} .kpi span{color:var(--mut);font-size:12px;}
+  section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:14px;}
+  h2{font-size:15px;margin:0 0 8px;display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
+  .note{color:var(--mut);font-size:12px;font-weight:400;}
+  .wrap{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th{text-align:left;color:var(--mut);font-weight:600;font-size:12px;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap;}
+  td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top;}
+  tr:last-child td{border-bottom:0;}
+  .reg{font-weight:700;} .mut{color:var(--mut);font-size:12px;}
+  .act{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;text-transform:uppercase;white-space:nowrap;}
+  .act.drive{background:#1d4ed833;color:#60a5fa;} .act.work{background:#f59e0b22;color:var(--warn);}
+  .act.available{background:#8b5cf622;color:#a78bfa;} .act.rest{background:#10b98122;color:var(--ok);} .act.none{background:#64748b22;color:var(--mut);}
+  .num{font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .low{color:var(--warn);font-weight:700;} .out{color:var(--bad);font-weight:700;}
+  .issue{display:block;font-size:12px;margin:2px 0;} .issue.bad{color:var(--bad);} .issue.warn{color:var(--warn);}
+  .alert{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);}
+  .alert:last-child{border-bottom:0;}
+  .btn{background:transparent;color:var(--acc);border:1px solid var(--line);border-radius:8px;padding:5px 10px;font:inherit;font-size:12px;cursor:pointer;white-space:nowrap;}
+  .empty{color:var(--mut);padding:18px;text-align:center;}
+  .lock{text-align:center;color:var(--mut);padding:40px 16px;} .lock a{color:var(--acc);}
+  .hidden{display:none!important;}
+</style>
+</head>
+<body>
+<header><h1>Live tacho</h1><div><span class="mut" id="updated"></span> &nbsp;<a class="back" href="compliance">← Compliance</a></div></header>
+<main>
+  <div id="lock" class="lock hidden"></div>
+  <div id="app" class="hidden">
+    <div class="kpis">
+      <div class="kpi"><b id="kDrive">0</b><span>Driving now</span></div>
+      <div class="kpi"><b id="kWork">0</b><span>Other work / available</span></div>
+      <div class="kpi"><b id="kRest">0</b><span>On break / rest</span></div>
+      <div class="kpi"><b id="kWarn">0</b><span>Need attention</span></div>
+      <div class="kpi"><b id="kAlerts">0</b><span>Open alerts</span></div>
+    </div>
+    <section id="alertsBox" class="hidden"><h2>Alerts <span class="note">Last 7 days</span></h2><div id="alerts"></div></section>
+    <section>
+      <h2>Vehicles &amp; drivers <span class="note">From the tachograph via FMC650 trackers · refreshes every 30 s</span></h2>
+      <div id="vehicles"></div>
+    </section>
+    <section id="noCardBox" class="hidden"><h2>App shifts with no card in a tracked vehicle</h2><div id="noCard"></div></section>
+    <section id="mismatchBox" class="hidden">
+      <h2>Live data vs card downloads <span class="note">The card download is the legal record</span></h2>
+      <div id="mismatch"></div>
+    </section>
+  </div>
+</main>
+<script>
+  const $=(id)=>document.getElementById(id);
+  const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const hm=m=>m==null?'—':`${Math.floor(m/60)}h ${String(m%60).padStart(2,'0')}m`;
+  const time=s=>s?new Date(s).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'}):'';
+  const when=s=>s?new Date(s).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'}):'';
+  const ACT={drive:'Driving',work:'Other work',available:'Available',rest:'Break / rest'};
+  const left=(m,warnAt)=>m==null?'—':`<span class="num ${m<=0?'out':m<=warnAt?'low':''}">${hm(m)}</span>`;
+
+  async function load(){
+    let r, d;
+    try{ r=await fetch('api/tacho-live/board',{cache:'no-store'}); d=await r.json().catch(()=>({})); }
+    catch{ $('updated').textContent='Cannot reach the service'; return; }
+    if(r.status===403 && d.detail && d.detail.error==='licence_suspended'){
+      $('app').classList.add('hidden'); $('lock').classList.remove('hidden');
+      $('lock').innerHTML='🔒 Locked. <a href="approver">Approve this month\'s licence</a> to see live tacho data.'; return; }
+    if(!r.ok){ $('app').classList.add('hidden'); $('lock').classList.remove('hidden');
+      $('lock').textContent=(d.detail&&d.detail.message)||d.detail||'Sign in to DH FleetView to see live tacho data.'; return; }
+    $('lock').classList.add('hidden'); $('app').classList.remove('hidden');
+    $('updated').textContent='Updated '+time(d.generated_at);
+    const s=d.summary; $('kDrive').textContent=s.driving; $('kWork').textContent=s.working; $('kRest').textContent=s.resting;
+    $('kWarn').textContent=s.warnings; $('kAlerts').textContent=s.alerts;
+
+    $('alertsBox').classList.toggle('hidden',!d.alerts.length);
+    $('alerts').innerHTML=d.alerts.map(a=>`<div class="alert"><div><b style="color:${a.kind==='no_card_driving'?'var(--bad)':'var(--warn)'}">${esc(a.title)}</b>
+        <div class="mut">${when(a.started_at)}${a.ongoing?' · still happening':a.ended_at&&a.kind==='no_card_driving'?' – '+time(a.ended_at):''}${a.vehicle_reg?' · '+esc(a.vehicle_reg):''}</div></div>
+        <button class="btn" data-ack="${a.id}">Acknowledge</button></div>`).join('');
+    $('alerts').querySelectorAll('[data-ack]').forEach(b=>b.onclick=async()=>{ b.disabled=true;
+      await fetch('api/tacho-live/alerts/'+b.dataset.ack+'/acknowledge',{method:'POST'}); load(); });
+
+    if(!d.vehicles.length){
+      $('vehicles').innerHTML='<div class="empty">No live tachograph data in the last 24 hours.<br>Data appears here once FMC650 trackers connected to the tachograph are sending.</div>';
+    } else {
+      $('vehicles').innerHTML='<div class="wrap"><table><tr><th>Vehicle</th><th>Driver</th><th>Activity</th><th>Break due in</th><th>Driving left today</th><th>Week left</th><th>Daily rest due in</th><th>Checks</th></tr>'+
+        d.vehicles.map(v=>{ const f=v.figures||{}; const act=v.activity||'none';
+          return `<tr><td><span class="reg">${esc(v.vehicle_name||v.vehicle_reg||v.device_uid)}</span>${v.slot===2?'<div class="mut">co-driver</div>':''}
+              <div class="mut">${v.stale?'⚠ last data '+when(v.recorded_at):'live · '+time(v.recorded_at)}</div></td>
+            <td>${v.card_number?esc(v.driver_name||'Unknown driver')+`<div class="mut">card …${esc(v.card_number.slice(-4))}${v.shift?' · shift '+esc(v.shift.vehicle_reg||''):''}</div>`:'<span class="mut">No card</span>'}</td>
+            <td><span class="act ${act}">${ACT[act]||'Unknown'}</span><div class="mut">${v.since?'since '+time(v.since):''}</div></td>
+            <td>${left(f.driving_until_break,30)}</td><td>${left(f.driving_left_today,60)}</td><td>${left(f.driving_left_week,240)}</td>
+            <td>${left(f.until_daily_rest,60)}</td>
+            <td>${(v.issues||[]).map(i=>`<span class="issue ${i.level}">${esc(i.label)}</span>`).join('')||'<span class="mut">OK</span>'}</td></tr>`; }).join('')+'</table></div>';
+    }
+
+    $('noCardBox').classList.toggle('hidden',!d.shifts_without_card.length);
+    $('noCard').innerHTML='<div class="wrap"><table><tr><th>Driver</th><th>Vehicle (app)</th><th>Shift started</th></tr>'+
+      d.shifts_without_card.map(x=>`<tr><td>${esc(x.driver_name)}</td><td>${esc(x.vehicle_reg||'')}</td><td>${when(x.clocked_in_at)}</td></tr>`).join('')+'</table></div>';
+
+    $('mismatchBox').classList.toggle('hidden',!d.download_mismatches.length);
+    $('mismatch').innerHTML='<div class="wrap"><table><tr><th>Driver</th><th>Day</th><th>Driving (live / card)</th><th>Other work (live / card)</th></tr>'+
+      d.download_mismatches.map(m=>`<tr><td>${esc(m.driver_name||'card …'+m.card_ending)}</td><td>${esc(m.date)}</td>
+        <td class="num">${hm(m.live.drive)} / ${hm(m.card.drive)}</td><td class="num">${hm(m.live.work)} / ${hm(m.card.work)}</td></tr>`).join('')+'</table></div>';
+  }
+  load(); setInterval(()=>{ if(!document.hidden) load(); },30000);
+</script>
+</body>
+</html>

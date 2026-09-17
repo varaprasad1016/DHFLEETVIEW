@@ -570,40 +570,46 @@ async def _tacho_refs(session: AsyncSession, principal: Principal) -> tuple[str 
 @router.get("/tacho")
 async def my_tacho(days: int = Query(28, ge=1, le=90), principal: Principal = Depends(require_driver),
                    session: AsyncSession = Depends(get_session)) -> dict:
+    from app.services import tacho_live
+
     key, refs = await _tacho_refs(session, principal)
     if not key:
         return {"linked": False, "reason": "no_card_number"}
-    if not refs:
+    now = datetime.now(timezone.utc)
+    live_status = await tacho_live.status_for_card(session, key, now)
+    if not refs and live_status is None and not await tacho_live.live_spans(session, key, now - timedelta(days=days), now=now):
         return {"linked": False, "reason": "no_card_downloads"}
-    since = _london_midnight(datetime.now(timezone.utc)) - timedelta(days=days - 1)
+    since = _london_midnight(now) - timedelta(days=days - 1)
     acts = (await session.execute(
-        select(TachoActivity).join(TachoFile, TachoFile.id == TachoActivity.source_file_id)
+        select(TachoActivity.activity_type, TachoActivity.started_at, TachoActivity.ended_at)
+        .join(TachoFile, TachoFile.id == TachoActivity.source_file_id)
         .where(TachoFile.file_kind == "driver_card", TachoActivity.driver_ref.in_(refs), TachoActivity.ended_at >= since)
-        .order_by(TachoActivity.started_at)
-    )).scalars().all()
-    by_day: dict[str, dict[str, int]] = {}
-    for a in acts:
-        start, end = max(a.started_at, since), a.ended_at
-        if end <= start:
-            continue
-        day = start.astimezone(LONDON).date().isoformat()
+    )).all() if refs else []
+    by_day = tacho_live.minutes_by_day([(t.lower(), max(s, since), e) for t, s, e in acts])
+    # Live FMC650 data fills in the time since the last card download (the download wins where both exist).
+    coverage = await tacho_live.download_coverage(session, key)
+    live_from = max(since, coverage) if coverage else since
+    live_days = tacho_live.minutes_by_day(await tacho_live.live_spans(session, key, live_from, now=now))
+    for day, minutes in live_days.items():
         bucket = by_day.setdefault(day, {"drive": 0, "work": 0, "available": 0, "rest": 0})
-        kind = a.activity_type.lower()
-        if kind in bucket:
-            bucket[kind] += int((end - start).total_seconds() // 60)
+        for kind, value in minutes.items():
+            bucket[kind] += value
+        bucket["live_minutes"] = bucket.get("live_minutes", 0) + sum(minutes.values())
     last_download = (await session.execute(
         select(func.max(TachoFile.created_at)).where(TachoFile.file_kind == "driver_card", TachoFile.driver_ref.in_(refs))
-    )).scalar_one()
+    )).scalar_one() if refs else None
     infringements = (await session.execute(
         select(Infringement).where(Infringement.driver_ref.in_(refs), Infringement.status == "open")
         .order_by(Infringement.period_start.desc()).limit(50)
-    )).scalars().all()
-    week_start = _london_midnight(datetime.now(timezone.utc)) - timedelta(days=datetime.now(LONDON).weekday())
+    )).scalars().all() if refs else []
+    week_start = _london_midnight(now) - timedelta(days=now.astimezone(LONDON).weekday())
     week_key = week_start.astimezone(LONDON).date().isoformat()
     return {
         "linked": True,
-        "name": refs[0],
+        "name": refs[0] if refs else (live_status.card_holder if live_status else principal.name),
         "last_card_download": last_download.isoformat() if last_download else None,
+        "card_data_until": coverage.isoformat() if coverage else None,
+        "live": tacho_live.status_view(live_status, now) if live_status else None,
         "days": [{"date": d, **v} for d, v in sorted(by_day.items(), reverse=True)],
         "this_week_drive_minutes": sum(v["drive"] for d, v in by_day.items() if d >= week_key),
         "infringements": [{"id": str(i.id), "title": i.title, "severity": i.severity, "detail": i.detail,

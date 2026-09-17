@@ -58,6 +58,15 @@ class TachoScope:
     driver_refs: set[str] = field(default_factory=set)
     drivers: list[dict] = field(default_factory=list)    # the user's DH FleetView drivers
     devices: list[dict] = field(default_factory=list)    # the user's DH FleetView vehicles
+    cards: set[str] = field(default_factory=set)         # their drivers' card keys
+    regs: set[str] = field(default_factory=set)          # their vehicles' registrations
+    device_uids: set[str] = field(default_factory=set)   # their trackers' identifiers
+
+    def allows_live(self, card_number: str | None, vehicle_reg: str | None, device_uid: str | None) -> bool:
+        """Live FMC650 data: your driver's card, or one of your vehicles."""
+        return (self.everything or (card_number is not None and card_key(card_number) in self.cards)
+                or (vehicle_reg is not None and reg_key(vehicle_reg) in self.regs)
+                or (device_uid is not None and device_uid in self.device_uids))
 
     def files(self):
         return true() if self.everything else (TachoFile.id.in_(self.file_ids) if self.file_ids else false())
@@ -95,7 +104,8 @@ async def scope_for(session: AsyncSession, principal: auth.Principal) -> TachoSc
     rows = (await session.execute(select(
         TachoFile.id, TachoFile.file_kind, TachoFile.card_number, TachoFile.vehicle_ref,
         TachoFile.driver_ref, TachoFile.uploaded_by_user_id))).all()
-    scope = TachoScope(everything=False, drivers=drivers, devices=devices)
+    scope = TachoScope(everything=False, drivers=drivers, devices=devices, cards=cards, regs=regs,
+                       device_uids={str(d.get("uniqueId")) for d in devices if d.get("uniqueId")})
     for fid, kind, card, vehicle, driver_ref, uploader in rows:
         mine = (
             (principal.user_id is not None and uploader == principal.user_id)
