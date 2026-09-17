@@ -89,7 +89,7 @@ jobs:
             "Conflicts to resolve:" \
             "$CONFLICTS" \
             "" \
-            "Resolve conflicts in OUR favour: keep src-tauri/src/websocket.rs and the DH FleetView server config; do NOT bring back MQTT (mqtt.rs / app_connect.rs / rumqttc). The guard (tacho-bridge-app/scripts/check-flespi.sh) must pass before merging. After merge, bump the version and push a tba-v* tag to build and deploy.")
+            "Take upstream's code as it is (its MQTT protocol, card and Lisle rack handling are what the DH FleetView bridge endpoint speaks), then re-run tacho-bridge-app/scripts/apply-overlay.py for our server address, TLS, update feed and branding. The guard (tacho-bridge-app/scripts/check-flespi.sh) must pass before merging. Build with scripts/build-local.sh on the server (or a tba-v* tag) and publish with the tacho server's scripts/publish_bridge_release.py.")
 
           gh pr create --base tacho-bridge-app --head "$BRANCH" \
             --title "Upstream Tacho Bridge sync ($SHORT)" --body "$BODY" \

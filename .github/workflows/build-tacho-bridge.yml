@@ -1,12 +1,19 @@
 # Build the Tacho Bridge App (Windows installer) on GitHub Actions.
 #
 # The forked Tauri/Quasar app lives in tacho-bridge-app/ (this branch). A
-# Windows runner installs Node + Rust, builds the installer, and uploads it as
-# a workflow artifact; on a `tba-v*` tag it also publishes a GitHub Release.
+# Windows runner installs Node + Rust, builds the signed installer, and on a
+# `tba-v*` tag publishes a GitHub Release.
 #
-# Stage 3 will enable the deploy-to-server job to SCP the .exe onto the
-# DHFleetView box at media/tacho-bridge/TachoBridgeSetup.exe so the
-# "Download Tacho Bridge App" button serves it.
+# The deploy-to-server job copies the installer and its updater signature to
+# D:/DHFleetViewData/tacho/bridge/incoming on the server and publishes them with
+# the tacho server's scripts/publish_bridge_release.py (the Tachograph page's
+# download button + the in-app updater). While Actions is unavailable, build on
+# the server with tacho-bridge-app/scripts/build-local.sh instead.
+#
+# Needs repo secrets TAURI_SIGNING_PRIVATE_KEY (contents of the server's
+# D:/DHFleetViewData/tacho/bridge/signing/updater.key) and
+# TAURI_SIGNING_PRIVATE_KEY_PASSWORD (empty), plus SERVER_SSH_HOST,
+# SERVER_SSH_USER and SERVER_SSH_KEY for the deploy.
 
 name: Build Tacho Bridge App
 
@@ -31,7 +38,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -40,6 +47,10 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: 'tacho-bridge-app/src-tauri -> target'
+
+      - name: Guard (no flespi association)
+        shell: bash
+        run: bash scripts/check-flespi.sh
 
       - name: Install frontend dependencies
         run: npm ci
@@ -50,6 +61,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: tacho-bridge-app
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
@@ -58,29 +71,32 @@ jobs:
 
 
   # ---------------------------------------------------------------------------
-  # Stage 3: push the freshly built installer onto the DHFleetView server so the
-  # download button updates automatically. Enabled once OpenSSH + the repo
-  # secrets (SERVER_SSH_HOST, SERVER_SSH_USER, SERVER_SSH_KEY) are set up.
+  # Push the freshly built installer onto the DHFleetView server and publish it
+  # (download button + in-app updater).
   # ---------------------------------------------------------------------------
   deploy-to-server:
     needs: windows
     if: ${{ github.ref_type == 'tag' && needs.windows.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
-      - name: Download installer from the release
+      - name: Download installer and signature from the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p installer
-          gh release download "${{ github.ref_name }}"             --repo "${{ github.repository }}"             --pattern '*.exe' --dir installer
+          gh release download "${{ github.ref_name }}" --repo "${{ github.repository }}" \
+            --pattern '*-setup.exe' --pattern '*-setup.exe.sig' --dir installer
 
-      - name: Pick the .exe and copy to the server
+      - name: Copy to the server and publish
+        env:
+          TARGET: ${{ secrets.SERVER_SSH_USER }}@${{ secrets.SERVER_SSH_HOST }}
         run: |
-          EXE=$(find installer -name '*.exe' | head -1)
+          EXE=$(find installer -name '*-setup.exe' | head -1)
           echo "Deploying: $EXE"
           mkdir -p ~/.ssh
           echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "${{ secrets.SERVER_SSH_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
-          scp -i ~/.ssh/id_ed25519 "$EXE" \
-            "${{ secrets.SERVER_SSH_USER }}@${{ secrets.SERVER_SSH_HOST }}:C:/DHFleetView/media/tacho-bridge/TachoBridgeSetup.exe"
+          ssh -i ~/.ssh/id_ed25519 "$TARGET" "powershell -NoProfile -Command \"Remove-Item -Recurse -Force D:/DHFleetViewData/tacho/bridge/incoming -ErrorAction SilentlyContinue; New-Item -ItemType Directory -Force D:/DHFleetViewData/tacho/bridge/incoming | Out-Null\""
+          scp -i ~/.ssh/id_ed25519 "$EXE" "$EXE.sig" "$TARGET:D:/DHFleetViewData/tacho/bridge/incoming/"
+          ssh -i ~/.ssh/id_ed25519 "$TARGET" "cd /d C:/tachograph-server && .venv/Scripts/python -m scripts.publish_bridge_release D:/DHFleetViewData/tacho/bridge/incoming"
