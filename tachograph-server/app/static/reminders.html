@@ -55,7 +55,7 @@
 </main>
 <script>
   const $=(id)=>document.getElementById(id);
-  const esc=s=>(s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
   const dd=s=>s?new Date(s).toLocaleDateString('en-GB',{timeZone:'Europe/London'}):'—';
   const days=n=>n==null?'':(n<0?`${-n}d overdue`:`${n}d`);
 

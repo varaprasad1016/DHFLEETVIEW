@@ -45,7 +45,7 @@
 <script>
   const $=(id)=>document.getElementById(id);
   let filter='open';
-  function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+  function esc(s){return String(s ?? '').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
   async function load(){
     let rows;
     try{ const r=await fetch('api/walkaround/defects?status='+filter,{cache:'no-store'});

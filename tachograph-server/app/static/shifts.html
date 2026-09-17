@@ -67,7 +67,7 @@ let historyShifts = [];
 let currentTab = 'active';
 
 function $(id){ return document.getElementById(id); }
-function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function esc(s){ return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 async function loadData(){
   try { activeShifts = await api('GET', '/active'); } catch(e){ activeShifts = []; }

@@ -7,6 +7,7 @@
 <style>
   .hours-note{font-size:12px;color:var(--mut,#8aa0c0);margin-top:4px;min-height:0;}
   .hours-note.low{color:var(--warn,#f59e0b);font-weight:700;}
+  .btn-link{background:none;border:0;color:var(--acc,#38bdf8);font:inherit;font-weight:700;text-decoration:underline;cursor:pointer;padding:0;}
   :root { color-scheme: dark; --bg:#0b1220; --card:#131c2e; --line:#22304a; --fg:#e6edf7; --mut:#8aa0c0; --acc:#38bdf8; --ok:#34d399; --warn:#f59e0b; --bad:#f87171; }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif; }
@@ -134,7 +135,7 @@ let filter = 'all';
 const filters = ['all','pending','accepted','in_progress','denied','completed','cancelled'];
 
 function $(id){ return document.getElementById(id); }
-function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function esc(s){ return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function toast(msg, ok=true){
   const d = document.createElement('div');
   d.className = 'toast ' + (ok?'toast-ok':'toast-err');
@@ -146,7 +147,13 @@ function toast(msg, ok=true){
 async function api(method, path, body){
   const opts = { method, headers:{} };
   if(body){ opts.headers['Content-Type']='application/json'; opts.body=JSON.stringify(body); }
-  const res = await fetch(API+path, opts);
+  // Don't hang forever on a poor mobile connection.
+  const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), 20000);
+  opts.signal = ctrl.signal;
+  let res;
+  try { res = await fetch(API+path, opts); }
+  catch(e){ throw new Error(e.name === 'AbortError' ? 'The connection timed out. Check your signal and try again.' : 'Could not reach the server. Check your connection.'); }
+  finally { clearTimeout(timer); }
   if(!res.ok){
     let msg = `Request failed (${res.status})`;
     try { const b = await res.json(); msg = typeof b.detail === 'string' ? b.detail : (b.detail && b.detail.message) || msg; } catch(e){}
@@ -198,12 +205,18 @@ async function doCancel(id){
 }
 
 // Every driver: DH FleetView drivers, driver app accounts and names used before.
-let driverList = null;
+let driverList = null, driversRequest = null;
 const OTHER = '__other__';
-async function loadDrivers(force){
-  if(driverList && !force) return driverList;
-  try { driverList = await api('GET', '/drivers'); } catch(e){ driverList = []; }
-  return driverList;
+// Loads once in the background when the page opens and again whenever a driver
+// picker opens. A failed load is never remembered, so the next try can succeed.
+function loadDrivers(force){
+  if(driverList && !force) return Promise.resolve(driverList);
+  if(!driversRequest){
+    driversRequest = api('GET', '/drivers')
+      .then(list => { driverList = list; return list; })
+      .finally(() => { driversRequest = null; });
+  }
+  return driversRequest;
 }
 // Live tachograph hours (FMC650), when the driver's card is in a tracked vehicle.
 const hmm = m => `${Math.floor(m/60)}h${String(m%60).padStart(2,'0')}`;
@@ -226,17 +239,34 @@ function hoursWarning(selectId){
     + (low ? ' — may not have the hours for this job.' : '.');
 }
 // selected: {id, name} — your DH FleetView driver (by id), or a typed name.
-async function fillDriverSelect(selectId, otherId, selected){
+async function fillDriverSelect(selectId, otherId, selected, refreshed){
   const sel = $(selectId);
-  const list = await loadDrivers();
+  const note = $(selectId + 'Hours');
   selected = selected || {};
+  let list;
+  if(driverList){
+    list = driverList;
+    // Show what we have straight away, then refresh once in case drivers were added.
+    if(!refreshed) loadDrivers(true).then(() => { if(!sel.value) fillDriverSelect(selectId, otherId, selected, true); }).catch(() => {});
+  } else {
+    sel.innerHTML = '<option value="">Loading drivers…</option>';
+    sel.disabled = true;
+    try { list = await loadDrivers(); }
+    catch(e){
+      sel.innerHTML = '<option value="">Drivers could not be loaded</option>';
+      if(note){ note.className = 'hours-note low'; note.innerHTML = esc(e.message) + ' <button type="button" class="btn-link" id="' + selectId + 'Retry">Try again</button>'; }
+      const retry = $(selectId + 'Retry');
+      if(retry) retry.onclick = () => fillDriverSelect(selectId, otherId, selected);
+      return;
+    } finally { sel.disabled = false; }
+  }
   const name = (selected.name || '').toLowerCase();
   const match = list.find(d => selected.id != null ? d.id === selected.id : d.name.toLowerCase() === name);
   sel.innerHTML = '<option value="">Choose a driver…</option>' + list.map(d => {
     const extra = [d.unique_id, d.app_access ? null : 'no app PIN', liveLabel(d)].filter(Boolean).join(' · ');
     return `<option value="${esc(d.id)}" ${match === d ? 'selected' : ''}>${esc(d.name)}${extra?' ('+esc(extra)+')':''}</option>`;
   }).join('') + (selected.name && !match ? `<option value="${OTHER}" selected>Other driver…</option>` : '');
-  if(!list.length) sel.innerHTML = '<option value="">No drivers yet — add them in Settings → Drivers</option>';
+  if(!list.length) sel.innerHTML = '<option value="">No drivers on your account yet — add them in Settings → Drivers</option>';
   $(otherId).value = selected.name && !match ? selected.name : '';
   toggleOther(selectId, otherId);
 }
@@ -355,6 +385,7 @@ async function sendMsg(){
 }
 
 loadJobs();
+loadDrivers().catch(() => {});   // ready before "Send Job" is opened
 setInterval(() => { loadJobs(); if(msgJob) refreshMsgs(); }, 15000);
 </script>
 </body>

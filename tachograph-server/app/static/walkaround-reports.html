@@ -55,7 +55,7 @@
 <div id="lightbox" class="lightbox hidden"><img id="lightimg"></div>
 <script>
   const $=(id)=>document.getElementById(id);
-  const esc=s=>(s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
   const dt=s=>s?new Date(s).toLocaleString('en-GB',{timeZone:'Europe/London'}):'';
   const PHASE={pre_use:'Pre-use check',end_of_day:'End of day check',fault_report:'Fault report'};
   const LEVEL=v=>({'empty':'empty','1/4':'¼','1/2':'½','3/4':'¾','full':'full'}[v]||v);
