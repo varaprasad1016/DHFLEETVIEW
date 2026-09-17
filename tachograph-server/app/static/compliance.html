@@ -53,6 +53,10 @@
         <h3>Defects <span class="pill" id="defPill">—</span></h3>
         <p>Open defects, severity and rectification audit trail.</p>
       </a>
+      <a class="card" href="maintenance" data-module="maintenance">
+        <h3>Maintenance planner <span class="pill" id="maintPill">—</span></h3>
+        <p>Safety inspections, brake tests, MOT, calibration &amp; LOLER due dates and records.</p>
+      </a>
       <a class="card" href="walkaround-reports" data-module="walkaround_reports">
         <h3>Walkaround reports</h3>
         <p>Search past checks by date, reg or driver — photos &amp; signatures.</p>
@@ -119,6 +123,8 @@
       if (mods && mods.can_manage) loadBackup();
       if (on('defects')) try { const sum = await (await fetch('api/walkaround/summary',{cache:'no-store'})).json();
         $('defPill').textContent = (sum.open_defects||0) + (sum.open_dangerous? ' ⚠':''); } catch {}
+      if (on('maintenance')) try { const mt = await (await fetch('api/maintenance/summary',{cache:'no-store'})).json();
+        $('maintPill').textContent = (mt.overdue||0) + (mt.overdue ? ' overdue ⚠' : ' overdue'); } catch {}
       if (on('tacho')) try { const t = await (await fetch('api/tacho/summary',{cache:'no-store'})).json();
         $('tachoPill').textContent = (t.open_infringements||0) + (t.open_serious? ' ⚠':''); } catch {}
       if (on('reminders')) try { const r = await (await fetch('api/reminders/summary',{cache:'no-store'})).json();

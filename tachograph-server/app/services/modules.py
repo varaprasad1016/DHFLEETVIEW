@@ -23,6 +23,7 @@ from app.models.settings import AppSetting
 # (key, label, description) in Compliance hub order.
 MODULES: list[tuple[str, str, str]] = [
     ("defects", "Defects", "Open defects and rectification"),
+    ("maintenance", "Maintenance planner", "Safety inspections, brake tests, calibration, LOLER"),
     ("walkaround_reports", "Walkaround reports", "All drivers' walkaround checks"),
     ("reminders", "MOT / tax reminders", "DVLA MOT, tax and Euro status"),
     ("caz", "Clean Air Zone", "ULEZ / CAZ exposure"),

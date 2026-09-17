@@ -49,3 +49,25 @@ def save_data_url(data_url: str) -> dict:
 
 def read(storage_path: str) -> bytes:
     return Path(storage_path).read_bytes()
+
+
+_DOC_EXT = {**_EXT, "application/pdf": "pdf"}
+_DOC_MAX_BYTES = 15 * 1024 * 1024
+
+
+def save_document(data_url: str) -> dict:
+    """Persist an uploaded document (PDF or photo) sent as a base64 data URL."""
+    m = _DATA_URL.match((data_url or "").strip())
+    if not m:
+        raise ValueError("not a data URL")
+    content_type = m.group("ct").lower()
+    if content_type not in _DOC_EXT:
+        raise ValueError("only PDF, JPEG, PNG or WebP files")
+    raw = base64.b64decode(m.group("data"), validate=False)
+    if not raw:
+        raise ValueError("empty file")
+    if len(raw) > _DOC_MAX_BYTES:
+        raise ValueError("file too large (15 MB max)")
+    path = _root() / f"{uuid.uuid4().hex}.{_DOC_EXT[content_type]}"
+    path.write_bytes(raw)
+    return {"storage_path": str(path), "content_type": content_type, "size_bytes": len(raw)}
