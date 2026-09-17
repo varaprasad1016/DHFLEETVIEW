@@ -1,20 +1,22 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "tba",
-  "version": "0.7.3",
+  "productName": "DH FleetView Tacho Bridge",
+  "version": "0.8.0-rc.16-dh.1",
   "identifier": "com.dhfleetview.tachobridge",
   "build": {
     "frontendDist": "../dist/spa",
-    "devUrl": "http://localhost:9000",
+    "devUrl": "http://localhost:9314",
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build"
+    "beforeBuildCommand": "npm run build:tauri"
   },
   "app": {
     "windows": [
       {
-        "title": "tba",
+        "title": "DH FleetView Tacho Bridge",
         "width": 620,
-        "height": 400,
+        "height": 640,
+        "minWidth": 620,
+        "minHeight": 400,
         "resizable": true,
         "fullscreen": false
       }
@@ -23,9 +25,23 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdDOUU2Mjk2OUFDODgxMzkKUldRNWdjaWFsbUtlZkpUcFZkczB2UVVlVTRnaElTb2tjaHcycTJ1RnZpWW4wY09JcHljSitEUUMK",
+      "endpoints": [
+        "https://dhfleetview.co.uk/tacho/bridge/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "createUpdaterArtifacts": true,
+    "targets": [
+      "nsis"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -39,6 +55,7 @@
       "signingIdentity": "@env:APPLE_IDENTITY",
       "providerShortName": "@env:APPLE_TEAM_ID",
       "entitlements": "entitlements.plist"
-    }
+    },
+    "publisher": "DH FleetView"
   }
 }

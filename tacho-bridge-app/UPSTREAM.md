@@ -2,29 +2,41 @@
 
 This is DH FleetView's fork of the **Tacho Bridge App**
 ([flespi-software/Tacho-Bridge-App](https://github.com/flespi-software/Tacho-Bridge-App),
-MIT, default branch `master`). It runs on the card-rack PC and proxies company-card
-APDUs during remote tacho downloads.
+MIT, default branch `master`). It runs on the PC with the company card readers or the
+Lisle card rack and answers company-card authentication during remote tacho downloads.
 
-## What we changed (the overlay — must survive every upstream sync)
+Current base: upstream **v0.8.0-rc.16**, built as **0.8.0-rc.16-dh.1**.
+
+## How it fits together (since 0.8)
+
+Upstream's code is kept **as it is** — its MQTT v5 protocol
+(`communication_protocol.md`), the PC/SC card sessions, the Lisle card rack on the
+COM port, server sign-in, the tray and the self-updater. Instead of rewriting the
+transport (the pre-0.8 fork used a WebSocket, which the 0.8 rack code can't sit on),
+the DH FleetView **tacho server speaks upstream's protocol**:
+`tachograph-server/app/services/bridge_server.py` listens on
+`dhfleetview.co.uk:8883` (TLS) and checks every connection against a bridge
+sign-in created on the Tachograph page.
+
+## What we change (the overlay — `scripts/apply-overlay.py`)
 
 | Area | Upstream (flespi) | This fork |
 |------|-------------------|-----------|
-| Transport | Per-card **flespi MQTT** (`rumqttc`, `mqtt.rs`, `app_connect.rs`) | A single multiplexed **WebSocket** to the DH FleetView tacho-server (`src-tauri/src/websocket.rs`, `tokio-tungstenite`) |
-| Server target | flespi broker | The DH FleetView server only (host from app config → WS URL) |
-| Update check | Polls `flespi-software/Tacho-Bridge-App` releases | Polls **our** releases (tags `tba-*`) and points users to `dhfleetview.co.uk` (`logger.rs`) |
-| Bundle id | `com.flespi.tba.dev` | `com.dhfleetview.tachobridge` (`tauri.conf.json`) |
-| Repo metadata | gurtam/flespi | this repo (`Cargo.toml`) |
+| Server | none by default; user types a flespi host | `dhfleetview.co.uk:8883` by default (`config.rs` `DEFAULT_SERVER_HOST`) |
+| Encryption | plain TCP | TLS on port 8883 with the Windows trust store (`mqtt.rs` `MQTT_TLS_PORT`, rumqttc `use-native-tls`) |
+| Updates | GitHub releases of flespi | `https://dhfleetview.co.uk/tacho/bridge/latest.json` (+ `latest-beta.json`), signed with **our** key |
+| Bundle | `com.flespi.tba.dev`, "tba" | `com.dhfleetview.tachobridge`, "DH FleetView Tacho Bridge", NSIS only |
+| Wording / metadata | flespi token, gurtam repo | DH FleetView sign-in, this repo |
 
-PC/SC / smart-card logic (`smart_card.rs`, APDU handling) is kept as close to
-upstream as possible so their fixes merge cleanly.
+The updater's private key is `D:\DHFleetViewData\tacho\bridge\signing\updater.key`
+on the server — **never commit it**. Its public half is in `tauri.conf.json`.
 
 ## Guarantee: no flespi association
 
-`scripts/check-flespi.sh` fails if any flespi/MQTT association appears (flespi.io,
-`mqtt.flespi`, `rumqttc`, the flespi releases URL, `com.flespi.*`, gurtam, or a
-re-added `mqtt.rs`/`app_connect.rs`). It runs in CI on every push/PR
-(`.github/workflows/tacho-bridge-guard.yml`) and should be run after every sync.
-So even though upstream is a flespi app, a sync can never ship a flespi build.
+`scripts/check-flespi.sh` fails on any flespi/gurtam reference in the app source or
+build config, and if the server address, TLS, update feed or bundle id stop being
+ours. It runs in CI on every push/PR (`.github/workflows/tacho-bridge-guard.yml`),
+in `build-local.sh`, and must pass after every sync.
 
 ## Pulling upstream updates
 
@@ -34,14 +46,33 @@ From the repo root, on the `tacho-bridge-app` branch, clean tree:
 bash tacho-bridge-app/scripts/sync-upstream.sh          # upstream master
 ```
 
-This adds the `upstream-tba` remote and does a `git subtree pull` into
-`tacho-bridge-app/`. Because our transport diverges from upstream's, **review each
-sync**: resolve conflicts in our favour (keep `websocket.rs` + server config, drop
-MQTT), then run `scripts/check-flespi.sh` — it must pass — before building. The
-first sync of the vendored folder can be conflict-heavy; later ones are cleaner.
+Take upstream's side of any conflict, then re-apply the overlay:
 
-## Building a release
+```bash
+python tacho-bridge-app/scripts/apply-overlay.py tacho-bridge-app 0.8.x-dh.1 "$(cat D:/DHFleetViewData/tacho/bridge/signing/updater.key.pub)"
+bash tacho-bridge-app/scripts/check-flespi.sh
+```
 
-Bump the version in `src-tauri/Cargo.toml` + `src-tauri/tauri.conf.json`, then push
-a `tba-v*` tag. CI (`build-tacho-bridge.yml`) builds the Windows installer, runs the
-guard, and deploys it to the server's download button.
+If upstream changes `communication_protocol.md`, check `bridge_server.py` still
+matches it.
+
+## Building and publishing a release
+
+On the server (everything stays on D:):
+
+```bash
+bash tacho-bridge-app/scripts/build-local.sh
+cd C:/tachograph-server && .venv/Scripts/python -m scripts.publish_bridge_release \
+  D:/tools/wt-tba/tacho-bridge-app/src-tauri/target/release/bundle/nsis --notes "..."
+```
+
+Publishing updates the Tachograph page's **Download Tacho Bridge App** button and
+the in-app updater. Or push a `tba-v*` tag and let `build-tacho-bridge.yml` build and
+deploy (needs the signing-key and SSH secrets).
+
+## Card racks
+
+The app detects Lisle racks, links them and reports their cards to the server.
+The rack's own serial command protocol is built **by the server** and is not
+public, so the tacho server tracks racks but doesn't drive them yet. Cards in PC/SC
+readers work end to end.
