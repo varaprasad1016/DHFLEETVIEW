@@ -255,6 +255,29 @@ async def _other_companies(session: AsyncSession, account_id: uuid.UUID, except_
     return (await session.execute(stmt)).scalar_one()
 
 
+async def _sync_identity(session: AsyncSession, m: DriverMembership, a: DriverAccount, driver: dict) -> bool:
+    """Copy the DH FleetView driver's name and identifier onto their driver login.
+
+    The identifier is edited on the DH FleetView driver (e.g. a driver card number
+    added later); the driver app and their tachograph hours read it from the login.
+    A login shared with another company keeps its identifier, and one that would
+    clash with another login is left alone."""
+    if await _other_companies(session, a.id, m.traccar_driver_id) > 0:
+        return False
+    changed = False
+    name = _clean_name(driver.get("name") or a.name)
+    if name != a.name:
+        a.name = name
+        changed = True
+    identifier = _norm_id(driver.get("uniqueId"))
+    if identifier and identifier != _norm_id(a.unique_id):
+        clash = await _account_by_identifier(session, identifier)
+        if clash is None or clash.id == a.id:
+            a.unique_id = identifier
+            changed = True
+    return changed
+
+
 async def _link_status(session: AsyncSession, principal: Principal, m: DriverMembership, a: DriverAccount) -> dict:
     others = await _other_companies(session, a.id, m.traccar_driver_id)
     return {
@@ -290,6 +313,9 @@ async def get_traccar_account(driver_id: int, principal: Principal = Depends(req
         .where(DriverMembership.traccar_driver_id == driver_id)
     )).first()
     if row:
+        if await _sync_identity(session, row[0], row[1], driver):
+            await session.commit()
+            await session.refresh(row[1])
         return await _link_status(session, principal, *row)
     identifier = _norm_id(driver.get("uniqueId"))
     existing = await _account_by_identifier(session, identifier) if identifier else None
@@ -385,11 +411,8 @@ async def sync_traccar_accounts(principal: Principal = Depends(require_manager),
     for m, a in rows:
         d = by_id.get(m.traccar_driver_id)
         if d:
-            if await _other_companies(session, a.id, m.traccar_driver_id) == 0:
-                name = _clean_name(d.get("name") or a.name)
-                if name != a.name:
-                    a.name = name
-                    updated += 1
+            if await _sync_identity(session, m, a, d):
+                updated += 1
         elif principal.administrator and m.active:
             m.active = False
             disabled += 1
