@@ -27,6 +27,7 @@ $stamp = $started.ToString("yyyy-MM-dd_HHmm")
 $dest = Join-Path $Root $stamp
 $tacho = "C:\tachograph-server"
 $traccar = "C:\DHFleetView"
+$data = "D:\DHFleetViewData"   # databases, files, logs and media live on D: (C: is for the system and programs)
 $log = Join-Path $Root "backup.log"
 $checks = [ordered]@{}
 New-Item -ItemType Directory -Force -Path $dest | Out-Null
@@ -54,20 +55,21 @@ try {
 
     # --- tacho files + settings --------------------------------------------------------------
     $filesZip = Join-Path $dest "tacho-files.zip"
-    Compress-Archive -Path (Join-Path $tacho "data\*") -DestinationPath $filesZip -CompressionLevel Optimal
+    Compress-Archive -Path (Join-Path $data "tacho\files\*") -DestinationPath $filesZip -CompressionLevel Optimal
     Copy-Item (Join-Path $tacho ".env") (Join-Path $dest "tacho-env.txt")
     $checks["tacho_files"] = "ok: " + [math]::Round((Get-Item $filesZip).Length / 1MB, 1) + " MB"
     Log "tacho files archived"
 
-    # --- DH FleetView (H2 database is locked while running: copy it from a shadow copy) -------
-    $created = (Get-WmiObject -List Win32_ShadowCopy).Create("C:\", "ClientAccessible")
+    # --- DH FleetView (H2 database is locked while running: copy it from a shadow copy of D:) --
+    $created = (Get-WmiObject -List Win32_ShadowCopy).Create("D:\", "ClientAccessible")
     if ($created.ReturnValue -ne 0) { throw "shadow copy failed ($($created.ReturnValue))" }
     $shadow = Get-WmiObject Win32_ShadowCopy | Where-Object { $_.ID -eq $created.ShadowID }
     if (Test-Path $link) { cmd /c rmdir "$link" | Out-Null }
     cmd /c mklink /d "$link" "$($shadow.DeviceObject)\" | Out-Null
     $h2copy = Join-Path $dest "traccar-database.mv.db"
-    Copy-Item (Join-Path $link "DHFleetView\data\database.mv.db") $h2copy
-    Compress-Archive -Path (Join-Path $link "DHFleetView\conf"), (Join-Path $link "DHFleetView\media") -DestinationPath (Join-Path $dest "traccar-conf.zip")
+    Copy-Item (Join-Path $link "DHFleetViewData\traccar\data\database.mv.db") $h2copy
+    # config and the Tacho Bridge installer stay on C:; device media is on D:
+    Compress-Archive -Path (Join-Path $traccar "conf"), (Join-Path $traccar "media"), (Join-Path $link "DHFleetViewData\traccar\media") -DestinationPath (Join-Path $dest "traccar-conf.zip")
     cmd /c rmdir "$link" | Out-Null
     $shadow.Delete(); $shadow = $null
 
@@ -75,7 +77,7 @@ try {
     $h2jar = Get-ChildItem (Join-Path $traccar "lib") -Filter "h2-*.jar" | Select-Object -First 1
     $java = (Get-Command java -ErrorAction SilentlyContinue).Source
     if (-not $java) { $java = Get-ChildItem "C:\Program Files\Eclipse Adoptium" -Recurse -Filter java.exe | Select-Object -First 1 -ExpandProperty FullName }
-    $probe = Join-Path $env:TEMP ("dhfv-h2-" + $stamp)
+    $probe = Join-Path $Root ("_probe-" + $stamp)   # on D:, not the system drive
     New-Item -ItemType Directory -Force -Path $probe | Out-Null
     Copy-Item $h2copy (Join-Path $probe "database.mv.db")
     $url = "jdbc:h2:" + ($probe -replace '\\', '/') + "/database"
