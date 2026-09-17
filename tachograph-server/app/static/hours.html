@@ -85,35 +85,6 @@
   .lock{text-align:center;color:var(--mut);padding:40px 16px;} .lock a{color:var(--acc);}
   .note{color:var(--mut);font-size:12px;margin-top:6px;}
   .hidden{display:none!important;}
-  .timeline-day{margin:14px 0 18px;border-top:1px solid #cfcfcf;color:#111;background:#fff;font:12px Arial,sans-serif;overflow-x:auto;box-shadow:0 1px 2px rgba(0,0,0,.12);}
-  .timeline-head{height:28px;display:flex;align-items:center;border-bottom:1px solid #d6d6d6;min-width:760px;}
-  .timeline-date{width:174px;padding-left:4px;color:#e11;font-weight:700;white-space:nowrap;line-height:10px;}
-  .timeline-date .timeline-name{display:block;color:#111;font-size:9px;font-weight:400;}
-  .timeline-date small{display:block;background:#f04b23;color:#111;font-size:8px;line-height:9px;width:max-content;padding:0 2px;}
-  .timeline-title{flex:1;white-space:nowrap;}
-  .timeline-legend{display:flex;gap:14px;padding:0 8px;white-space:nowrap;}
-  .timeline-legend span{display:inline-flex;align-items:center;gap:3px;}
-  .timeline-legend b{display:inline-block;position:relative;width:15px;height:15px;font-size:0;line-height:15px;font-weight:400;}
-  .timeline-legend b.drive,.timeline-legend b.rest{border:2px solid currentColor;border-radius:50%;}
-  .timeline-legend b.drive:after,.timeline-legend b.rest:after{content:'';position:absolute;left:2px;right:2px;top:5px;border-top:2px solid currentColor;}
-  .timeline-legend b.rest:before{content:'';position:absolute;left:2px;top:5px;width:8px;border-top:2px solid currentColor;transform:rotate(-45deg);}
-  .timeline-legend b.work:before,.timeline-legend b.work:after{content:'';position:absolute;left:6px;top:0;width:3px;height:15px;background:currentColor;transform:rotate(45deg);}
-  .timeline-legend b.work:after{transform:rotate(-45deg);}
-  .timeline-legend b.poa{border:1px solid currentColor;background:#f1c232;box-shadow:inset 2px 2px 0 rgba(255,255,255,.65);}
-  .timeline-body{display:flex;min-width:760px;padding:12px 0 0 4px;}
-  .timeline-driver{width:34px;position:relative;flex:0 0 34px;}
-  .driver-marker{width:23px;height:17px;background:#a5a5a5;color:#fff;text-align:center;font-size:15px;line-height:17px;margin-top:0;border-radius:1px;position:relative;}
-  .driver-marker:after{content:' ';position:absolute;left:7px;top:17px;height:18px;border-left:2px solid #222;}
-  .timeline-track{position:relative;height:78px;flex:1;margin-right:3px;background:linear-gradient(to bottom,#fff 0 29px,#d3d3d3 29px 59px,#fff 59px);border-bottom:1px solid #bdbdbd;}
-  .timeline-track:before{content:'';position:absolute;left:0;right:0;top:35px;height:1px;background:#777;z-index:1;}
-  .timeline-segment{position:absolute;top:30px;height:12px;z-index:2;opacity:.95;}
-  .timeline-segment.drive{background:#1010f5;}.timeline-segment.work{background:#38761d;}.timeline-segment.available{background:#f1c232;}.timeline-segment.rest{display:none;}
-  .timeline-ticks{position:absolute;inset:0 0 auto 0;height:48px;z-index:3;display:flex;justify-content:space-between;pointer-events:none;}
-  .timeline-ticks i{height:18px;border-left:1px solid #111;margin-top:0;position:relative;}
-  .timeline-ticks i:nth-child(2n){height:10px;}
-  .timeline-ticks i:nth-child(4n+1){height:28px;}
-  .timeline-hours{position:absolute;left:0;right:0;top:47px;display:flex;justify-content:space-between;font-size:11px;z-index:4;}
-  .timeline-hours span{transform:translateX(-50%);}.timeline-hours span:first-child{transform:none;}.timeline-hours span:last-child{transform:translateX(-100%);}
   .timeline-note{font-size:11px;color:#6b7280;margin:4px 0 8px;}
 </style>
 </head>
@@ -340,43 +311,6 @@
   async function readFileBase64(file){
     return await new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result.split(',')[1]); r.onerror=rej; r.readAsDataURL(file); });
   }
-  function timelineMinutes(value){ return value==null?'0:00':hrs(value); }
-  function timelineIcon(type){ return type==='drive'?'⊖':type==='work'?'⚒':type==='available'?'▣':'⊖'; }
-  function timelineRegistration(value){
-    const registration=(value||'').trim();
-    return /^(registration unavailable|unknown|n\/a|none)$/i.test(registration)?'':registration;
-  }
-  function timelineDay(row, driver){
-    const totals=row.timeline_totals||{};
-    const ticks=Array.from({length:49},(_,i)=>`<i style="height:${i%2===0?28:(i%4===1?18:10)}px"></i>`).join('');
-    const hours=Array.from({length:25},(_,i)=>`<span>${i}</span>`).join('');
-    const segments=(row.timeline||[]).filter(s=>s.type!=='rest').map(s=>{
-      const left=(s.start/1440)*100; const width=((s.end-s.start)/1440)*100;
-      return `<span class="timeline-segment ${s.type}" style="left:${left}%;width:${width}%"></span>`;
-    }).join('');
-    const registration=timelineRegistration(row.registration);
-    const driverName=driver.name||driver.ref||'Driver';
-    return `<div class="timeline-day">
-      <div class="timeline-head">
-        <div class="timeline-date">${esc(new Date(row.date+'T12:00:00').toLocaleDateString('en-GB',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric'}))}<span class="timeline-name">${esc(driverName)}</span>${registration?`<small>${esc(registration)}</small>`:''}</div>
-        <div class="timeline-title">Daily values 0:00 To 24:00 O'clock</div>
-        <div class="timeline-legend">
-          <span><b class="drive">${timelineIcon('drive')}</b>${timelineMinutes(totals.drive)}</span>
-          <span><b class="work">${timelineIcon('work')}</b>${timelineMinutes(totals.work)}</span>
-          <span><b class="poa">${timelineIcon('available')}</b>${timelineMinutes(totals.available)}</span>
-          <span><b class="rest">${timelineIcon('rest')}</b>${timelineMinutes(totals.rest)}</span>
-        </div>
-      </div>
-      <div class="timeline-body">
-        <div class="timeline-driver"><div class="driver-marker">☻</div></div>
-        <div class="timeline-track"><div class="timeline-ticks">${ticks}</div>${segments}<div class="timeline-hours">${hours}</div></div>
-      </div>
-    </div>`;
-  }
-  function reportTimelines(weeks, driver){
-    return weeks.flatMap(w=>w.days||[]).map(row=>timelineDay(row,driver)).join('');
-  }
-
   async function doUpload(){
     const files=[...$('f').files]; const m=$('upmsg'); const kind=$('kind').value;
     if(!files.length){ m.className='msg bad'; m.textContent='Choose at least one file.'; return; }
@@ -436,7 +370,6 @@
     const cols=['Date','Reg','Finish odo','Start odo','Dist','Start duty','Drive start','End duty',
                 'Daily rest','Drive','Work','POA','Break','Shift','WTD','Fort drive','Prev rest'];
     let b=`<div class="timeline-note"><b>${esc(d.driver.name||d.driver.ref||'Driver')}</b>${d.driver.card_number?' · card '+esc(d.driver.card_number):''}</div>`;
-    b+=reportTimelines(d.weeks,d.driver);
     b+=`<div class="note" style="margin-bottom:10px">Card data covers ${dd(d.period.data_from)} to ${dd(d.period.data_to)} · times in ${esc(d.period.timezone)}</div>`;
     d.weeks.forEach(w=>{
       b+=`<h3 class="report-heading" style="margin:16px 0 6px"><span>Week ${dd(w.start)} – ${dd(w.end)}</span><span class="note">Swipe or scroll horizontally to see all columns</span></h3><div class="report-table-wrap"><table class="report-table" data-no-stack style="font-size:12px"><tr>${cols.map(c=>'<th>'+c+'</th>').join('')}</tr>`;
