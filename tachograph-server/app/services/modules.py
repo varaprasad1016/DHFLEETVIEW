@@ -33,7 +33,7 @@ MODULES: list[tuple[str, str, str]] = [
     ("driver_records", "Driver records", "Licence, Driver CPC, card, medical and ADR expiries"),
     ("jobs", "Job Management", "Send and manage driver jobs"),
     ("shifts", "Shift Reports", "Active shifts, history and photos"),
-    ("earned_recognition", "Earned Recognition", "DVSA KPI dashboard (coming soon)"),
+    ("earned_recognition", "Earned Recognition", "4-weekly KPIs and the inspection pack"),
 ]
 KEYS = {k for k, _, _ in MODULES}
 ALL_ON = {k: True for k in KEYS}

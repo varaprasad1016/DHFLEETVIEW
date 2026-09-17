@@ -24,6 +24,7 @@ from app.api.modules import router as modules_router
 from app.api.admin import router as admin_router
 from app.api.maintenance import router as maintenance_router
 from app.api.driver_records import router as driver_records_router
+from app.api.earned_recognition import router as earned_recognition_router
 from app.api.tacho_live import ingest_router as tacho_live_ingest_router, router as tacho_live_router
 from app.api.driver_accounts import accounts_router as driver_accounts_router, auth_router as driver_auth_router
 from app.services.auth import allowed_origins
@@ -60,6 +61,7 @@ app.include_router(modules_router)
 app.include_router(admin_router)
 app.include_router(maintenance_router)
 app.include_router(driver_records_router)
+app.include_router(earned_recognition_router)
 app.include_router(tacho_live_ingest_router)
 app.include_router(tacho_live_router)
 
@@ -125,6 +127,11 @@ async def defects_page() -> str:
 @app.get("/walkaround-reports", response_class=HTMLResponse)
 async def walkaround_reports_page() -> str:
     return _page("walkaround-reports.html")
+
+
+@app.get("/earned-recognition", response_class=HTMLResponse)
+async def earned_recognition_page() -> str:
+    return _page("earned-recognition.html")
 
 
 @app.get("/driver-records", response_class=HTMLResponse)
