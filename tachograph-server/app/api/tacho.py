@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import base64
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from pydantic import BaseModel, Field
@@ -723,6 +723,115 @@ async def report_pdf(file_id: uuid.UUID | None = None, driver_ref: str | None = 
     return Response(
         content=tacho_pdf.render(data), media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+async def _card_spans(session: AsyncSession, scope: TachoScope, since: datetime,
+                      driver_ref: str | None = None) -> dict[str, list]:
+    """Driver-card activity per card holder (your drivers only)."""
+    stmt = (select(TachoActivity.driver_ref, TachoActivity.activity_type, TachoActivity.started_at, TachoActivity.ended_at)
+            .join(TachoFile, TachoFile.id == TachoActivity.source_file_id)
+            .where(TachoFile.file_kind == "driver_card", scope.activities(), TachoActivity.ended_at >= since))
+    if driver_ref:
+        stmt = stmt.where(TachoActivity.driver_ref == driver_ref)
+    out: dict[str, list] = {}
+    for ref, kind, start, end in (await session.execute(stmt)).all():
+        if ref:
+            out.setdefault(ref, []).append((kind, start, end))
+    return out
+
+
+@router.get("/wtd")
+async def working_time(weeks: int = 26, reference_weeks: int = 17, driver_ref: str | None = None,
+                       session: AsyncSession = Depends(get_session), scope: TachoScope = Depends(tacho_scope)) -> dict:
+    """Road Transport Working Time: weekly totals, rolling average, 60h weeks and night work, per driver."""
+    from app.services import wtd
+
+    if weeks < 1 or weeks > 104 or reference_weeks not in (17, 26):
+        raise HTTPException(status_code=400, detail="Choose 1-104 weeks and a 17 or 26 week reference period.")
+    today = datetime.now(wtd.LONDON).date()
+    since_day = wtd.week_start(today) - timedelta(weeks=weeks + reference_weeks)
+    since = datetime.combine(since_day, datetime.min.time(), timezone.utc)
+    spans = await _card_spans(session, scope, since, driver_ref)
+    breaks = (await session.execute(
+        select(Infringement.driver_ref, Infringement.period_start).where(
+            Infringement.rule.in_(("wtd_break", "wtd_daily_break")), Infringement.status != "dismissed",
+            scope.infringements(), Infringement.period_start >= since)
+    )).all()
+    drivers = []
+    for ref, items in sorted(spans.items()):
+        rep = wtd.report(items, weeks=weeks, reference_weeks=reference_weeks, today=today)
+        per_week: dict[str, int] = {}
+        for bref, when in breaks:
+            if bref == ref:
+                key = wtd.week_start(when.astimezone(wtd.LONDON).date()).isoformat()
+                per_week[key] = per_week.get(key, 0) + 1
+        for w in rep["weeks"]:
+            w["break_infringements"] = per_week.get(w["week_start"], 0)
+        drivers.append({"driver_ref": ref, **rep})
+    return {"weeks": weeks, "reference_weeks": reference_weeks, "drivers": drivers,
+            "limits": {"week_minutes": wtd.WEEK_LIMIT, "average_minutes": wtd.AVERAGE_LIMIT, "night_minutes": wtd.NIGHT_LIMIT}}
+
+
+@router.get("/hours.csv")
+async def hours_csv(start: date, end: date, session: AsyncSession = Depends(get_session),
+                    scope: TachoScope = Depends(tacho_scope)) -> Response:
+    """Daily hours per driver from card data, with app shift times, for payroll and working time records."""
+    import csv
+    import io
+
+    from app.models.driver_auth import DriverAccount, DriverMembership
+    from app.models.shifts import Shift
+    from app.services import wtd
+    from app.services.tacho_scope import card_key
+
+    if end < start or (end - start).days > 400:
+        raise HTTPException(status_code=400, detail="Choose a date range of up to 400 days.")
+    since = datetime.combine(start - timedelta(days=1), datetime.min.time(), timezone.utc)
+    spans = await _card_spans(session, scope, since)
+    until = datetime.combine(end + timedelta(days=2), datetime.min.time(), timezone.utc)
+
+    # App shifts, matched to the card holder through the driver login's card number.
+    ref_cards = dict((await session.execute(
+        select(TachoFile.driver_ref, TachoFile.card_number).where(
+            TachoFile.file_kind == "driver_card", scope.files(), TachoFile.card_number.is_not(None)))).all())
+    accounts = {card_key(a.unique_id): a for a in (await session.execute(select(DriverAccount))).scalars().all()
+                if len(card_key(a.unique_id)) == 14}
+    memberships = (await session.execute(select(DriverMembership.account_id, DriverMembership.traccar_driver_id))).all()
+    shifts_by_day: dict[tuple[str, str], list] = {}
+    for ref, number in ref_cards.items():
+        account = accounts.get(card_key(number))
+        if not account:
+            continue
+        ids = [tid for aid, tid in memberships if aid == account.id]
+        rows = (await session.execute(select(Shift).where(
+            Shift.clocked_in_at >= since, Shift.clocked_in_at < until,
+            (Shift.traccar_driver_id.in_(ids) if ids else Shift.driver_name == account.name)))).scalars().all()
+        for sh in rows:
+            day = sh.clocked_in_at.astimezone(wtd.LONDON).date().isoformat()
+            shifts_by_day.setdefault((ref, day), []).append(sh)
+
+    buf = io.StringIO()
+    out = csv.writer(buf)
+    out.writerow(["Driver", "Date", "First activity", "Last activity", "Driving (h:mm)", "Other work (h:mm)",
+                  "Availability (h:mm)", "Working time (h:mm)", "Night work", "App shift start", "App shift end",
+                  "App shift length (h:mm)", "Vehicle"])
+    hm = lambda m: f"{m // 60}:{m % 60:02d}"  # noqa: E731
+    for ref in sorted(spans):
+        for row in wtd.daily_rows(spans[ref], start, end):
+            shifts = shifts_by_day.get((ref, row["date"]), [])
+            first = min(shifts, key=lambda x: x.clocked_in_at) if shifts else None
+            ends = [x.clocked_out_at for x in shifts if x.clocked_out_at]
+            last_end = max(ends) if ends else None
+            length = int((last_end - first.clocked_in_at).total_seconds() // 60) if first and last_end else None
+            out.writerow([ref, row["date"], row["first_activity"], row["last_activity"], hm(row["drive_minutes"]),
+                          hm(row["other_work_minutes"]), hm(row["poa_minutes"]), hm(row["working_minutes"]),
+                          "yes" if row["night_work"] else "",
+                          first.clocked_in_at.astimezone(wtd.LONDON).strftime("%H:%M") if first else "",
+                          last_end.astimezone(wtd.LONDON).strftime("%H:%M") if last_end else "",
+                          hm(length) if length is not None else "",
+                          ", ".join(sorted({x.vehicle_reg for x in shifts if x.vehicle_reg}))])
+    return Response(content=buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="driver-hours-{start}-to-{end}.csv"'})
 
 
 @router.get("/report-settings")

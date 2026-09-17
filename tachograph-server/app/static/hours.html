@@ -104,6 +104,7 @@
       <button data-t="infringements">Infringements</button>
       <button data-t="timeline">Timeline</button>
       <button data-t="report">Weekly report</button>
+      <button data-t="wtd">Working time</button>
       <button data-t="files">Files &amp; upload</button>
     </div>
     <div id="view"></div>
@@ -442,7 +443,51 @@
     });
     $('rbody').className=''; $('rbody').innerHTML=b||'<div class="empty">Nothing in this period.</div>';
   }
-  function render(){ if(tab==='compliance')renderCompliance(); else if(tab==='infringements')renderInfringements(); else if(tab==='timeline')renderTimeline(); else if(tab==='report')renderReport(); else renderFiles(); }
+  let wtdWeeks=26, wtdRef=17, wtdOpen=null;
+  async function renderWtd(){
+    const monthAgo=new Date(Date.now()-30*864e5).toISOString().slice(0,10), todayIso=new Date().toISOString().slice(0,10);
+    $('view').innerHTML=`<div class="card"><div class="row report-controls" style="margin-bottom:10px">
+        <div><label>Weeks shown</label><select id="wWeeks">${[13,26,52].map(n=>`<option value="${n}"${n===wtdWeeks?' selected':''}>${n}</option>`).join('')}</select></div>
+        <div><label>Reference period</label><select id="wRef">${[17,26].map(n=>`<option value="${n}"${n===wtdRef?' selected':''}>${n} weeks</option>`).join('')}</select></div>
+        <div class="note" style="align-self:center;max-width:520px">Working time is driving plus other work (availability doesn't count). Limits: 60 hours in any week, 48 hours on average over the reference period, and 10 hours in 24 on days with night work (00:00–04:00). Weeks with no card data (leave, sickness) aren't included in the average.</div>
+      </div>
+      <div class="row report-controls" style="margin-bottom:10px">
+        <div><label>Daily hours from</label><input type="date" id="hFrom" value="${monthAgo}"></div>
+        <div><label>to</label><input type="date" id="hTo" value="${todayIso}"></div>
+        <div style="align-self:flex-end"><a class="btn small" id="hCsv" style="text-decoration:none">Download daily hours (CSV)</a></div>
+        <div class="note" style="align-self:center">For payroll: card hours per day with app shift times.</div>
+      </div><div id="wbody" class="empty">Loading…</div></div>`;
+    const csvLink=()=>{ $('hCsv').href=apiUrl('/api/tacho/hours.csv?start='+$('hFrom').value+'&end='+$('hTo').value); };
+    $('hFrom').onchange=csvLink; $('hTo').onchange=csvLink; csvLink();
+    $('wWeeks').onchange=e=>{ wtdWeeks=Number(e.target.value); renderWtd(); };
+    $('wRef').onchange=e=>{ wtdRef=Number(e.target.value); renderWtd(); };
+    const {response,data}=await jsonResponse(await api('/api/tacho/wtd?weeks='+wtdWeeks+'&reference_weeks='+wtdRef,{cache:'no-store'}));
+    if(!response.ok){ $('wbody').textContent=errorText(data,'Could not build the working time report.'); return; }
+    if(!data.drivers.length){ $('wbody').textContent='No driver card data in this period.'; return; }
+    const hm=m=>m==null?'—':`${Math.floor(m/60)}:${String(m%60).padStart(2,'0')}`;
+    const over=(m,limit)=>m!=null&&m>limit?` style="color:var(--bad);font-weight:700"`:'';
+    let b='<div class="report-table-wrap"><table><tr><th>Driver</th><th>Latest average</th><th>Longest week</th><th>Weeks over 60h</th><th>Night work over 10h</th><th>Break infringements</th><th>Card data</th><th></th></tr>';
+    data.drivers.forEach((d,i)=>{
+      const w60=d.weeks.filter(w=>w.flags.some(f=>f.code==='week_over_60h')).length;
+      const n10=d.weeks.reduce((a,w)=>a+w.night_over_10h.length,0);
+      const brk=d.weeks.reduce((a,w)=>a+w.break_infringements,0);
+      b+=`<tr><td>${esc(d.driver_ref)}</td><td${over(d.latest_average_minutes,data.limits.average_minutes)}>${hm(d.latest_average_minutes)}</td>
+        <td${over(d.max_week_minutes,data.limits.week_minutes)}>${hm(d.max_week_minutes)}</td>
+        <td${w60?' style="color:var(--bad);font-weight:700"':''}>${w60}</td><td${n10?' style="color:var(--bad);font-weight:700"':''}>${n10}</td>
+        <td${brk?' style="color:var(--warn);font-weight:700"':''}>${brk}</td><td class="note">${d.data_from?dd(d.data_from)+' – '+dd(d.data_to):'—'}</td>
+        <td><button class="btn small" data-w="${i}">${wtdOpen===d.driver_ref?'Hide weeks':'Weeks'}</button></td></tr>`;
+      if(wtdOpen===d.driver_ref){
+        b+=`<tr><td colspan="8"><table class="report-table" data-no-stack style="min-width:760px;font-size:12px"><tr><th>Week starting</th><th>Working time</th><th>Driving</th><th>Other work</th><th>Availability</th><th>${data.reference_weeks}-week average</th><th>Night work days</th><th>Break infringements</th><th>Checks</th></tr>`+
+          d.weeks.map(w=>`<tr><td>${dd(w.week_start)}</td>${w.has_data?`<td${over(w.working_minutes,data.limits.week_minutes)}>${hm(w.working_minutes)}</td><td>${hm(w.drive_minutes)}</td><td>${hm(w.work_minutes)}</td><td>${hm(w.poa_minutes)}</td>`:'<td colspan="4" class="note">No card data</td>'}
+            <td${over(w.average_minutes,data.limits.average_minutes)}>${hm(w.average_minutes)} <span class="note">(${w.weeks_in_average} wk)</span></td>
+            <td>${w.night_work_days||''}${w.night_over_10h.length?` <span style="color:var(--bad)">${w.night_over_10h.map(n=>dd(n.date)+' '+hm(n.working_minutes)).join(', ')}</span>`:''}</td>
+            <td>${w.break_infringements||''}</td><td>${w.flags.map(f=>`<div style="color:var(--bad)">${esc(f.label)}</div>`).join('')}</td></tr>`).join('')+'</table></td></tr>';
+      }
+    });
+    $('wbody').className=''; $('wbody').innerHTML=b+'</table></div>';
+    $('wbody').querySelectorAll('[data-w]').forEach(btn=>btn.onclick=()=>{ const ref=data.drivers[Number(btn.dataset.w)].driver_ref; wtdOpen=wtdOpen===ref?null:ref; renderWtd(); });
+  }
+  function render(){ if(tab==='compliance')renderCompliance(); else if(tab==='wtd')renderWtd(); else if(tab==='infringements')renderInfringements(); else if(tab==='timeline')renderTimeline(); else if(tab==='report')renderReport(); else renderFiles(); }
   document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
     tab=b.dataset.t; document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); render();
   });
