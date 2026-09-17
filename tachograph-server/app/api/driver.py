@@ -620,6 +620,10 @@ async def my_tacho_pdf(days: int = Query(28, ge=1, le=90), principal: Principal 
     _, refs = await _tacho_refs(session, principal)
     if not refs:
         raise HTTPException(status_code=404, detail="No tachograph card data linked to your ID yet.")
+    from app.services.tacho_scope import scope_for_card
+
+    account = (await session.execute(
+        select(DriverAccount).where(DriverAccount.id == uuid.UUID(principal.driver_id)))).scalar_one_or_none()
+    own = await scope_for_card(session, account.unique_id if account else None)
     end = datetime.now(timezone.utc)
-    return await tacho_api.timeline_pdf(driver_ref=refs[0], start=end - timedelta(days=days), end=end,
-                                        company_id=None, session=session)
+    return await tacho_api.timeline_pdf_response(session, own, refs[0], end - timedelta(days=days), end)

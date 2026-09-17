@@ -128,22 +128,31 @@ async def traccar_user(cookie_header: str | None, authorization: str | None) -> 
     return user
 
 
-_drivers_cache: dict[str, tuple[float, list[dict]]] = {}
+_list_cache: dict[str, tuple[float, list[dict]]] = {}
+
+
+async def _visible_list(principal: "Principal", path: str) -> list[dict]:
+    key = hashlib.sha256(f"{path}|{principal.cookie}|{principal.authorization}".encode()).hexdigest()
+    now = time.monotonic()
+    hit = _list_cache.get(key)
+    if hit and hit[0] > now:
+        return hit[1]
+    items = await traccar_get(principal, path)
+    items = [d for d in (items or []) if isinstance(d, dict) and "id" in d]
+    if len(_list_cache) > 2000:
+        _list_cache.clear()
+    _list_cache[key] = (now + _CACHE_TTL, items)
+    return items
 
 
 async def visible_drivers(principal: "Principal") -> list[dict]:
     """The DH FleetView drivers linked to this office user (the ones they added)."""
-    key = hashlib.sha256(f"{principal.cookie}|{principal.authorization}".encode()).hexdigest()
-    now = time.monotonic()
-    hit = _drivers_cache.get(key)
-    if hit and hit[0] > now:
-        return hit[1]
-    drivers = await traccar_get(principal, "/api/drivers")
-    drivers = [d for d in (drivers or []) if isinstance(d, dict) and "id" in d]
-    if len(_drivers_cache) > 2000:
-        _drivers_cache.clear()
-    _drivers_cache[key] = (now + _CACHE_TTL, drivers)
-    return drivers
+    return await _visible_list(principal, "/api/drivers")
+
+
+async def visible_devices(principal: "Principal") -> list[dict]:
+    """The DH FleetView vehicles (devices) this office user can see."""
+    return await _visible_list(principal, "/api/devices")
 
 
 def manager_allowed(user: dict) -> bool:

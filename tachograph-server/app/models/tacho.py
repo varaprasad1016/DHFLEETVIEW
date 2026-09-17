@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func, text
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -53,6 +53,7 @@ class TachoFile(Base):
     vehicle_ref: Mapped[str | None] = mapped_column(String(20))  # registration/VRM
     card_number: Mapped[str | None] = mapped_column(String(32))  # driver card files: lets the driver see their own data
     company_name: Mapped[str | None] = mapped_column(String(128))  # VU overview operator/company
+    uploaded_by_user_id: Mapped[int | None] = mapped_column(BigInteger)  # DH FleetView user who uploaded it
     size_bytes: Mapped[int | None] = mapped_column(Integer)
     sha256: Mapped[str | None] = mapped_column(String(64))
     storage_path: Mapped[str] = mapped_column(String(500), nullable=False)
