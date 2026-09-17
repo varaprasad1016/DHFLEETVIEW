@@ -15,6 +15,7 @@ import TermsDialog from './common/components/TermsDialog';
 import Loader from './common/components/Loader';
 import fetchOrThrow from './common/util/fetchOrThrow';
 import ErrorBoundary from './ErrorBoundary';
+import useComplianceAccess from './common/util/useComplianceAccess';
 
 const useStyles = makeStyles()((theme) => {
   const dark = theme.palette.mode === 'dark';
@@ -84,7 +85,7 @@ const App = () => {
 
   const desktop = useMediaQuery(theme.breakpoints.up('md'));
   // The user loads asynchronously; don't read its role before it exists.
-  const manager = useSelector((state) => Boolean(state.session.user?.administrator || (state.session.user?.userLimit || 0) !== 0));
+  const complianceAccess = useComplianceAccess();
 
   const newServer = useSelector((state) => state.session.server.newServer);
   const termsUrl = useSelector((state) => state.session.server.attributes.termsUrl);
@@ -145,8 +146,13 @@ const App = () => {
         >
           <HomeRoundedIcon fontSize="small" />
         </button>
-        {manager && (
-          <a className={classes.homeButton} href="/tacho/compliance" title="Compliance hub" aria-label="Compliance hub">
+        {complianceAccess && (
+          <a
+            className={classes.homeButton}
+            href="/tacho/compliance"
+            title="Compliance hub"
+            aria-label="Compliance hub"
+          >
             <FactCheckRoundedIcon fontSize="small" />
           </a>
         )}

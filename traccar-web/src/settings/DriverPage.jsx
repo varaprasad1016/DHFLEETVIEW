@@ -16,7 +16,7 @@ import EditAttributesAccordion from './components/EditAttributesAccordion';
 import { useTranslation } from '../common/components/LocalizationProvider';
 import SettingsMenu from './components/SettingsMenu';
 import useSettingsStyles from './common/useSettingsStyles';
-import { useManager } from '../common/util/permissions';
+import useComplianceAccess from '../common/util/useComplianceAccess';
 import { useAsyncTask } from '../reactHelper';
 import { errorsActions } from '../store';
 import { getDriverAppAccount, saveDriverAppAccount } from '../common/util/driverApp';
@@ -49,7 +49,8 @@ const DriverPage = () => {
   const { classes } = useSettingsStyles();
   const t = useTranslation();
   const dispatch = useDispatch();
-  const manager = useManager();
+  // Driver app PINs: managers, or users given compliance modules (the server checks driver_pins).
+  const manager = useComplianceAccess();
 
   const [item, setItem] = useState();
   const [pin, setPin] = useState('');

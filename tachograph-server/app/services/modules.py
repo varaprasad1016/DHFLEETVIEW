@@ -46,32 +46,38 @@ def _key(user_id: int) -> str:
     return f"modules:user:{int(user_id)}"
 
 
-def _merge(stored: dict | None) -> dict[str, bool]:
+def _merge(stored: dict | None, default_on: bool = True) -> dict[str, bool]:
     stored = stored or {}
-    return {k: bool(stored.get(k, True)) for k, _, _ in MODULES}
+    return {k: bool(stored.get(k, default_on)) for k, _, _ in MODULES}
 
 
-async def get_user_flags(session: AsyncSession, user_id: int | None) -> tuple[dict[str, bool], bool]:
-    """(flags, configured) for a DH FleetView user id."""
+async def get_user_flags(session: AsyncSession, user_id: int | None, default_on: bool = True) -> tuple[dict[str, bool], bool]:
+    """(flags, configured) for a DH FleetView user id.
+
+    default_on: what an unticked-yet module means. Administrators and managers
+    start with everything; standard users start with nothing until the super
+    administrator ticks modules for them."""
     if user_id is None:
-        return dict(ALL_ON), False
+        return (dict(ALL_ON) if default_on else {k: False for k in KEYS}), False
     key = _key(user_id)
+    cache_key = f"{key}|{default_on}"
     now = time.monotonic()
-    hit = _cache.get(key)
+    hit = _cache.get(cache_key)
     if hit and hit[0] > now:
         return hit[1], hit[2]
     row = (await session.execute(select(AppSetting).where(AppSetting.key == key))).scalar_one_or_none()
-    flags, configured = _merge(row.value if row else None), row is not None
+    flags, configured = _merge(row.value if row else None, default_on), row is not None
     if len(_cache) > 5000:
         _cache.clear()
-    _cache[key] = (now + _TTL, flags, configured)
+    _cache[cache_key] = (now + _TTL, flags, configured)
     return flags, configured
 
 
-async def set_user_flags(session: AsyncSession, user_id: int, changes: dict[str, bool], updated_by: str) -> dict[str, bool]:
+async def set_user_flags(session: AsyncSession, user_id: int, changes: dict[str, bool], updated_by: str,
+                         default_on: bool = True) -> dict[str, bool]:
     key = _key(user_id)
     row = (await session.execute(select(AppSetting).where(AppSetting.key == key))).scalar_one_or_none()
-    flags = _merge(row.value if row else None)
+    flags = _merge(row.value if row else None, default_on)
     flags.update({k: bool(v) for k, v in changes.items() if k in KEYS})
     if row is None:
         session.add(AppSetting(key=key, value=flags, updated_by=updated_by))
@@ -79,7 +85,8 @@ async def set_user_flags(session: AsyncSession, user_id: int, changes: dict[str,
         row.value = flags
         row.updated_by = updated_by
     await session.commit()
-    _cache.pop(key, None)
+    _cache.pop(f"{key}|True", None)
+    _cache.pop(f"{key}|False", None)
     return flags
 
 
@@ -87,7 +94,7 @@ async def effective_flags(session: AsyncSession, principal) -> dict[str, bool]:
     """What this caller may see: everything for drivers and the super administrator."""
     if principal is None or not principal.is_manager or is_super_admin(principal):
         return dict(ALL_ON)
-    flags, _ = await get_user_flags(session, principal.user_id)
+    flags, _ = await get_user_flags(session, principal.user_id, default_on=not principal.limited)
     return flags
 
 

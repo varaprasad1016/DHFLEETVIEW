@@ -35,6 +35,9 @@ class Principal:
     email: str = ""
     # Drivers: the company driver records (DH FleetView driver ids) this login belongs to.
     driver_ids: tuple[int, ...] = ()
+    # A standard DH FleetView user (not an administrator or manager): only the compliance
+    # modules the super administrator has ticked for them.
+    limited: bool = False
     cookie: str = ""          # the caller's DH FleetView session, to act as them in Traccar
     authorization: str = ""
 
@@ -153,6 +156,11 @@ async def visible_drivers(principal: "Principal") -> list[dict]:
 async def visible_devices(principal: "Principal") -> list[dict]:
     """The DH FleetView vehicles (devices) this office user can see."""
     return await _visible_list(principal, "/api/devices")
+
+
+def office_user(user: dict) -> bool:
+    """Any active, editable DH FleetView account (read-only accounts are view-only)."""
+    return not user.get("disabled") and not user.get("readonly")
 
 
 def manager_allowed(user: dict) -> bool:

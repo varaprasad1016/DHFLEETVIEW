@@ -37,19 +37,21 @@ async def my_modules(principal: Principal = Depends(require_driver_or_manager),
     return {"modules": _listing(flags), "enabled": flags, "can_manage": modules.is_super_admin(principal)}
 
 
-async def _check_user(principal: Principal, user_id: int) -> None:
+async def _check_user(principal: Principal, user_id: int) -> dict:
     user = await auth.traccar_get(principal, f"/api/users/{user_id}")
     if not user:
         raise HTTPException(status_code=404, detail="User not found in DH FleetView.")
+    return user
 
 
 @router.get("/users/{user_id}")
 async def user_modules(user_id: int, principal: Principal = Depends(require_manager),
                        session: AsyncSession = Depends(get_session)) -> dict:
     _require_super(principal)
-    await _check_user(principal, user_id)
-    flags, configured = await modules.get_user_flags(session, user_id)
-    return {"user_id": user_id, "configured": configured, "modules": _listing(flags), "enabled": flags}
+    user = await _check_user(principal, user_id)
+    full = auth.manager_allowed(user)
+    flags, configured = await modules.get_user_flags(session, user_id, default_on=full)
+    return {"user_id": user_id, "configured": configured, "full_access": full, "modules": _listing(flags), "enabled": flags}
 
 
 @router.put("/users/{user_id}")
@@ -60,6 +62,7 @@ async def set_user_modules(user_id: int, changes: dict[str, bool],
     unknown = set(changes) - modules.KEYS
     if unknown:
         raise HTTPException(status_code=400, detail=f"Unknown modules: {', '.join(sorted(unknown))}")
-    await _check_user(principal, user_id)
-    flags = await modules.set_user_flags(session, user_id, changes, principal.email or principal.name)
-    return {"user_id": user_id, "configured": True, "modules": _listing(flags), "enabled": flags}
+    user = await _check_user(principal, user_id)
+    full = auth.manager_allowed(user)
+    flags = await modules.set_user_flags(session, user_id, changes, principal.email or principal.name, default_on=full)
+    return {"user_id": user_id, "configured": True, "full_access": full, "modules": _listing(flags), "enabled": flags}

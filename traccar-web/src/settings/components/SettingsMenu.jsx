@@ -21,6 +21,7 @@ import { useTranslation } from '../../common/components/LocalizationProvider';
 import { useAdministrator, useManager, useRestriction } from '../../common/util/permissions';
 import useFeatures from '../../common/util/useFeatures';
 import MenuItem from '../../common/components/MenuItem';
+import useComplianceAccess from '../../common/util/useComplianceAccess';
 
 const SettingsMenu = () => {
   const t = useTranslation();
@@ -29,6 +30,7 @@ const SettingsMenu = () => {
   const readonly = useRestriction('readonly');
   const admin = useAdministrator();
   const manager = useManager();
+  const complianceAccess = useComplianceAccess();
   const userId = useSelector((state) => state.session.user.id);
   const supportLink = useSelector((state) => state.session.server.attributes.support);
   const billingLink = useSelector((state) => state.session.user.attributes.billingLink);
@@ -127,6 +129,19 @@ const SettingsMenu = () => {
           <MenuItem title={t('settingsSupport')} link={supportLink} icon={<HelpIcon />} />
         )}
       </List>
+      {!manager && complianceAccess && (
+        <>
+          <Divider />
+          <List>
+            <MenuItem
+              title="Tachograph"
+              link="/settings/tachograph"
+              icon={<StorageIcon />}
+              selected={location.pathname === '/settings/tachograph'}
+            />
+          </List>
+        </>
+      )}
       {manager && (
         <>
           <Divider />
