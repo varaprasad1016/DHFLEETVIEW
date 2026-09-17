@@ -120,6 +120,14 @@ async def dashboard(session: AsyncSession, tacho_scope, record_scope, vehicle_id
         TachoLiveAlert.kind == "no_card_driving", TachoLiveAlert.started_at >= oldest))).scalars().all()
         if tacho_scope.allows_live(a.card_number, a.vehicle_reg, a.device_uid)]
 
+    from sqlalchemy import func as sa_func
+
+    from app.models.tacho_live import TachoLiveActivity
+    firsts = (await session.execute(select(TachoLiveActivity.device_uid, TachoLiveActivity.vehicle_reg,
+                                           sa_func.min(TachoLiveActivity.started_at))
+                                    .group_by(TachoLiveActivity.device_uid, TachoLiveActivity.vehicle_reg))).all()
+    tracked_since = min((first for uid, reg, first in firsts if tacho_scope.allows_live(None, reg, uid)), default=None)
+
     card_downloads: dict[str, list[datetime]] = {}
     vu_downloads: dict[str, list[datetime]] = {}
     for kind, dref, vref, created in files:
@@ -166,7 +174,9 @@ async def dashboard(session: AsyncSession, tacho_scope, record_scope, vehicle_id
         serious = sum(1 for i in p_inf if i.severity in ("serious", "very_serious"))
         rows["serious_infringements_per_driver"].append(round(serious / drivers_with_data, 2) if drivers_with_data else None)
         rows["infringements_debriefed"].append(_pct(sum(1 for i in p_inf if i.id in debriefed), len(p_inf)))
-        rows["no_card_driving"].append(sum(1 for a in alerts if in_p(a.started_at)))
+        # No tracked vehicles yet (or not in this period): no data, rather than a clean zero.
+        rows["no_card_driving"].append(sum(1 for a in alerts if in_p(a.started_at))
+                                       if tracked_since is not None and tracked_since < e_utc else None)
 
     kpis = []
     for code, (group, label, unit, direction, _suggested, explain) in KPIS.items():
