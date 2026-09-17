@@ -20,7 +20,8 @@ class DriverAccount(Base):
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     # Matches Shift/Job.driver_name. Copied from the DH FleetView driver.
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    # The DH FleetView (Traccar) driver this account signs in as, and its identifier.
+    # Legacy single-company link (now in driver_memberships), and the person's
+    # identifier (driver card number or mobile), unique across companies.
     traccar_driver_id: Mapped[int | None] = mapped_column(BigInteger, unique=True)
     unique_id: Mapped[str | None] = mapped_column(String(128))
     phone: Mapped[str | None] = mapped_column(String(30))
@@ -45,3 +46,19 @@ class DriverSession(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class DriverMembership(Base):
+    """A driver login's link to one company: that company's DH FleetView driver record."""
+
+    __tablename__ = "driver_memberships"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("driver_accounts.id", ondelete="CASCADE"), nullable=False)
+    traccar_driver_id: Mapped[int] = mapped_column(BigInteger, nullable=False, unique=True)
+    company_label: Mapped[str | None] = mapped_column(String(160))   # the DH FleetView account that added the driver
+    owner_user_id: Mapped[int | None] = mapped_column(BigInteger)
+    active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

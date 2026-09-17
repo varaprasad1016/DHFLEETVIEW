@@ -32,6 +32,9 @@ class Principal:
     user_id: int | None = None
     driver_id: str | None = None
     administrator: bool = False
+    email: str = ""
+    # Drivers: the company driver records (DH FleetView driver ids) this login belongs to.
+    driver_ids: tuple[int, ...] = ()
     cookie: str = ""          # the caller's DH FleetView session, to act as them in Traccar
     authorization: str = ""
 
@@ -123,6 +126,33 @@ async def traccar_user(cookie_header: str | None, authorization: str | None) -> 
         _cache.clear()
     _cache[key] = (now + _CACHE_TTL, user)
     return user
+
+
+_list_cache: dict[str, tuple[float, list[dict]]] = {}
+
+
+async def _visible_list(principal: "Principal", path: str) -> list[dict]:
+    key = hashlib.sha256(f"{path}|{principal.cookie}|{principal.authorization}".encode()).hexdigest()
+    now = time.monotonic()
+    hit = _list_cache.get(key)
+    if hit and hit[0] > now:
+        return hit[1]
+    items = await traccar_get(principal, path)
+    items = [d for d in (items or []) if isinstance(d, dict) and "id" in d]
+    if len(_list_cache) > 2000:
+        _list_cache.clear()
+    _list_cache[key] = (now + _CACHE_TTL, items)
+    return items
+
+
+async def visible_drivers(principal: "Principal") -> list[dict]:
+    """The DH FleetView drivers linked to this office user (the ones they added)."""
+    return await _visible_list(principal, "/api/drivers")
+
+
+async def visible_devices(principal: "Principal") -> list[dict]:
+    """The DH FleetView vehicles (devices) this office user can see."""
+    return await _visible_list(principal, "/api/devices")
 
 
 def manager_allowed(user: dict) -> bool:

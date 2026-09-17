@@ -11,12 +11,12 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_license, require_manager
+from app.api.deps import require_license, require_manager, require_module
 from app.database import get_session
 from app.models.vehicle import VehicleStatus
 from app.services import dvla, reminders
 
-router = APIRouter(prefix="/api/reminders", tags=["reminders"], dependencies=[Depends(require_license), Depends(require_manager)])
+router = APIRouter(prefix="/api/reminders", tags=["reminders"], dependencies=[Depends(require_license), Depends(require_manager), Depends(require_module("reminders"))])
 
 
 class AddRegsIn(BaseModel):

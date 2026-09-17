@@ -28,25 +28,51 @@ def _status(days: float | None, interval: int, warning: int) -> str:
     return "compliant"
 
 
-async def _latest_by(session: AsyncSession, column, kind: str) -> dict[str, datetime]:
-    rows = (await session.execute(
-        select(column, func.max(TachoFile.created_at))
-        .where(TachoFile.file_kind == kind, column.isnot(None))
-        .group_by(column)
-    )).all()
+async def _latest_by(session: AsyncSession, column, kind: str, scope=None) -> dict[str, datetime]:
+    stmt = (select(column, func.max(TachoFile.created_at))
+            .where(TachoFile.file_kind == kind, column.isnot(None)))
+    if scope is not None:
+        stmt = stmt.where(scope.files())
+    rows = (await session.execute(stmt.group_by(column))).all()
     return {ref: ts for ref, ts in rows if ref}
 
 
-async def compliance(session: AsyncSession, now: datetime | None = None) -> dict:
+async def compliance(session: AsyncSession, now: datetime | None = None, scope=None) -> dict:
+    """scope: a tacho_scope.TachoScope; limited scopes list only that company's
+    downloads and its own DH FleetView drivers and vehicles."""
     now = now or datetime.now(timezone.utc)
+    limited = scope is not None and not scope.everything
 
-    driver_files = await _latest_by(session, TachoFile.driver_ref, "driver_card")
-    vehicle_files = await _latest_by(session, TachoFile.vehicle_ref, "vehicle_unit")
+    driver_files = await _latest_by(session, TachoFile.driver_ref, "driver_card", scope)
+    vehicle_files = await _latest_by(session, TachoFile.vehicle_ref, "vehicle_unit", scope)
 
     # Known entities (so ones never downloaded still show as no_data/overdue).
     known_drivers: dict[str, str] = {}
     alias: dict[str, str] = {}      # any identifier the driver goes by -> canonical
-    for d in (await session.execute(select(Driver))).scalars().all():
+    if limited:
+        from app.services.tacho_scope import card_key, primary_reg, reg_key
+
+        card_refs = dict((await session.execute(
+            select(TachoFile.driver_ref, TachoFile.card_number)
+            .where(TachoFile.file_kind == "driver_card", scope.files(), TachoFile.card_number.isnot(None))
+        )).all())
+        for d in scope.drivers:
+            name = d.get("name")
+            if not name:
+                continue
+            known_drivers[name] = name
+            key = card_key(d.get("uniqueId"))
+            for ref, number in card_refs.items():
+                if len(key) == 14 and card_key(number) == key:
+                    alias[ref] = name
+        vehicle_files = {reg_key(ref): ts for ref, ts in vehicle_files.items()}
+        known_vehicles = {}
+        for dev in scope.devices:
+            reg = primary_reg(dev)
+            if reg:
+                known_vehicles[reg] = dev.get("name") or reg
+    drivers_table = [] if limited else (await session.execute(select(Driver))).scalars().all()
+    for d in drivers_table:
         canonical = d.card_number or d.name
         if not canonical:
             continue
@@ -64,10 +90,11 @@ async def compliance(session: AsyncSession, now: datetime | None = None) -> dict
             if key not in folded or ts > folded[key]:
                 folded[key] = ts
         driver_files = folded
-    known_vehicles = {
-        d.vehicle_reg: d.vehicle_reg
-        for d in (await session.execute(select(Device))).scalars().all() if d.vehicle_reg
-    }
+    if not limited:
+        known_vehicles = {
+            d.vehicle_reg: d.vehicle_reg
+            for d in (await session.execute(select(Device))).scalars().all() if d.vehicle_reg
+        }
 
     def rows(latest: dict, known: dict, interval: int, warning: int, kind: str) -> list[dict]:
         refs = set(latest) | set(known)

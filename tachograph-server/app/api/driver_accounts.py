@@ -13,6 +13,7 @@ email address here first, so drivers and office staff share one login screen.
 
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -23,16 +24,17 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_driver, require_license, require_manager
+from app.api.deps import require_driver, require_license, require_manager, require_module
 from app.config import settings
 from app.database import get_session
-from app.models.driver_auth import DriverAccount, DriverSession
-from app.services import auth
+from app.models.driver_auth import DriverAccount, DriverMembership, DriverSession
+from app.services import auth, modules
 from app.services.auth import Principal
 
 auth_router = APIRouter(prefix="/api/driver/auth", tags=["driver auth"])
 accounts_router = APIRouter(prefix="/api/driver-accounts", tags=["driver accounts"],
-                            dependencies=[Depends(require_license), Depends(require_manager)])
+                            dependencies=[Depends(require_license), Depends(require_manager),
+                                          Depends(require_module("driver_pins"))])
 
 _MAX_FAILURES = 5
 _LOCK_MINUTES = 15
@@ -60,12 +62,13 @@ async def login(body: LoginIn, request: Request, session: AsyncSession = Depends
 
     now = datetime.now(timezone.utc)
     ident = _clean_name(body.name).lower()
+    ident_id = _norm_id(body.name)
     matches = (await session.execute(
-        select(DriverAccount).where(or_(func.lower(DriverAccount.unique_id) == ident,
+        select(DriverAccount).where(or_(func.upper(func.replace(DriverAccount.unique_id, " ", "")) == ident_id,
                                         func.lower(DriverAccount.name) == ident))
     )).scalars().all()
-    # The identifier is unique; a name may not be.
-    by_id = [a for a in matches if (a.unique_id or "").lower() == ident]
+    # The identifier (driver card number / mobile) is unique; a name may not be.
+    by_id = [a for a in matches if _norm_id(a.unique_id) == ident_id]
     candidates = by_id or matches
     wrong = "Name or PIN is wrong."
     if len(candidates) > 1:
@@ -88,6 +91,10 @@ async def login(body: LoginIn, request: Request, session: AsyncSession = Depends
         raise HTTPException(status_code=401, detail=wrong)
     if not account.active:
         raise HTTPException(status_code=403, detail="This driver account is disabled. Contact your office.")
+    links = (await session.execute(
+        select(DriverMembership.active).where(DriverMembership.account_id == account.id))).scalars().all()
+    if links and not any(links):
+        raise HTTPException(status_code=403, detail="Your companies have switched off your driver app access.")
 
     token, digest = auth.new_driver_token()
     account.failed_attempts = 0
@@ -214,90 +221,179 @@ async def sign_out_everywhere(account_id: uuid.UUID, session: AsyncSession = Dep
     return await _summary(session, a)
 
 
-# --- PINs for DH FleetView drivers --------------------------------------------------------
+# --- PINs for DH FleetView drivers (one login per person, one membership per company) ---------
+
+def _norm_id(value: str | None) -> str | None:
+    """Identifiers compare without spaces and case (driver card numbers are often typed with spaces)."""
+    cleaned = re.sub(r"\s+", "", value or "").upper()
+    return cleaned or None
+
 
 class TraccarPinIn(BaseModel):
     pin: str | None = Field(default=None, pattern=r"^\d{6}$")  # None = keep the current PIN
     active: bool | None = None
 
 
+async def _visible_driver(principal: Principal, driver_id: int) -> dict:
+    driver = await auth.traccar_get(principal, f"/api/drivers/{driver_id}")
+    if not driver or not driver.get("name"):
+        raise HTTPException(status_code=404, detail="Driver not found in your DH FleetView drivers.")
+    return driver
+
+
+async def _account_by_identifier(session: AsyncSession, identifier: str) -> DriverAccount | None:
+    return (await session.execute(
+        select(DriverAccount).where(func.upper(func.replace(DriverAccount.unique_id, " ", "")) == identifier)
+    )).scalars().first()
+
+
+async def _other_companies(session: AsyncSession, account_id: uuid.UUID, except_driver_id: int | None) -> int:
+    stmt = select(func.count()).select_from(DriverMembership).where(
+        DriverMembership.account_id == account_id, DriverMembership.active.is_(True))
+    if except_driver_id is not None:
+        stmt = stmt.where(DriverMembership.traccar_driver_id != except_driver_id)
+    return (await session.execute(stmt)).scalar_one()
+
+
+async def _link_status(session: AsyncSession, principal: Principal, m: DriverMembership, a: DriverAccount) -> dict:
+    others = await _other_companies(session, a.id, m.traccar_driver_id)
+    return {
+        **(await _summary(session, a)),
+        "traccar_driver_id": m.traccar_driver_id,
+        "active": bool(m.active and a.active),
+        "shared": others > 0,
+        "other_companies": others,
+        "can_change_pin": others == 0 or modules.is_super_admin(principal),
+    }
+
+
 @accounts_router.get("/traccar")
-async def list_traccar_accounts(session: AsyncSession = Depends(get_session)) -> list[dict]:
+async def list_traccar_accounts(principal: Principal = Depends(require_manager),
+                                session: AsyncSession = Depends(get_session)) -> list[dict]:
+    """App status for the drivers this user can see in DH FleetView only."""
+    ids = [int(d["id"]) for d in await auth.visible_drivers(principal)]
+    if not ids:
+        return []
     rows = (await session.execute(
-        select(DriverAccount).where(DriverAccount.traccar_driver_id.is_not(None))
-    )).scalars().all()
-    return [await _summary(session, a) for a in rows]
+        select(DriverMembership, DriverAccount).join(DriverAccount, DriverAccount.id == DriverMembership.account_id)
+        .where(DriverMembership.traccar_driver_id.in_(ids))
+    )).all()
+    return [await _link_status(session, principal, m, a) for m, a in rows]
 
 
 @accounts_router.get("/traccar/{driver_id}")
-async def get_traccar_account(driver_id: int, session: AsyncSession = Depends(get_session)) -> dict:
-    a = (await session.execute(
-        select(DriverAccount).where(DriverAccount.traccar_driver_id == driver_id)
-    )).scalar_one_or_none()
-    return await _summary(session, a) if a else {"traccar_driver_id": driver_id, "has_account": False}
+async def get_traccar_account(driver_id: int, principal: Principal = Depends(require_manager),
+                              session: AsyncSession = Depends(get_session)) -> dict:
+    driver = await _visible_driver(principal, driver_id)
+    row = (await session.execute(
+        select(DriverMembership, DriverAccount).join(DriverAccount, DriverAccount.id == DriverMembership.account_id)
+        .where(DriverMembership.traccar_driver_id == driver_id)
+    )).first()
+    if row:
+        return await _link_status(session, principal, *row)
+    identifier = _norm_id(driver.get("uniqueId"))
+    existing = await _account_by_identifier(session, identifier) if identifier else None
+    return {"traccar_driver_id": driver_id, "has_account": False,
+            # Another company already gave this person a login: saving links them.
+            "existing_login": existing is not None}
 
 
 @accounts_router.put("/traccar/{driver_id}")
 async def set_traccar_account(driver_id: int, body: TraccarPinIn,
                               principal: Principal = Depends(require_manager),
                               session: AsyncSession = Depends(get_session)) -> dict:
-    """Set a driver's app PIN and/or app access. The driver's name and identifier are
-    read from DH FleetView as the signed-in user, so a user can only give PINs to
-    drivers they can see there."""
-    driver = await auth.traccar_get(principal, f"/api/drivers/{driver_id}")
-    if not driver or not driver.get("name"):
-        raise HTTPException(status_code=404, detail="Driver not found in DH FleetView.")
-    a = (await session.execute(
-        select(DriverAccount).where(DriverAccount.traccar_driver_id == driver_id)
-    )).scalar_one_or_none()
-    if a is None:
-        if not body.pin:
-            raise HTTPException(status_code=400, detail="Enter a 6-digit PIN to give this driver app access.")
-        a = DriverAccount(traccar_driver_id=driver_id, name=_clean_name(driver["name"]),
-                          unique_id=(driver.get("uniqueId") or "").strip() or None,
-                          pin_hash=auth.hash_pin(body.pin), created_by=principal.name)
-        session.add(a)
-    else:
-        a.name = _clean_name(driver["name"])
-        a.unique_id = (driver.get("uniqueId") or "").strip() or None
-        if body.pin:
+    """Give one of your drivers app access, link them to their existing login if
+    another company already set one up (same identifier), set a PIN, or switch
+    access off for your company."""
+    driver = await _visible_driver(principal, driver_id)
+    identifier = _norm_id(driver.get("uniqueId"))
+    if not identifier:
+        raise HTTPException(status_code=400, detail="Add the driver's identifier first (driver card number, or mobile number).")
+    super_admin = modules.is_super_admin(principal)
+    now_sessions_off = False
+
+    row = (await session.execute(
+        select(DriverMembership, DriverAccount).join(DriverAccount, DriverAccount.id == DriverMembership.account_id)
+        .where(DriverMembership.traccar_driver_id == driver_id)
+    )).first()
+    if row is None:
+        a = await _account_by_identifier(session, identifier)
+        if a is None:
+            if not body.pin:
+                raise HTTPException(status_code=400, detail="Enter a 6-digit PIN to give this driver app access.")
+            a = DriverAccount(name=_clean_name(driver["name"]), unique_id=identifier,
+                              pin_hash=auth.hash_pin(body.pin), created_by=principal.name)
+            session.add(a)
+            await session.flush()
+        elif body.pin:
+            if await _other_companies(session, a.id, None) > 0 and not super_admin:
+                raise HTTPException(status_code=403, detail={
+                    "error": "shared_login",
+                    "message": "This driver already has a driver login from another company. They'll see your "
+                               "jobs with their existing PIN; only the super administrator can change it."})
             a.pin_hash = auth.hash_pin(body.pin)
-            a.failed_attempts = 0
-            a.locked_until = None
-            await session.execute(delete(DriverSession).where(DriverSession.account_id == a.id))
+            now_sessions_off = True
+        m = DriverMembership(account_id=a.id, traccar_driver_id=driver_id, company_label=principal.name,
+                             owner_user_id=principal.user_id, active=True)
+        session.add(m)
+    else:
+        m, a = row
+        others = await _other_companies(session, a.id, driver_id)
+        if _norm_id(a.unique_id) != identifier:
+            clash = await _account_by_identifier(session, identifier)
+            if clash is not None and clash.id != a.id:
+                raise HTTPException(status_code=409, detail="That identifier already belongs to another driver login.")
+            if others > 0 and not super_admin:
+                raise HTTPException(status_code=409, detail="This driver's login is shared with another company, so their identifier can't change here.")
+            a.unique_id = identifier
+        if others == 0:
+            a.name = _clean_name(driver["name"])
+        if body.pin:
+            if others > 0 and not super_admin:
+                raise HTTPException(status_code=403, detail={
+                    "error": "shared_login",
+                    "message": "This driver also works for another company, so only the super administrator can change their PIN."})
+            a.pin_hash = auth.hash_pin(body.pin)
+            now_sessions_off = True
+    if body.pin:
+        a.failed_attempts = 0
+        a.locked_until = None
     if body.active is not None:
-        a.active = body.active
-        if not body.active and a.id is not None:
-            await session.execute(delete(DriverSession).where(DriverSession.account_id == a.id))
+        m.active = body.active
+    await session.flush()
+    if now_sessions_off or (body.active is False and await _other_companies(session, a.id, None) == 0):
+        await session.execute(delete(DriverSession).where(DriverSession.account_id == a.id))
     await session.commit()
     await session.refresh(a)
-    return await _summary(session, a)
+    await session.refresh(m)
+    return await _link_status(session, principal, m, a)
 
 
 @accounts_router.post("/traccar-sync")
 async def sync_traccar_accounts(principal: Principal = Depends(require_manager),
                                 session: AsyncSession = Depends(get_session)) -> dict:
-    """Keep names/IDs in step with DH FleetView and switch off app access for drivers
-    that were deleted there. Only an administrator sees every driver, so only an
-    administrator's sync may disable anything."""
+    """Switch off app access for drivers deleted in DH FleetView. Only an
+    administrator sees every driver, so only an administrator's sync may disable."""
     drivers = await auth.traccar_get(principal, "/api/drivers?all=true" if principal.administrator else "/api/drivers")
     if not isinstance(drivers, list):
         raise HTTPException(status_code=502, detail="Couldn't read drivers from DH FleetView.")
-    by_id = {d["id"]: d for d in drivers if "id" in d}
-    renamed = disabled = 0
+    by_id = {int(d["id"]): d for d in drivers if "id" in d}
+    updated = disabled = 0
     rows = (await session.execute(
-        select(DriverAccount).where(DriverAccount.traccar_driver_id.is_not(None))
-    )).scalars().all()
-    for a in rows:
-        d = by_id.get(a.traccar_driver_id)
+        select(DriverMembership, DriverAccount).join(DriverAccount, DriverAccount.id == DriverMembership.account_id)
+    )).all()
+    for m, a in rows:
+        d = by_id.get(m.traccar_driver_id)
         if d:
-            name, uid = _clean_name(d.get("name") or a.name), (d.get("uniqueId") or "").strip() or None
-            if (name, uid) != (a.name, a.unique_id):
-                a.name, a.unique_id = name, uid
-                renamed += 1
-        elif principal.administrator and a.active:
-            a.active = False
-            await session.execute(delete(DriverSession).where(DriverSession.account_id == a.id))
+            if await _other_companies(session, a.id, m.traccar_driver_id) == 0:
+                name = _clean_name(d.get("name") or a.name)
+                if name != a.name:
+                    a.name = name
+                    updated += 1
+        elif principal.administrator and m.active:
+            m.active = False
             disabled += 1
+            if await _other_companies(session, a.id, m.traccar_driver_id) == 0:
+                await session.execute(delete(DriverSession).where(DriverSession.account_id == a.id))
     await session.commit()
-    return {"drivers": len(by_id), "updated": renamed, "disabled": disabled}
+    return {"drivers": len(by_id), "updated": updated, "disabled": disabled}

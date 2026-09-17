@@ -222,7 +222,7 @@
   .ai.primary { background: var(--d-primary); } .ai.bad { background: var(--d-bad); } .ai.warn { background: var(--d-warn); } .ai.teal { background: var(--d-teal); } .ai.ok { background: var(--d-ok); }
 
   /* --- bottom nav --- */
-  .nav { position: fixed; left: 12px; right: 12px; bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 30; background: var(--d-surface); border-radius: 22px; box-shadow: 0 6px 24px rgba(17,24,39,.12); border: 1px solid var(--d-line); display: grid; grid-template-columns: repeat(4, 1fr); padding: 6px; max-width: 616px; margin: 0 auto; }
+  .nav { position: fixed; left: 12px; right: 12px; bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 30; background: var(--d-surface); border-radius: 22px; box-shadow: 0 6px 24px rgba(17,24,39,.12); border: 1px solid var(--d-line); display: grid; grid-template-columns: repeat(5, 1fr); padding: 6px; max-width: 616px; margin: 0 auto; }
   .nav a { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 7px 0; border-radius: 16px; font-size: 11px; color: var(--d-fg-2); text-decoration: none; }
   .nav a.on { background: var(--d-primary-soft); color: var(--d-primary); font-weight: 600; }
 
@@ -240,6 +240,14 @@
   .stat { background: var(--d-surface-2); border-radius: 12px; padding: 10px; }
   .stat .n { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; } .stat .l { font-size: 11px; color: var(--d-mut); }
   .locked { text-align: center; padding: 40px 20px; }
+  .co-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: var(--d-primary); background: var(--d-primary-soft); border-radius: 999px; padding: 2px 8px; }
+  .hday { display: grid; grid-template-columns: 74px 1fr 56px; gap: 10px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--d-line); font-size: 13px; }
+  .hday:last-child { border-bottom: 0; }
+  .hbar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: var(--d-surface-2); }
+  .hbar i { display: block; height: 100%; }
+  .h-drive { background: #2563eb; } .h-work { background: #f59e0b; } .h-available { background: #8b5cf6; } .h-rest { background: #10b981; }
+  .hlegend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--d-mut); margin: 8px 0 2px; }
+  .hlegend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; background: var(--c); }
 </style>
 </head>
 <body>
@@ -264,6 +272,7 @@
   <a href="#/home" data-nav="home"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3 2 11.5h3V21h5.5v-6h3v6H19v-9.5h3z"/></svg>Home</a>
   <a href="#/documents" data-nav="documents"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M6 2h8l6 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm7 1.5V9h5.5zM8 13h8v1.6H8zm0 3.4h8V18H8z"/></svg>Documents</a>
   <a href="#/live" data-nav="live"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M21 3 3 10.5l7.2 2.3L12.5 20z"/></svg>Live</a>
+  <a href="#/hours" data-nav="hours"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 2.2a7.8 7.8 0 1 1 0 15.6 7.8 7.8 0 0 1 0-15.6zM11 6.5v6.1l4.6 2.8.9-1.5-3.7-2.2V6.5z"/></svg>Hours</a>
   <a href="#/contacts" data-nav="contacts"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm7.5 0a3.3 3.3 0 1 0 0-6.6 3.3 3.3 0 0 0 0 6.6zM1.5 20c0-3.6 3.4-6.3 7.5-6.3s7.5 2.7 7.5 6.3V21h-15zm16.2 1v-1c0-2-.8-3.8-2.2-5.2.4-.1.7-.1 1.1-.1 3.4 0 6 2.2 6 5.2V21z"/></svg>Contacts</a>
 </nav>
 
@@ -329,7 +338,9 @@ function fmtDuration(ms, withSeconds = true) {
 function fmtClock(ms) { const s = Math.max(0, Math.floor(ms / 1000)); const m = Math.floor(s / 60); return `${String(m).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`; }
 
 // ---------- api ----------
-class LicenceLocked extends Error {}
+class LicenceLocked extends Error {
+  constructor(message, kind = "licence") { super(message); this.kind = kind; }
+}
 class SignedOut extends Error {}
 async function api(method, path, body, isForm = false) {
   const opts = { method, headers: {} };
@@ -342,6 +353,7 @@ async function api(method, path, body, isForm = false) {
   let data = null;
   try { data = await r.json(); } catch (e) {}
   if (r.status === 403 && data && data.detail && data.detail.error === "licence_suspended") throw new LicenceLocked(data.detail.message);
+  if (r.status === 403 && data && data.detail && data.detail.error === "module_disabled") throw new LicenceLocked(data.detail.message, "module");
   if (r.status === 401 && data && data.detail && data.detail.error === "login_required") { signedOut(); throw new SignedOut(); }
   if (!r.ok) {
     const d = data && data.detail;
@@ -363,7 +375,7 @@ function toast(msg, bad = false) {
 }
 function fail(e) {
   if (e instanceof SignedOut) return;
-  if (e instanceof LicenceLocked) { renderLocked(e.message); return; }
+  if (e instanceof LicenceLocked) { renderLocked(e.message, e.kind); return; }
   toast(e.message || String(e), true);
 }
 async function busy(btn, fn) {
@@ -452,6 +464,24 @@ function saveDraft(d) {
   }
 }
 
+// A driver can work for more than one company on the same login.
+function companies() { return (S.state && S.state.companies) || []; }
+function companyLabel(id) { const c = companies().find((x) => x.id === id); return c ? c.label : ""; }
+function coChip(label) { return companies().length > 1 && label ? `<span class="co-chip">${esc(label)}</span>` : ""; }
+function pickCompany() {
+  const list = companies();
+  if (list.length <= 1) return Promise.resolve(list.length ? list[0].id : null);
+  return new Promise((resolve) => {
+    let chosen = null;
+    openSheet("Who are you driving for?", `<p class="mut" style="margin:12px 0">You drive for more than one company. Choose the company for this shift — your checks, fuel and paperwork go to them.</p>
+      ${list.map((c) => `<button class="action" data-co="${esc(c.id)}"><span class="ai primary">${ICON.truck.replace('stroke="var(--d-primary)"', 'stroke="#fff"')}</span><span><div class="at">${esc(c.label || "Company")}</div></span><span class="chev">${ICON.chev}</span></button>`).join("")}`, (sh) => {
+      $$("[data-co]", sh).forEach((b) => { b.onclick = () => { chosen = Number(b.dataset.co); closeSheet(); }; });
+    });
+    // Resolve when the sheet closes, chosen or not.
+    const watch = setInterval(() => { if ($("#sheet").hidden) { clearInterval(watch); resolve(chosen); } }, 150);
+  });
+}
+
 async function loadState() {
   S.state = await api("GET", "api/driver/state");
   const pending = (S.state.jobs || []).some((j) => j.status === "pending");
@@ -475,16 +505,17 @@ function route() {
   if (name === "home") return renderHome();
   if (name === "documents") return renderDocuments();
   if (name === "contacts") return renderContacts();
+  if (name === "hours") return renderHours();
   return renderLive();
 }
 window.addEventListener("hashchange", route);
 
-function renderLocked(message) {
+function renderLocked(message, kind = "licence") {
   clearTimers();
   setTopbar({ title: "Driver", avatar: !!S.driver }); setNav(null); setSubbar(null); setBottomAction(null);
   $("#view").innerHTML = `<div class="card locked"><div style="font-size:40px">🔒</div><h2 style="margin:8px 0">Driver app locked</h2>
     <p class="mut">${esc(message || "The compliance licence for this month hasn't been approved yet.")}</p>
-    <p class="mut small">Ask your transport office to approve this month's licence, then try again.</p>
+    <p class="mut small">${kind === "module" ? "Your transport office can switch it on." : "Ask your transport office to approve this month's licence, then try again."}</p>
     <button class="btn btn-primary" onclick="route()">Try again</button></div>`;
 }
 
@@ -498,8 +529,29 @@ function signedOut() {
   clearTimers();
   location.replace(LOGIN_URL);
 }
-function renderSignIn() {
-  signedOut();
+// No driver session. Office staff who open the driver screens from DH FleetView
+// get an explanation instead of being bounced to their own home screen.
+async function renderSignIn() {
+  let officeUser = null;
+  try {
+    const r = await fetch("/api/session", { headers: { Accept: "application/json" } });
+    if (r.ok) officeUser = await r.json();
+  } catch (e) {}
+  if (!officeUser) { signedOut(); return; }
+  clearTimers();
+  setTopbar({ title: "Driver" }); setNav(null); setSubbar(null); setBottomAction(null);
+  $("#view").innerHTML = `<div class="card" style="margin-top:24px">
+      <div class="card-title" style="font-size:20px">Driver screens</div>
+      <p class="mut" style="margin:0 0 10px">You're signed in to DH FleetView as <b>${esc(officeUser.name || officeUser.email || "an office user")}</b>.
+        These screens are for drivers, so there's nothing to show for an office account.</p>
+      <p class="mut" style="margin:0 0 6px">To give a driver access:</p>
+      <ol class="mut" style="margin:0 0 16px;padding-left:20px">
+        <li>Open <b>Settings → Drivers</b> and set a 6-digit PIN for the driver.</li>
+        <li>The driver signs in on the normal DH FleetView login with their name (or driver ID) and that PIN.</li>
+      </ol>
+      <a class="btn btn-primary" href="/settings/drivers" style="text-decoration:none">Manage drivers &amp; PINs</a>
+      <a class="btn btn-soft" href="/" style="text-decoration:none">Back to DH FleetView</a>
+    </div>`;
 }
 function openProfile() {
   openSheet("Profile", `
@@ -545,7 +597,7 @@ async function renderLive() {
     html += vehicleCard(st, draft);
   }
 
-  html += jobsSection(st.jobs || []);
+  if (!st.modules || st.modules.jobs !== false) html += jobsSection(st.jobs || []);
   view.innerHTML = html;
 
   S.timers.push(setInterval(tickTimers, 1000)); tickTimers();
@@ -587,7 +639,9 @@ function wireRegSearch() {
         ${v.found ? "" : '<div class="hint">This registration isn\'t on your fleet list yet. Check it, or start anyway and your office will see it.</div>'}
         <button class="btn btn-ok" id="startShift" style="margin-top:16px">Start Shift</button></div>`;
       $("#startShift").onclick = (e) => busy(e.currentTarget, async () => {
-        await api("POST", "api/driver/shift/start", { vehicle_reg: v.reg });
+        const companyId = await pickCompany();
+        if (companies().length > 1 && companyId == null) return;
+        await api("POST", "api/driver/shift/start", { vehicle_reg: v.reg, company_id: companyId });
         store.del("regSearch");
         toast("Shift started — complete your pre-use walkaround");
         await renderLive();
@@ -621,6 +675,7 @@ function vehicleCard(st, draft) {
     <div class="row between"><span class="plate">${esc(fmtReg(v.reg))}</span>
       <button class="actions-btn" id="actionsBtn">${ICON.bolt} Actions ${ICON.dots}</button></div>
     ${v.company ? `<div class="loc">${ICON.pin} ${esc(v.company)}</div>` : ""}
+    ${st.shift.company && companies().length > 1 ? `<div style="margin-top:6px">${coChip(st.shift.company)}</div>` : ""}
     <div class="status-line"><span class="${onBreak ? "" : "inuse"}" style="color:${onBreak ? "var(--d-warn)" : "var(--d-ok)"};font-weight:600"><span class="live-dot" style="background:currentColor"></span>${onBreak ? "On Break" : "In Use"}</span>
       <span class="mut">Started ${esc(fmtTime12(st.shift.clocked_in_at))}</span>
       <b data-since="${esc(st.shift.clocked_in_at)}"></b></div>
@@ -644,7 +699,7 @@ const JOB_STATUS = {
 function jobChip(s) { const [l, c] = JOB_STATUS[s] || [s, "chip-mut"]; return `<span class="chip ${c}">${s === "accepted" || s === "completed" ? "✓ " : ""}${esc(l)}</span>`; }
 function jobCard(j) {
   return `<button class="job ${esc(j.status)}" data-job="${esc(j.id)}">
-    <div class="row between"><span class="ref">${esc(j.ref || "Job")}</span>${jobChip(j.status)}</div>
+    <div class="row between"><span class="ref">${esc(j.ref || "Job")} ${coChip(j.company)}</span>${jobChip(j.status)}</div>
     <div class="row between" style="align-items:center"><div class="title">${esc(j.title)}</div>${j.vehicle_reg ? `<span class="plate rear" style="margin-top:8px">${esc(fmtReg(j.vehicle_reg))}</span>` : ""}</div>
     <div class="meta"><span>${ICON.user} ${esc(j.driver_name)}</span><span>${esc(fmtWhen(j.scheduled_at || j.assigned_at))}</span></div>
   </button>`;
@@ -1062,6 +1117,7 @@ async function renderJob(id) {
       <div style="font-weight:700;text-transform:uppercase;margin-top:10px">${esc(j.title)}</div>
       <div class="loc" style="margin-top:6px">${ICON.cal} ${esc(fmtWhen(j.scheduled_at || j.assigned_at))}</div>
       <div class="loc" style="margin-top:4px">${ICON.user} ${esc(j.driver_name)}</div>
+      ${coChip(companyLabel(j.traccar_driver_id)) ? `<div style="margin-top:6px">${coChip(companyLabel(j.traccar_driver_id))}</div>` : ""}
       ${j.vehicle_reg ? `<div style="margin-top:8px"><span class="plate">${esc(fmtReg(j.vehicle_reg))}</span></div>` : ""}
     </div>
     <div class="card" style="padding:4px 8px">${idx >= 0 ? `<div class="stepper">${steps.map(([l, i]) => `<div class="s ${i <= idx ? "done" : ""}"><div class="c">${i <= idx ? ICON.check : ""}</div>${l}</div>`).join("")}</div>` : ""}</div>
@@ -1129,6 +1185,7 @@ async function renderHome() {
   view.innerHTML = `<div style="font-size:22px;font-weight:600;margin:6px 0 14px">${greet}, ${esc(S.driver.split(" ")[0])}</div>
     <div class="card">
       ${st.shift ? `<div class="row between"><span class="plate">${esc(fmtReg(st.shift.vehicle_reg))}</span><span class="chip chip-ok">On shift</span></div>
+        ${st.shift.company && companies().length > 1 ? `<div style="margin-top:8px">${coChip(st.shift.company)}</div>` : ""}
         <div class="stat-grid" style="margin-top:14px"><div class="stat"><div class="n" data-since="${esc(st.shift.clocked_in_at)}" data-fmt="short"></div><div class="l">On shift</div></div>
         <div class="stat"><div class="n">${open}</div><div class="l">Open jobs</div></div><div class="stat"><div class="n">${done}</div><div class="l">Done today</div></div></div>
         <a class="btn btn-primary" href="#/live" style="margin-top:14px;text-decoration:none">Go to Live</a>`
@@ -1175,15 +1232,79 @@ async function renderDocuments(tab = "paperwork") {
 }
 
 // Files need the sign-in header, so fetch them and open the blob.
-async function openFile(path) {
+function openFile(path) { return fetchAndOpen("api/driver/files/" + path, path.replace("/", "-")); }
+async function fetchAndOpen(apiPath, baseName) {
+  if (window.flutter_inappwebview) {
+    // Inside the mobile app: hand the file to the app to save/share.
+    try {
+      const r = await fetch(BASE + apiPath, { headers: { Authorization: "Bearer " + S.token } });
+      if (!r.ok) throw new Error("Couldn't open that file.");
+      const blob = await r.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = baseName + "." + ((blob.type.split("/")[1] || "bin").replace("jpeg", "jpg"));
+      a.click();
+    } catch (e) { fail(e); }
+    return;
+  }
   const win = window.open("", "_blank");
   try {
-    const r = await fetch(BASE + "api/driver/files/" + path, { headers: { Authorization: "Bearer " + S.token } });
+    const r = await fetch(BASE + apiPath, { headers: { Authorization: "Bearer " + S.token } });
     if (!r.ok) throw new Error("Couldn't open that file.");
     const url = URL.createObjectURL(await r.blob());
     if (win) win.location = url; else location.href = url;
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   } catch (e) { if (win) win.close(); fail(e); }
+}
+
+// ---------- HOURS (the driver's own tachograph card data) ----------
+function fmtMins(m) { m = Math.max(0, Math.round(m || 0)); return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`; }
+async function renderHours() {
+  setTopbar({ title: "My Hours", avatar: true, bell: true }); setNav("hours");
+  const view = $("#view");
+  view.innerHTML = `<div class="empty"><span class="spinner"></span></div>`;
+  let t;
+  try { t = await api("GET", "api/driver/tacho?days=28"); } catch (e) { return fail(e); }
+  if (!location.hash.startsWith("#/hours")) return;
+  if (!t.linked) {
+    view.innerHTML = `<div class="card" style="margin-top:8px"><div class="card-title">${ICON.clock} Tachograph hours</div>
+      ${t.reason === "no_card_number"
+        ? `<p class="mut" style="margin:0">Your hours show here once your driver login is linked to your <b>driver card number</b>.</p>
+           <p class="mut small" style="margin:10px 0 0">Ask your transport office to set your driver ID in DH FleetView (Settings → Drivers → Identifier) to the 16-character number on your driver card.</p>`
+        : `<p class="mut" style="margin:0">Your login is linked to your driver card, but no card download has been received yet.</p>
+           <p class="mut small" style="margin:10px 0 0">Your hours appear after your office next downloads your driver card.</p>`}
+    </div>`;
+    return;
+  }
+  const days = t.days || [];
+  const DAY_MIN = 1440;
+  const inf = t.infringements || [];
+  const dayLabel = (d) => new Date(d + "T12:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", timeZone: "UTC" });
+  const bar = (d) => ["drive", "work", "available", "rest"].map((k) => d[k] ? `<i class="h-${k}" style="width:${Math.min(100, (d[k] / DAY_MIN) * 100)}%" title="${k} ${fmtMins(d[k])}"></i>` : "").join("");
+  view.innerHTML = `
+    <div class="card">
+      <div class="row between"><div class="card-title" style="margin:0">${ICON.clock} Tachograph hours</div>
+        ${t.last_card_download ? `<span class="mut small">Card read ${esc(fmtWhen(t.last_card_download))}</span>` : ""}</div>
+      <div class="stat-grid" style="margin-top:12px">
+        <div class="stat"><div class="n">${fmtMins(t.this_week_drive_minutes)}</div><div class="l">Driving this week</div></div>
+        <div class="stat"><div class="n">${fmtMins(Math.max(0, 3360 - (t.this_week_drive_minutes || 0)))}</div><div class="l">Left of 56h week</div></div>
+        <div class="stat"><div class="n" style="color:${inf.length ? "var(--d-bad)" : "var(--d-ok)"}">${inf.length}</div><div class="l">Open infringements</div></div>
+      </div>
+      <p class="mut small" style="margin:10px 0 0">From your last driver card download — driving since then isn't included.</p>
+      <button class="btn btn-primary" id="hPdf" style="margin-top:12px">${ICON.doc} Download timeline PDF</button>
+    </div>
+    ${inf.length ? `<div class="section-title">Infringements</div><div class="card">${inf.map((i) => `<div class="fault-item">
+        <span class="chip ${i.severity === "minor" ? "chip-warn" : "chip-bad"} square">${esc(i.severity || "issue")}</span>
+        <span><b>${esc(i.title)}</b><div class="mut small">${esc(fmtWhen(i.period_start))}${i.limit_minutes != null && i.actual_minutes != null ? ` · ${fmtMins(i.actual_minutes)} (limit ${fmtMins(i.limit_minutes)})` : ""}</div>
+        ${i.detail ? `<div class="mut small">${esc(i.detail)}</div>` : ""}</span></div>`).join("")}</div>` : ""}
+    <div class="section-title">Last 28 days</div>
+    <div class="card">
+      <div class="hlegend"><span style="--c:#2563eb">Drive</span><span style="--c:#f59e0b">Other work</span><span style="--c:#8b5cf6">Available</span><span style="--c:#10b981">Rest</span></div>
+      ${days.length ? days.map((d) => `<div class="hday"><span>${esc(dayLabel(d.date))}</span><div class="hbar">${bar(d)}</div>
+          <span style="text-align:right;font-variant-numeric:tabular-nums" title="Driving">${d.drive ? fmtMins(d.drive) : "—"}</span></div>`).join("")
+        : `<div class="empty">No card activity in the last 28 days.</div>`}
+    </div>`;
+  $("#hPdf").onclick = (e) => busy(e.currentTarget, () => fetchAndOpen("api/driver/tacho/timeline.pdf?days=28", "my-tacho-timeline"));
 }
 
 // ---------- CONTACTS ----------

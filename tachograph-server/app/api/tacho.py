@@ -10,19 +10,21 @@ from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_license, require_manager
+from app.api.deps import require_license, require_manager, require_module
+from app.services.auth import Principal
 from app.config import settings
 from app.database import get_session
 from app.models.core import Company, Vehicle
 from app.models.tacho import TachoActivity
 from app.models.tacho import Infringement, TachoFile
-from app.services import archive, ddd_go, ddd_parser, tacho_compliance, tacho_pdf, tacho_report
+from app.services import archive, ddd_go, ddd_parser, modules, tacho_compliance, tacho_pdf, tacho_report
+from app.services.tacho_scope import TachoScope, scope_for
 from app.services.tacho_rules import Activity, Infringement as RuleInfringement, analyse
 
-router = APIRouter(prefix="/api/tacho", tags=["tacho"], dependencies=[Depends(require_license), Depends(require_manager)])
+router = APIRouter(prefix="/api/tacho", tags=["tacho"], dependencies=[Depends(require_license), Depends(require_manager), Depends(require_module("tacho"))])
 
 
 # --- schemas ----------------------------------------------------------------
@@ -59,6 +61,22 @@ class ReanalyseIn(BaseModel):
 
 
 # --- helpers ----------------------------------------------------------------
+
+async def tacho_scope(principal: Principal = Depends(require_manager),
+                      session: AsyncSession = Depends(get_session)) -> TachoScope:
+    """The tachograph data this office user may see (see services/tacho_scope)."""
+    import urllib.error
+
+    try:
+        return await scope_for(session, principal)
+    except (urllib.error.URLError, OSError, ValueError):
+        raise HTTPException(status_code=503, detail="Can't reach DH FleetView to check your drivers. Try again shortly.")
+
+
+def _super_admin_only(principal: Principal) -> None:
+    if not modules.is_super_admin(principal):
+        raise HTTPException(status_code=403, detail="Only the super administrator can do this.")
+
 
 def _aware(dt: datetime) -> datetime:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
@@ -188,28 +206,34 @@ async def _persist_infringements(session: AsyncSession, driver_ref: str, found: 
 # --- endpoints --------------------------------------------------------------
 
 @router.get("/company")
-async def company_name(session: AsyncSession = Depends(get_session)) -> dict:
-    """Return the latest company name read from a vehicle-unit upload."""
-    name = (await session.execute(
+async def company_name(session: AsyncSession = Depends(get_session),
+                       scope: TachoScope = Depends(tacho_scope)) -> dict:
+    """Return the latest company name read from one of your vehicle-unit uploads."""
+    return {"name": await _latest_company_name(session, scope)}
+
+
+async def _latest_company_name(session: AsyncSession, scope: TachoScope) -> str | None:
+    return (await session.execute(
         select(TachoFile.company_name)
-        .where(TachoFile.file_kind == "vehicle_unit", TachoFile.company_name.isnot(None))
+        .where(TachoFile.file_kind == "vehicle_unit", TachoFile.company_name.isnot(None), scope.files())
         .order_by(TachoFile.created_at.desc())
         .limit(1)
     )).scalar_one_or_none()
-    return {"name": name or "${title}"}
 
 
 @router.get("/summary")
-async def summary(session: AsyncSession = Depends(get_session)) -> dict:
-    comp = await tacho_compliance.compliance(session)
+async def summary(session: AsyncSession = Depends(get_session),
+                  scope: TachoScope = Depends(tacho_scope)) -> dict:
+    comp = await tacho_compliance.compliance(session, scope=scope)
     open_inf = (await session.execute(
-        select(func.count()).select_from(Infringement).where(Infringement.status == "open")
+        select(func.count()).select_from(Infringement).where(Infringement.status == "open", scope.infringements())
     )).scalar_one()
     serious = (await session.execute(
         select(func.count()).select_from(Infringement).where(
-            Infringement.status == "open", Infringement.severity.in_(("serious", "very_serious")))
+            Infringement.status == "open", Infringement.severity.in_(("serious", "very_serious")),
+            scope.infringements())
     )).scalar_one()
-    files = (await session.execute(select(func.count()).select_from(TachoFile))).scalar_one()
+    files = (await session.execute(select(func.count()).select_from(TachoFile).where(scope.files()))).scalar_one()
     d = comp["summary"]["drivers"]
     v = comp["summary"]["vehicles"]
     return {
@@ -222,12 +246,15 @@ async def summary(session: AsyncSession = Depends(get_session)) -> dict:
 
 
 @router.get("/compliance")
-async def compliance(session: AsyncSession = Depends(get_session)) -> dict:
-    return await tacho_compliance.compliance(session)
+async def compliance(session: AsyncSession = Depends(get_session),
+                     scope: TachoScope = Depends(tacho_scope)) -> dict:
+    return await tacho_compliance.compliance(session, scope=scope)
 
 
 @router.post("/analyze")
-async def analyze(body: AnalyzeIn, session: AsyncSession = Depends(get_session)) -> dict:
+async def analyze(body: AnalyzeIn, session: AsyncSession = Depends(get_session),
+                  principal: Principal = Depends(require_manager)) -> dict:
+    _super_admin_only(principal)
     acts = [Activity(a.type, _aware(a.start), _aware(a.end)) for a in body.activities]
     found = analyse(acts)
     added = await _persist_infringements(session, body.driver_ref, found, body.source_file_id)
@@ -242,7 +269,9 @@ async def analyze(body: AnalyzeIn, session: AsyncSession = Depends(get_session))
 
 @router.post("/upload", status_code=201)
 async def upload(body: UploadIn, session: AsyncSession = Depends(get_session),
-                 x_company_id: str | None = Header(default=None)) -> dict:
+                 x_company_id: str | None = Header(default=None),
+                 principal: Principal = Depends(require_manager),
+                 scope: TachoScope = Depends(tacho_scope)) -> dict:
     filename = body.filename.strip()
     if not filename:
         raise HTTPException(status_code=400, detail="Filename is required.")
@@ -276,6 +305,8 @@ async def upload(body: UploadIn, session: AsyncSession = Depends(get_session),
             TachoFile.parsed.is_(True),
             (TachoFile.company_id == company_id if company_id is not None
              else TachoFile.company_id.is_(None)),
+            # Only your own copy counts: another company's upload of the same file stays theirs.
+            or_(scope.files(), TachoFile.uploaded_by_user_id == principal.user_id),
         )
         .order_by(TachoFile.created_at.desc())
         .limit(1)
@@ -314,16 +345,14 @@ async def upload(body: UploadIn, session: AsyncSession = Depends(get_session),
         vehicle_ref=vehicle.registration if vehicle else body.vehicle_ref,
         size_bytes=meta["size_bytes"], sha256=meta["sha256"],
         storage_path=meta["storage_path"], source="upload",
-        retain_until=meta["retain_until"])
+        retain_until=meta["retain_until"], uploaded_by_user_id=principal.user_id)
     session.add(tf)
     await session.flush()
 
     result = {"file_id": str(tf.id), "sha256": meta["sha256"], "size_bytes": meta["size_bytes"],
               "parsed": False, "infringements_found": 0, "infringements_new": 0}
 
-    if body.file_kind == "vehicle_unit":
-        tf.company_name = ddd_parser.parse_vehicle_unit_company(data)
-    elif body.file_kind == "driver_card":
+    if body.file_kind == "driver_card":
         try:
             parsed, parser_name = _parse_driver_card(data)
             tf.parsed = True
@@ -333,6 +362,7 @@ async def upload(body: UploadIn, session: AsyncSession = Depends(get_session),
             driver_ref = (body.driver_ref or parsed.get("driver_ref")
                           or f"file:{meta['sha256'][:8]}")[:40]
             tf.driver_ref = driver_ref
+            tf.card_number = parsed.get("card_number") or tf.card_number
             await _persist_activities(session, parsed, tf.id, company_id,
                                       vehicle.id if vehicle else None, vehicle.registration if vehicle else body.vehicle_ref,
                                       driver_ref)
@@ -348,6 +378,10 @@ async def upload(body: UploadIn, session: AsyncSession = Depends(get_session),
             tf.parse_error = str(e)[:500]
             result["parse_error"] = str(e)
     elif body.file_kind == "vehicle_unit":
+        try:
+            tf.company_name = ddd_parser.parse_vehicle_unit_company(data)
+        except Exception:
+            tf.company_name = None
         try:
             # Vehicle-unit files are not driver cards. Parse the VU identity
             # first, then find (or create) the account's vehicle by the
@@ -411,7 +445,9 @@ async def upload(body: UploadIn, session: AsyncSession = Depends(get_session),
 
 @router.post("/upload-batch")
 async def upload_batch(files: list[UploadIn], session: AsyncSession = Depends(get_session),
-                       x_company_id: str | None = Header(default=None)) -> dict:
+                       x_company_id: str | None = Header(default=None),
+                       principal: Principal = Depends(require_manager),
+                       scope: TachoScope = Depends(tacho_scope)) -> dict:
     """Upload several driver-card or VU files and return one result per file.
 
     A bad file must not hide the result of the other files in the same picker
@@ -422,7 +458,8 @@ async def upload_batch(files: list[UploadIn], session: AsyncSession = Depends(ge
     results = []
     for item in files:
         try:
-            results.append(await upload(item, session=session, x_company_id=x_company_id))
+            results.append(await upload(item, session=session, x_company_id=x_company_id,
+                                        principal=principal, scope=scope))
         except HTTPException as exc:
             results.append({"filename": item.filename, "parsed": False,
                             "error": exc.detail, "status_code": exc.status_code})
@@ -436,8 +473,10 @@ async def upload_batch(files: list[UploadIn], session: AsyncSession = Depends(ge
 @router.post("/files/{file_id}/assign")
 async def assign_file(file_id: uuid.UUID, company_id: uuid.UUID, vehicle_id: uuid.UUID | None = None,
                       x_company_id: str | None = Header(default=None),
-                      session: AsyncSession = Depends(get_session)) -> dict:
+                      session: AsyncSession = Depends(get_session),
+                      principal: Principal = Depends(require_manager)) -> dict:
     """Explicitly assign an archived download to a customer and optional vehicle."""
+    _super_admin_only(principal)
     if x_company_id:
         try:
             if uuid.UUID(x_company_id) != company_id:
@@ -467,7 +506,8 @@ async def assign_file(file_id: uuid.UUID, company_id: uuid.UUID, vehicle_id: uui
 
 
 @router.post("/reanalyse")
-async def reanalyse(body: ReanalyseIn, session: AsyncSession = Depends(get_session)) -> dict:
+async def reanalyse(body: ReanalyseIn, session: AsyncSession = Depends(get_session),
+                    scope: TachoScope = Depends(tacho_scope)) -> dict:
     """Re-run the rules over already-archived driver cards.
 
     Infringements are derived data, so when the engine is corrected the stored
@@ -475,7 +515,7 @@ async def reanalyse(body: ReanalyseIn, session: AsyncSession = Depends(get_sessi
     has already acknowledged or dismissed are left alone: those record a human
     decision, so they are reported back for review instead of being rewritten.
     """
-    stmt = select(TachoFile).where(TachoFile.file_kind == "driver_card")
+    stmt = select(TachoFile).where(TachoFile.file_kind == "driver_card", scope.files())
     if body.file_id:
         stmt = stmt.where(TachoFile.id == body.file_id)
     files = (await session.execute(stmt)).scalars().all()
@@ -495,6 +535,7 @@ async def reanalyse(body: ReanalyseIn, session: AsyncSession = Depends(get_sessi
         driver_ref = (parsed.get("driver_ref") or tf.driver_ref
                       or f"file:{(tf.sha256 or '')[:8]}")[:40]
         tf.driver_ref = driver_ref
+        tf.card_number = parsed.get("card_number") or tf.card_number
         tf.parsed = True
         tf.parse_error = None
 
@@ -528,9 +569,9 @@ async def reanalyse(body: ReanalyseIn, session: AsyncSession = Depends(get_sessi
 
 async def _report_for(session: AsyncSession, file_id: uuid.UUID | None,
                       driver_ref: str | None, start: date | None,
-                      end: date | None) -> dict:
+                      end: date | None, scope: TachoScope) -> dict:
     """Pick the card file the report is about, then build the report from it."""
-    stmt = select(TachoFile).where(TachoFile.file_kind == "driver_card")
+    stmt = select(TachoFile).where(TachoFile.file_kind == "driver_card", scope.files())
     if file_id:
         stmt = stmt.where(TachoFile.id == file_id)
     elif driver_ref:
@@ -569,26 +610,29 @@ async def _report_for(session: AsyncSession, file_id: uuid.UUID | None,
     return tacho_report.build_report(
         parsed, found, start=start, end=end,
         driver_ref=tf.driver_ref or parsed.get("driver_ref"),
-        company_name=(await session.execute(
-            select(TachoFile.company_name)
-            .where(TachoFile.file_kind == "vehicle_unit", TachoFile.company_name.isnot(None))
-            .order_by(TachoFile.created_at.desc()).limit(1)
-        )).scalar_one_or_none())
+        company_name=await _latest_company_name(session, scope))
 
 
 @router.get("/timeline")
 async def timeline(driver_ref: str | None = None,
                    start: datetime | None = None, end: datetime | None = None,
                    company_id: uuid.UUID | None = None,
-                   session: AsyncSession = Depends(get_session)) -> list[dict]:
+                   session: AsyncSession = Depends(get_session),
+                   scope: TachoScope = Depends(tacho_scope)) -> list[dict]:
     """Return driver-card activities for the driver timeline.
 
     Vehicle-unit activities are deliberately excluded. Registrations come from
     the vehicle spells recorded on the driver's card for each activity day.
     """
+    return await timeline_rows(session, scope, driver_ref, start, end, company_id)
+
+
+async def timeline_rows(session: AsyncSession, scope: TachoScope, driver_ref: str | None = None,
+                        start: datetime | None = None, end: datetime | None = None,
+                        company_id: uuid.UUID | None = None) -> list[dict]:
     stmt = (select(TachoActivity)
             .join(TachoFile, TachoFile.id == TachoActivity.source_file_id)
-            .where(TachoFile.file_kind == "driver_card")
+            .where(TachoFile.file_kind == "driver_card", scope.activities())
             .order_by(TachoActivity.started_at))
     if company_id:
         stmt = stmt.where(TachoActivity.company_id == company_id)
@@ -612,10 +656,16 @@ async def timeline(driver_ref: str | None = None,
 async def timeline_pdf(driver_ref: str | None = None,
                        start: datetime | None = None, end: datetime | None = None,
                        company_id: uuid.UUID | None = None,
-                       session: AsyncSession = Depends(get_session)) -> Response:
+                       session: AsyncSession = Depends(get_session),
+                       scope: TachoScope = Depends(tacho_scope)) -> Response:
     """Export driver-card activities as daily 24-hour tachograph charts."""
-    rows = await timeline(driver_ref=driver_ref, start=start, end=end,
-                          company_id=company_id, session=session)
+    return await timeline_pdf_response(session, scope, driver_ref, start, end, company_id)
+
+
+async def timeline_pdf_response(session: AsyncSession, scope: TachoScope, driver_ref: str | None = None,
+                                start: datetime | None = None, end: datetime | None = None,
+                                company_id: uuid.UUID | None = None) -> Response:
+    rows = await timeline_rows(session, scope, driver_ref, start, end, company_id)
     safe = "".join(c if c.isalnum() else "_"
                    for c in (driver_ref or "timeline")).strip("_") or "timeline"
     return Response(
@@ -627,15 +677,17 @@ async def timeline_pdf(driver_ref: str | None = None,
 @router.get("/report")
 async def report(file_id: uuid.UUID | None = None, driver_ref: str | None = None,
                  start: date | None = None, end: date | None = None,
-                 session: AsyncSession = Depends(get_session)) -> dict:
-    return await _report_for(session, file_id, driver_ref, start, end)
+                 session: AsyncSession = Depends(get_session),
+                 scope: TachoScope = Depends(tacho_scope)) -> dict:
+    return await _report_for(session, file_id, driver_ref, start, end, scope)
 
 
 @router.get("/report.pdf")
 async def report_pdf(file_id: uuid.UUID | None = None, driver_ref: str | None = None,
                      start: date | None = None, end: date | None = None,
-                     session: AsyncSession = Depends(get_session)) -> Response:
-    data = await _report_for(session, file_id, driver_ref, start, end)
+                     session: AsyncSession = Depends(get_session),
+                     scope: TachoScope = Depends(tacho_scope)) -> Response:
+    data = await _report_for(session, file_id, driver_ref, start, end, scope)
     who = (data["driver"].get("name") or data["driver"].get("ref") or "driver")
     safe = "".join(c if c.isalnum() else "_" for c in who).strip("_") or "driver"
     name = f"{safe}_{data['period']['from']}_{data['period']['to']}.pdf"
@@ -647,10 +699,11 @@ async def report_pdf(file_id: uuid.UUID | None = None, driver_ref: str | None = 
 @router.get("/infringements")
 async def list_infringements(status: str = "open", driver_ref: str | None = None,
                              vehicle_ref: str | None = None,
-                             session: AsyncSession = Depends(get_session)) -> list[dict]:
+                             session: AsyncSession = Depends(get_session),
+                             scope: TachoScope = Depends(tacho_scope)) -> list[dict]:
     stmt = select(Infringement, TachoFile.vehicle_ref).outerjoin(
         TachoFile, Infringement.source_file_id == TachoFile.id
-    ).order_by(Infringement.period_start.desc())
+    ).where(scope.infringements()).order_by(Infringement.period_start.desc())
     if status != "all":
         stmt = stmt.where(Infringement.status == status)
     if driver_ref:
@@ -669,10 +722,11 @@ async def list_infringements(status: str = "open", driver_ref: str | None = None
 
 @router.post("/infringements/{inf_id}/status")
 async def set_status(inf_id: uuid.UUID, body: StatusIn,
-                     session: AsyncSession = Depends(get_session)) -> dict:
+                     session: AsyncSession = Depends(get_session),
+                     scope: TachoScope = Depends(tacho_scope)) -> dict:
     inf = (await session.execute(
         select(Infringement).where(Infringement.id == inf_id))).scalar_one_or_none()
-    if inf is None:
+    if inf is None or not scope.allows_infringement(inf):
         raise HTTPException(status_code=404, detail="Infringement not found.")
     inf.status = body.status
     await session.commit()
@@ -680,9 +734,10 @@ async def set_status(inf_id: uuid.UUID, body: StatusIn,
 
 
 @router.get("/files")
-async def list_files(session: AsyncSession = Depends(get_session)) -> list[dict]:
+async def list_files(session: AsyncSession = Depends(get_session),
+                     scope: TachoScope = Depends(tacho_scope)) -> list[dict]:
     rows = (await session.execute(
-        select(TachoFile).order_by(TachoFile.created_at.desc()).limit(500))).scalars().all()
+        select(TachoFile).where(scope.files()).order_by(TachoFile.created_at.desc()).limit(500))).scalars().all()
     return [{
         "id": str(f.id), "filename": f.filename, "file_kind": f.file_kind,
         "driver_ref": f.driver_ref, "vehicle_ref": f.vehicle_ref,

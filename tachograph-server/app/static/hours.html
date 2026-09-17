@@ -259,18 +259,16 @@
       <button class="btn small" data-sev="minor"${sevFilter==='minor'?' style="background:var(--acc);color:var(--on-acc)"':''}>Minor (${counts.minor})</button></div>
       <div class="note" style="align-self:center">Vehicle is taken from the assigned source download. Unassigned items have no vehicle link.</div>
     </div>`;
-    if(!rows.length){ h+='<div class="empty">Nothing in this category.</div>'; }
-    else h+='<table><tr><th>Driver</th><th>Infringement</th><th>When</th><th>Actual</th><th>Limit</th></tr>';
     if(!rows.length){ h+='<div class="empty">Nothing matches these filters.</div>'; }
     else h+='<div class="report-table-wrap"><table><tr><th>Driver</th><th>Vehicle</th><th>Infringement</th><th>When</th><th>Actual</th><th>Limit</th><th></th></tr>';
     rows.forEach(r=>{ h+=`<tr>
       <td>${esc(r.driver_ref)}</td><td>${esc(r.vehicle_ref||'Unassigned')}</td>
       <td><span class="sev ${r.severity}">${r.severity.replace('_',' ')}</span><br>${esc(r.title)}<div class="note">${esc(r.detail||'')}</div></td>
       <td>${dt(r.period_start)}</td><td>${hrs(r.actual_minutes)}</td><td>${hrs(r.limit_minutes)}</td>
+      <td><button class="btn small" data-ack="${r.id}">Acknowledge</button> <button class="btn small" data-dis="${r.id}">Dismiss</button></td>
     </tr>`; });
     h+=(rows.length?'</table></div>':'')+'</div>';
     $('view').innerHTML=h;
-    $('view').querySelectorAll('[data-sev]').forEach(b=>{ b.onclick=()=>{ sevFilter=b.dataset.sev; renderInfringements(); }; });
     $('view').querySelector('#if-driver').onchange=e=>{ driverFilter=e.target.value; renderInfringements(); };
     $('view').querySelector('#if-vehicle').onchange=e=>{ vehicleFilter=e.target.value; renderInfringements(); };
     $('view').querySelectorAll('[data-sev]').forEach(b=>b.onclick=()=>{ sevFilter=b.dataset.sev; renderInfringements(); });
@@ -342,31 +340,11 @@
   async function readFileBase64(file){
     return await new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result.split(',')[1]); r.onerror=rej; r.readAsDataURL(file); });
   }
-  async function doUpload(){
-    const file=$('f').files[0]; const m=$('upmsg');
-    if(!file){ m.className='msg bad'; m.textContent='Choose a file first.'; return; }
-    let b64;
-    try{
-      b64=await new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result.split(',')[1]); r.onerror=rej; r.readAsDataURL(file); });
-    }catch{ m.className='msg bad'; m.textContent='Could not read the selected file.'; return; }
-    $('up').disabled=true;
-    try{
-      const {response,data}=await jsonResponse(await api('/api/tacho/upload',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({filename:file.name,content_base64:b64,file_kind:$('kind').value,
-          driver_ref:$('ref').value||null,vehicle_ref:$('kind').value==='vehicle_unit'?($('ref').value||null):null})}));
-      if(!response.ok){ m.className='msg bad'; m.textContent=errorText(data,`Upload failed (${response.status}).`); }
-      else if(data.parsed){ m.className='msg ok'; m.textContent=`Archived & parsed (${data.days} day(s)). ${data.infringements_found} infringement(s) found, ${data.infringements_new} new.`; }
-      else { m.className='msg ok'; m.textContent='Archived. '+(data.parse_error?('Not parsed: '+data.parse_error+' — file kept for the record.'):'Stored.'); }
-      kpis(); listFiles();
-    }catch(e){ m.className='msg bad'; m.textContent=e.message||'Network error.'; }
-    $('up').disabled=false;
-  }
-
   function timelineMinutes(value){ return value==null?'0:00':hrs(value); }
   function timelineIcon(type){ return type==='drive'?'⊖':type==='work'?'⚒':type==='available'?'▣':'⊖'; }
   function timelineRegistration(value){
     const registration=(value||'').trim();
-    return /^(registration unavailable|unknown|n\\/a|none)$/i.test(registration)?'':registration;
+    return /^(registration unavailable|unknown|n\/a|none)$/i.test(registration)?'':registration;
   }
   function timelineDay(row, driver){
     const totals=row.timeline_totals||{};
@@ -399,7 +377,7 @@
     return weeks.flatMap(w=>w.days||[]).map(row=>timelineDay(row,driver)).join('');
   }
 
-  let repFrom='', repTo='';
+  async function doUpload(){
     const files=[...$('f').files]; const m=$('upmsg'); const kind=$('kind').value;
     if(!files.length){ m.className='msg bad'; m.textContent='Choose at least one file.'; return; }
     $('up').disabled=true; m.className='msg'; m.textContent=`Reading ${files.length} file(s)…`;
@@ -461,7 +439,7 @@
     b+=reportTimelines(d.weeks,d.driver);
     b+=`<div class="note" style="margin-bottom:10px">Card data covers ${dd(d.period.data_from)} to ${dd(d.period.data_to)} · times in ${esc(d.period.timezone)}</div>`;
     d.weeks.forEach(w=>{
-      b+=`<h3 class="report-heading" style="margin:16px 0 6px"><span>Week ${dd(w.start)} – ${dd(w.end)}</span><span class="note">Swipe or scroll horizontally to see all columns</span></h3><div class="report-table-wrap"><table class="report-table" style="font-size:12px"><tr>${cols.map(c=>'<th>'+c+'</th>').join('')}</tr>`;
+      b+=`<h3 class="report-heading" style="margin:16px 0 6px"><span>Week ${dd(w.start)} – ${dd(w.end)}</span><span class="note">Swipe or scroll horizontally to see all columns</span></h3><div class="report-table-wrap"><table class="report-table" data-no-stack style="font-size:12px"><tr>${cols.map(c=>'<th>'+c+'</th>').join('')}</tr>`;
       w.days.forEach(r=>{
         if(r.no_data||r.rest_day){
           b+=`<tr><td>${dd(r.date)}</td><td colspan="14" class="note">${r.no_data?'No data':'Rest day'}</td>

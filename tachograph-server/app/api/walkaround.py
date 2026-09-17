@@ -17,13 +17,15 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_license, require_manager
+from app.api.deps import Scope, record_scope, require_license, require_manager, require_module
 from app.database import get_session
 from app.models.walkaround import WalkaroundCheck, WalkaroundDefect, WalkaroundPhoto
 from app.services import media_store
 
 router = APIRouter(prefix="/api/walkaround", tags=["walkaround"], dependencies=[Depends(require_license)])
 MANAGER = [Depends(require_manager)]
+REPORTS = MANAGER + [Depends(require_module("walkaround_reports"))]
+DEFECTS = MANAGER + [Depends(require_module("defects"))]
 
 
 # --- DVSA "Guide to maintaining roadworthiness" first-use walkaround items ---
@@ -112,12 +114,12 @@ def _store(data_url: str) -> dict:
         raise HTTPException(status_code=400, detail=f"Bad image: {e}")
 
 
-@router.get("/items", dependencies=MANAGER)
+@router.get("/items", dependencies=REPORTS)
 async def items(check_type: str = "hgv") -> dict:
     return {"check_type": check_type, "items": CHECK_ITEMS.get(check_type, CHECK_ITEMS["hgv"])}
 
 
-@router.post("/checks", status_code=201, dependencies=MANAGER)
+@router.post("/checks", status_code=201, dependencies=REPORTS)
 async def submit_check(body: CheckIn, session: AsyncSession = Depends(get_session)) -> dict:
     reg = body.vehicle_reg.strip().upper().replace(" ", "")
     if not reg:
@@ -174,11 +176,11 @@ async def submit_check(body: CheckIn, session: AsyncSession = Depends(get_sessio
     }
 
 
-@router.get("/checks", dependencies=MANAGER)
+@router.get("/checks", dependencies=REPORTS)
 async def list_checks(limit: int = 100, start: str | None = None, end: str | None = None,
                       reg: str | None = None, driver: str | None = None, phase: str | None = None,
-                      session: AsyncSession = Depends(get_session)) -> list[dict]:
-    stmt = select(WalkaroundCheck).order_by(WalkaroundCheck.created_at.desc())
+                      session: AsyncSession = Depends(get_session), scope: Scope = Depends(record_scope)) -> list[dict]:
+    stmt = select(WalkaroundCheck).where(scope.condition(WalkaroundCheck)).order_by(WalkaroundCheck.created_at.desc())
     if reg:
         stmt = stmt.where(WalkaroundCheck.vehicle_reg == reg.strip().upper().replace(" ", ""))
     if driver:
@@ -216,11 +218,12 @@ async def list_checks(limit: int = 100, start: str | None = None, end: str | Non
     } for c in rows]
 
 
-@router.get("/checks/{check_id}", dependencies=MANAGER)
-async def get_check(check_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> dict:
+@router.get("/checks/{check_id}", dependencies=REPORTS)
+async def get_check(check_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+                    scope: Scope = Depends(record_scope)) -> dict:
     c = (await session.execute(
         select(WalkaroundCheck).where(WalkaroundCheck.id == check_id))).scalar_one_or_none()
-    if c is None:
+    if c is None or not scope.allows(c.traccar_driver_id, c.driver_name):
         raise HTTPException(status_code=404, detail="Check not found.")
     defects = (await session.execute(
         select(WalkaroundDefect).where(WalkaroundDefect.check_id == check_id))).scalars().all()
@@ -242,10 +245,13 @@ async def get_check(check_id: uuid.UUID, session: AsyncSession = Depends(get_ses
     }
 
 
-@router.get("/photos/{photo_id}", dependencies=MANAGER)
-async def get_photo(photo_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> Response:
-    p = (await session.execute(
-        select(WalkaroundPhoto).where(WalkaroundPhoto.id == photo_id))).scalar_one_or_none()
+@router.get("/photos/{photo_id}", dependencies=REPORTS)
+async def get_photo(photo_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+                    scope: Scope = Depends(record_scope)) -> Response:
+    row = (await session.execute(
+        select(WalkaroundPhoto, WalkaroundCheck).join(WalkaroundCheck, WalkaroundCheck.id == WalkaroundPhoto.check_id)
+        .where(WalkaroundPhoto.id == photo_id))).first()
+    p = row[0] if row and scope.allows(row[1].traccar_driver_id, row[1].driver_name) else None
     if p is None:
         raise HTTPException(status_code=404, detail="Photo not found.")
     try:
@@ -254,11 +260,12 @@ async def get_photo(photo_id: uuid.UUID, session: AsyncSession = Depends(get_ses
         raise HTTPException(status_code=404, detail="Photo file missing.")
 
 
-@router.get("/checks/{check_id}/signature", dependencies=MANAGER)
-async def get_signature(check_id: uuid.UUID, session: AsyncSession = Depends(get_session)) -> Response:
+@router.get("/checks/{check_id}/signature", dependencies=REPORTS)
+async def get_signature(check_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+                        scope: Scope = Depends(record_scope)) -> Response:
     c = (await session.execute(
         select(WalkaroundCheck).where(WalkaroundCheck.id == check_id))).scalar_one_or_none()
-    if c is None or not c.signature_path:
+    if c is None or not c.signature_path or not scope.allows(c.traccar_driver_id, c.driver_name):
         raise HTTPException(status_code=404, detail="No signature.")
     ct = "image/png" if c.signature_path.lower().endswith("png") else "image/jpeg"
     try:
@@ -267,9 +274,11 @@ async def get_signature(check_id: uuid.UUID, session: AsyncSession = Depends(get
         raise HTTPException(status_code=404, detail="Signature file missing.")
 
 
-@router.get("/defects", dependencies=MANAGER)
-async def list_defects(status: str = "open", session: AsyncSession = Depends(get_session)) -> list[dict]:
-    stmt = select(WalkaroundDefect).order_by(WalkaroundDefect.created_at.desc())
+@router.get("/defects", dependencies=DEFECTS)
+async def list_defects(status: str = "open", session: AsyncSession = Depends(get_session),
+                       scope: Scope = Depends(record_scope)) -> list[dict]:
+    stmt = (select(WalkaroundDefect).join(WalkaroundCheck, WalkaroundCheck.id == WalkaroundDefect.check_id)
+            .where(scope.condition(WalkaroundCheck)).order_by(WalkaroundDefect.created_at.desc()))
     if status != "all":
         stmt = stmt.where(WalkaroundDefect.status == status)
     rows = (await session.execute(stmt.limit(500))).scalars().all()
@@ -288,12 +297,15 @@ async def list_defects(status: str = "open", session: AsyncSession = Depends(get
     } for d in rows]
 
 
-@router.post("/defects/{defect_id}/rectify", dependencies=MANAGER)
+@router.post("/defects/{defect_id}/rectify", dependencies=DEFECTS)
 async def rectify_defect(
-    defect_id: uuid.UUID, body: RectifyIn, session: AsyncSession = Depends(get_session)) -> dict:
-    defect = (await session.execute(
-        select(WalkaroundDefect).where(WalkaroundDefect.id == defect_id)
-    )).scalar_one_or_none()
+    defect_id: uuid.UUID, body: RectifyIn, session: AsyncSession = Depends(get_session),
+    scope: Scope = Depends(record_scope)) -> dict:
+    row = (await session.execute(
+        select(WalkaroundDefect, WalkaroundCheck).join(WalkaroundCheck, WalkaroundCheck.id == WalkaroundDefect.check_id)
+        .where(WalkaroundDefect.id == defect_id)
+    )).first()
+    defect = row[0] if row and scope.allows(row[1].traccar_driver_id, row[1].driver_name) else None
     if defect is None:
         raise HTTPException(status_code=404, detail="Defect not found.")
     defect.status = body.status
@@ -304,16 +316,18 @@ async def rectify_defect(
     return {"id": str(defect.id), "status": defect.status}
 
 
-@router.get("/summary", dependencies=MANAGER)
-async def summary(session: AsyncSession = Depends(get_session)) -> dict:
+@router.get("/summary", dependencies=DEFECTS)
+async def summary(session: AsyncSession = Depends(get_session), scope: Scope = Depends(record_scope)) -> dict:
+    mine = scope.condition(WalkaroundCheck)
     open_defects = (await session.execute(
-        select(func.count()).select_from(WalkaroundDefect).where(WalkaroundDefect.status == "open")
+        select(func.count()).select_from(WalkaroundDefect).join(WalkaroundCheck, WalkaroundCheck.id == WalkaroundDefect.check_id)
+        .where(WalkaroundDefect.status == "open", mine)
     )).scalar_one()
     dangerous = (await session.execute(
-        select(func.count()).select_from(WalkaroundDefect).where(
-            WalkaroundDefect.status == "open", WalkaroundDefect.severity == "dangerous")
+        select(func.count()).select_from(WalkaroundDefect).join(WalkaroundCheck, WalkaroundCheck.id == WalkaroundDefect.check_id)
+        .where(WalkaroundDefect.status == "open", WalkaroundDefect.severity == "dangerous", mine)
     )).scalar_one()
     checks_total = (await session.execute(
-        select(func.count()).select_from(WalkaroundCheck)
+        select(func.count()).select_from(WalkaroundCheck).where(mine)
     )).scalar_one()
     return {"checks_total": checks_total, "open_defects": open_defects, "open_dangerous": dangerous}

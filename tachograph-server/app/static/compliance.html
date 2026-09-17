@@ -27,8 +27,9 @@
   .pill{ display:inline-block; font-size:11px; color:var(--acc); border:1px solid var(--line); border-radius:999px; padding:1px 8px; margin-left:6px; vertical-align:middle;}
   .lock { background:var(--card); border:1px solid var(--bad); border-radius:14px; padding:20px; text-align:center; }
   .lock h2{ margin:0 0 8px; } .lock p{ color:var(--mut); }
-  .btn{ display:inline-block; background:var(--acc); color:#04121f; font-weight:700; text-decoration:none; padding:11px 18px; border-radius:10px; margin-top:8px; }
+  .btn{ display:inline-block; background:var(--acc); color:var(--on-acc); font-weight:700; text-decoration:none; padding:11px 18px; border-radius:10px; margin-top:8px; }
   .hidden{ display:none !important; }
+
 </style>
 </head>
 <body>
@@ -44,43 +45,43 @@
 
   <section id="tools" class="hidden">
     <div class="grid">
-      <a class="card" href="walkaround">
-        <h3>Daily walkaround check</h3>
-        <p>Driver first-use vehicle check &amp; defect reporting (DVSA).</p>
-      </a>
-      <a class="card" href="defects">
+      <a class="card" href="defects" data-module="defects">
         <h3>Defects <span class="pill" id="defPill">—</span></h3>
         <p>Open defects, severity and rectification audit trail.</p>
       </a>
-      <a class="card" href="walkaround-reports">
+      <a class="card" href="walkaround-reports" data-module="walkaround_reports">
         <h3>Walkaround reports</h3>
         <p>Search past checks by date, reg or driver — photos &amp; signatures.</p>
       </a>
-      <a class="card" href="reminders">
+      <a class="card" href="reminders" data-module="reminders">
         <h3>MOT / tax reminders <span class="pill" id="motPill">—</span></h3>
         <p>Auto MOT, tax &amp; Euro status by registration (DVLA/DVSA).</p>
       </a>
-      <a class="card" href="caz">
+      <a class="card" href="caz" data-module="caz">
         <h3>Clean Air Zone <span class="pill" id="cazPill">—</span></h3>
         <p>ULEZ/CAZ zone entries &amp; charge exposure.</p>
       </a>
-      <a class="card" href="hours">
+      <a class="card" href="hours" data-module="tacho">
         <h3>Tacho compliance <span class="pill" id="tachoPill">—</span></h3>
         <p>Drivers' hours &amp; WTD infringements, downloads, archive.</p>
       </a>
-      <a class="card" href="/tacho/driver-shift">
-        <h3>Driver Shifts <span class="pill">new</span></h3>
-        <p>Clock in/out with odometer, fuel &amp; AdBlue photo capture.</p>
+      <a class="card" href="driver" data-module="driver_app">
+        <h3>Driver App <span class="pill">new</span></h3>
+        <p>Mobile shift start/end, walkaround checks, jobs, fuel, faults &amp; paperwork.</p>
       </a>
-      <a class="card" href="/tacho/jobs">
+      <a class="card" href="/settings/drivers" data-module="driver_pins">
+        <h3>Drivers &amp; app PINs</h3>
+        <p>Add drivers and set their 6-digit PIN for the driver screens (DH FleetView Settings → Drivers).</p>
+      </a>
+      <a class="card" href="jobs" data-module="jobs">
         <h3>Job Management <span class="pill" id="jobsPill">—</span></h3>
         <p>Send &amp; manage driver job assignments — accept/deny workflow.</p>
       </a>
-      <a class="card" href="/tacho/shifts">
+      <a class="card" href="shifts" data-module="shifts">
         <h3>Shift Reports</h3>
         <p>View active shifts, history &amp; clock-in/out photos.</p>
       </a>
-      <a class="card soon" href="#">
+      <a class="card soon" href="#" data-module="earned_recognition">
         <h3>Earned Recognition <span class="pill">soon</span></h3>
         <p>DVSA KPI dashboard for the Earned Recognition scheme.</p>
       </a>
@@ -105,15 +106,17 @@
       $('stTitle').textContent = 'Licensed · '+ (s.current_period||'') ;
       $('stMeta').textContent = days+' day'+(days===1?'':'s')+' remaining in this cycle (renews on the '+s.renew_day+'th).';
       $('tools').classList.remove('hidden'); $('locked').classList.add('hidden');
-      try { const sum = await (await fetch('api/walkaround/summary',{cache:'no-store'})).json();
+      const mods = await loadModules();
+      const on = (k) => !mods || mods.enabled[k] !== false;
+      if (on('defects')) try { const sum = await (await fetch('api/walkaround/summary',{cache:'no-store'})).json();
         $('defPill').textContent = (sum.open_defects||0) + (sum.open_dangerous? ' ⚠':''); } catch {}
-      try { const t = await (await fetch('api/tacho/summary',{cache:'no-store'})).json();
+      if (on('tacho')) try { const t = await (await fetch('api/tacho/summary',{cache:'no-store'})).json();
         $('tachoPill').textContent = (t.open_infringements||0) + (t.open_serious? ' ⚠':''); } catch {}
-      try { const r = await (await fetch('api/reminders/summary',{cache:'no-store'})).json();
+      if (on('reminders')) try { const r = await (await fetch('api/reminders/summary',{cache:'no-store'})).json();
         $('motPill').textContent = (r.overdue+r.due_soon) + ((r.overdue)? ' ⚠':''); } catch {}
-      try { const z = await (await fetch('api/caz/summary',{cache:'no-store'})).json();
+      if (on('caz')) try { const z = await (await fetch('api/caz/summary',{cache:'no-store'})).json();
         $('cazPill').textContent = (z.non_compliant||0) + (z.non_compliant? ' ⚠':''); } catch {}
-      try { const j = await (await fetch('api/shifts/jobs?status=pending',{cache:'no-store'})).json();
+      if (on('jobs')) try { const j = await (await fetch('api/shifts/jobs?status=pending',{cache:'no-store'})).json();
         const pending = Array.isArray(j) ? j.length : 0;
         if (pending > 0) { $('jobsPill').textContent = pending + ' pending'; } else { $('jobsPill').textContent = '0'; } } catch {}
     } else {
@@ -122,6 +125,22 @@
       $('stMeta').textContent = s.paired ? 'This cycle has not been approved.' : 'Pair your phone to begin.';
       $('locked').classList.remove('hidden'); $('tools').classList.add('hidden');
     }
+  }
+  // Module access is set per user by the super administrator (DH FleetView
+  // Settings > Users). Show only the modules this user has.
+  function applyModules(m) {
+    document.querySelectorAll('[data-module]').forEach((card) => {
+      card.classList.toggle('hidden', m.enabled[card.dataset.module] === false);
+    });
+  }
+  async function loadModules() {
+    try {
+      const r = await fetch('api/modules', { cache: 'no-store' });
+      if (!r.ok) return null;
+      const m = await r.json();
+      applyModules(m);
+      return m;
+    } catch { return null; }
   }
   init();
 </script>

@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, func, text
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -21,6 +21,8 @@ class FuelLog(Base):
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     vehicle_reg: Mapped[str] = mapped_column(String(20), nullable=False)
     driver_name: Mapped[str | None] = mapped_column(String(100))
+    # The company's DH FleetView driver record this belongs to (company scoping).
+    traccar_driver_id: Mapped[int | None] = mapped_column(BigInteger)
     shift_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("shifts.id", ondelete="SET NULL"))
     fuel_type: Mapped[str] = mapped_column(String(10), server_default=text("'diesel'"))  # diesel|adblue|petrol|electric
@@ -41,6 +43,8 @@ class DriverPaperwork(Base):
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     vehicle_reg: Mapped[str | None] = mapped_column(String(20))
     driver_name: Mapped[str | None] = mapped_column(String(100))
+    # The company's DH FleetView driver record this belongs to (company scoping).
+    traccar_driver_id: Mapped[int | None] = mapped_column(BigInteger)
     shift_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("shifts.id", ondelete="SET NULL"))
     job_id: Mapped[uuid.UUID | None] = mapped_column(
