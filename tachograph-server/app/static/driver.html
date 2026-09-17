@@ -1181,8 +1181,8 @@ async function renderHome() {
   setTopbar({ title: "Home", avatar: true, bell: true }); setNav("home");
   const view = $("#view");
   view.innerHTML = `<div class="empty"><span class="spinner"></span></div>`;
-  let st, hist;
-  try { [st, hist] = await Promise.all([loadState(), api("GET", "api/driver/history?limit=10")]); } catch (e) { return fail(e); }
+  let st, hist, recs;
+  try { [st, hist, recs] = await Promise.all([loadState(), api("GET", "api/driver/history?limit=10"), api("GET", "api/driver/my-records").catch(() => null)]); } catch (e) { return fail(e); }
   if (!location.hash.startsWith("#/home")) return;
   const hour = Number(new Date().toLocaleString("en-GB", { hour: "2-digit", hour12: false, timeZone: TZ }));
   const greet = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
@@ -1201,6 +1201,14 @@ async function renderHome() {
         <a class="btn btn-primary" href="#/live" style="margin-top:14px;text-decoration:none">Go to Live</a>`
       : `<div class="card-title">No active shift</div><p class="mut" style="margin:0 0 12px">Start a shift from Live by searching for your vehicle.</p><a class="btn btn-ok" href="#/live" style="text-decoration:none">Start Shift</a>`}
     </div>
+    ${recs && recs.items.some((i) => i.status !== "missing") ? `<div class="section-title">Licence &amp; qualifications</div>
+    <div class="card">${recs.items.filter((i) => i.status !== "missing").map((i) => {
+        const when = i.date || i.next_due;
+        const colour = ["expired", "overdue"].includes(i.status) ? "var(--d-bad)" : i.status === "due_soon" ? "var(--d-warn)" : "var(--d-fg-2)";
+        const detail = i.hours != null ? `${i.hours} of ${i.required} hours` : when ? new Date(when + "T12:00:00Z").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }) : "";
+        const label = i.label === "Licence check" ? "Next licence check" : i.label;
+        return `<div class="list-item"><div style="flex:1">${esc(label)}</div><div style="color:${colour};font-weight:600;font-size:14px">${esc(detail)}${["expired", "overdue"].includes(i.status) ? " · overdue" : i.status === "due_soon" ? " · soon" : ""}</div></div>`;
+      }).join("")}</div>` : ""}
     <div class="section-title">Recent shifts</div>
     <div class="card">${(hist || []).length ? hist.map((s) => `<div class="list-item"><span class="plate">${esc(fmtReg(s.vehicle_reg))}</span>
       <div style="flex:1"><div style="font-weight:600;font-size:14px">${esc(fmtWhen(s.clocked_in_at))}</div><div class="mut small">${s.clocked_out_at ? "Ended " + esc(fmtTime(s.clocked_out_at)) + " · " + fmtDuration(new Date(s.clocked_out_at) - new Date(s.clocked_in_at), false) : "In progress"}</div></div>

@@ -30,6 +30,7 @@ MODULES: list[tuple[str, str, str]] = [
     ("tacho", "Tacho compliance", "Drivers' hours, downloads, archive"),
     ("driver_app", "Driver App", "The driver screens link"),
     ("driver_pins", "Drivers & app PINs", "PIN section on Settings > Drivers"),
+    ("driver_records", "Driver records", "Licence, Driver CPC, card, medical and ADR expiries"),
     ("jobs", "Job Management", "Send and manage driver jobs"),
     ("shifts", "Shift Reports", "Active shifts, history and photos"),
     ("earned_recognition", "Earned Recognition", "DVSA KPI dashboard (coming soon)"),

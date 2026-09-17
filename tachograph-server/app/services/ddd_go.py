@@ -608,8 +608,10 @@ def parse_driver_card(data: bytes) -> dict:
         for part in ("driverIdentificationNumber", "cardReplacementIndex",
                      "cardRenewalIndex"))
     name = " ".join(part for part in (surname.strip(), first_names.strip()) if part)
+    expiry = _time(identification.get("cardExpiryDate"))
 
     return {
+        "card_expiry": expiry.date() if expiry else None,
         "activities": acts,
         "places": _places(block.get("places") or {}),
         "card_gaps": gaps,

@@ -81,6 +81,10 @@
         <h3>Driver App <span class="pill">new</span></h3>
         <p>Mobile shift start/end, walkaround checks, jobs, fuel, faults &amp; paperwork.</p>
       </a>
+      <a class="card" href="driver-records" data-module="driver_records">
+        <h3>Driver records <span class="pill" id="drPill">—</span></h3>
+        <p>Licence checks, Driver CPC hours, tacho card, medical &amp; ADR expiries.</p>
+      </a>
       <a class="card" href="/settings/drivers" data-module="driver_pins">
         <h3>Drivers &amp; app PINs</h3>
         <p>Add drivers and set their 6-digit PIN for the driver screens (DH FleetView Settings → Drivers).</p>
@@ -123,6 +127,8 @@
       if (mods && mods.can_manage) loadBackup();
       if (on('defects')) try { const sum = await (await fetch('api/walkaround/summary',{cache:'no-store'})).json();
         $('defPill').textContent = (sum.open_defects||0) + (sum.open_dangerous? ' ⚠':''); } catch {}
+      if (on('driver_records')) try { const dr = await (await fetch('api/driver-records/summary',{cache:'no-store'})).json();
+        $('drPill').textContent = (dr.expired||0) + (dr.expired ? ' expired ⚠' : ' expired'); } catch {}
       if (on('maintenance')) try { const mt = await (await fetch('api/maintenance/summary',{cache:'no-store'})).json();
         $('maintPill').textContent = (mt.overdue||0) + (mt.overdue ? ' overdue ⚠' : ' overdue'); } catch {}
       if (on('tacho')) try { const t = await (await fetch('api/tacho/summary',{cache:'no-store'})).json();

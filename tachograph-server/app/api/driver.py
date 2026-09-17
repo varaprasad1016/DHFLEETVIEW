@@ -619,6 +619,27 @@ async def my_tacho(days: int = Query(28, ge=1, le=90), principal: Principal = De
     }
 
 
+# --- the driver's own licence / qualification expiries -------------------------------------------
+
+@router.get("/my-records")
+async def my_records(principal: Principal = Depends(require_driver), session: AsyncSession = Depends(get_session)) -> dict:
+    """Licence, Driver CPC, tachograph card, medical and ADR dates the office holds for this driver."""
+    from app.api import driver_records as records_api
+    from app.models.driver_records import DriverCpcCourse, DriverRecord
+
+    account = (await session.execute(select(DriverAccount).where(DriverAccount.id == uuid.UUID(principal.driver_id)))).scalar_one_or_none()
+    ids = list(principal.driver_ids)
+    records = (await session.execute(select(DriverRecord).where(DriverRecord.traccar_driver_id.in_(ids or [-1]))
+                                     .order_by(DriverRecord.updated_at.desc()))).scalars().all()
+    record = records[0] if records else None
+    courses = (await session.execute(select(DriverCpcCourse).where(DriverCpcCourse.traccar_driver_id.in_(ids or [-1])))).scalars().all()
+    view = records_api._view({"id": record.traccar_driver_id if record else 0, "name": principal.name,
+                              "uniqueId": account.unique_id if account else None},
+                             record, list(courses), await records_api._card_expiries(session), datetime.now(timezone.utc).date())
+    items = [i for i in view["items"].values() if i["status"] != "not_applicable"]
+    return {"items": items, "attention": sum(1 for i in items if i["status"] in ("expired", "overdue", "due_soon"))}
+
+
 # --- infringement sign-off -----------------------------------------------------------------
 
 class SignInfringementIn(BaseModel):
