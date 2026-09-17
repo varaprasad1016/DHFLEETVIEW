@@ -31,6 +31,9 @@ from app.models.driver_app import FuelLog, DriverPaperwork
 from app.models.driver_auth import DriverAccount, DriverMembership, DriverSession
 from app.models.settings import AppSetting
 from app.models.tacho_live import TachoLiveActivity, TachoLiveAlert, TachoLiveStatus
+from app.models.infringement_review import InfringementReview
+from app.models.maintenance import MaintenanceRecord, MaintenanceSchedule
+from app.models.driver_records import DriverCpcCourse, DriverRecord
 
 __all__ = [
     "Base",
@@ -71,4 +74,9 @@ __all__ = [
     "TachoLiveStatus",
     "TachoLiveActivity",
     "TachoLiveAlert",
+    "InfringementReview",
+    "MaintenanceSchedule",
+    "MaintenanceRecord",
+    "DriverRecord",
+    "DriverCpcCourse",
 ]

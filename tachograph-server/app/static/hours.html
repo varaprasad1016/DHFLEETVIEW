@@ -85,6 +85,11 @@
   .lock{text-align:center;color:var(--mut);padding:40px 16px;} .lock a{color:var(--acc);}
   .note{color:var(--mut);font-size:12px;margin-top:6px;}
   .hidden{display:none!important;}
+  .modal{position:fixed;inset:0;background:#000a;display:flex;align-items:center;justify-content:center;padding:16px;z-index:50;}
+  .modal .box{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;width:100%;max-width:480px;}
+  .modal h3{margin:0 0 6px;font-size:16px;} .modal label{display:block;font-size:12px;color:var(--mut);margin:10px 0 4px;}
+  .modal select,.modal textarea{width:100%;} .modal textarea{min-height:80px;}
+  .signed{color:var(--ok);font-size:12px;} .awaiting{color:var(--warn);font-size:12px;}
   .timeline-note{font-size:11px;color:#6b7280;margin:4px 0 8px;}
 </style>
 </head>
@@ -99,6 +104,7 @@
       <button data-t="infringements">Infringements</button>
       <button data-t="timeline">Timeline</button>
       <button data-t="report">Weekly report</button>
+      <button data-t="wtd">Working time</button>
       <button data-t="files">Files &amp; upload</button>
     </div>
     <div id="view"></div>
@@ -209,10 +215,13 @@
     $('timeline-body').innerHTML=b;
     $('timeline-body').querySelectorAll('[data-tl]').forEach(btn=>btn.onclick=()=>{const r=fragments[Number(btn.dataset.tl)],kind=(r.activity||'').toLowerCase();$('timeline-detail').innerHTML=`<b>${timelineNames[kind]||esc(r.activity)}</b> · ${dt(r.start)} – ${dt(r.end)}<br>Driver: ${esc(r.driver_ref||'—')} · Vehicle: ${esc(r.vehicle_ref||'—')} · Source: ${esc(r.source)} · Confidence: ${esc(r.confidence)}`;});
   }
+  let statusFilter='open', debriefActions=null;
   async function renderInfringements(){
-    const {data}=await jsonResponse(await api('/api/tacho/infringements?status=open',{cache:'no-store'}));
+    const {data}=await jsonResponse(await api('/api/tacho/infringements?status='+statusFilter,{cache:'no-store'}));
     const all=Array.isArray(data)?data:[];
-    if(!all.length){ $('view').innerHTML='<div class="empty">No open infringements. 🎉</div>'; return; }
+    const statusControl=`<div><label>Status</label><select id="if-status">${[['open','Open'],['acknowledged','Dealt with'],['all','All']].map(([v,l])=>`<option value="${v}"${statusFilter===v?' selected':''}>${l}</option>`).join('')}</select></div>`;
+    if(!all.length){ $('view').innerHTML=`<div class="card"><div class="row infringement-filters">${statusControl}</div><div class="empty">${statusFilter==='open'?'No open infringements. 🎉':'Nothing here.'}</div></div>`;
+      $('if-status').onchange=e=>{ statusFilter=e.target.value; renderInfringements(); }; return; }
     const drivers=[...new Set(all.map(r=>r.driver_ref).filter(Boolean))].sort();
     const vehicles=[...new Set(all.map(r=>r.vehicle_ref).filter(Boolean))].sort();
     const selected=all.filter(r=>(driverFilter==='all'||r.driver_ref===driverFilter)
@@ -223,6 +232,7 @@
     const rows=sevFilter==='all'?selected:selected.filter(r=>sevFilter==='serious'?r.severity!=='minor':r.severity==='minor');
     const option=(value,label,chosen)=>`<option value="${esc(value)}"${chosen===value?' selected':''}>${esc(label)}</option>`;
     let h=`<div class="card"><div class="row infringement-filters" style="margin-bottom:10px">
+      ${statusControl}
       <div><label>Driver</label><select id="if-driver">${option('all','All drivers',driverFilter)}${drivers.map(d=>option(d,d,driverFilter)).join('')}</select></div>
       <div><label>Vehicle</label><select id="if-vehicle">${option('all','All vehicles',vehicleFilter)}${vehicles.map(v=>option(v,v,vehicleFilter)).join('')}${option('unassigned','Unassigned',vehicleFilter)}</select></div>
       <div><label>Severity</label><button class="btn small" data-sev="all"${sevFilter==='all'?' style="background:var(--acc);color:var(--on-acc)"':''}>All (${counts.all})</button>
@@ -231,20 +241,50 @@
       <div class="note" style="align-self:center">Vehicle is taken from the assigned source download. Unassigned items have no vehicle link.</div>
     </div>`;
     if(!rows.length){ h+='<div class="empty">Nothing matches these filters.</div>'; }
-    else h+='<div class="report-table-wrap"><table><tr><th>Driver</th><th>Vehicle</th><th>Infringement</th><th>When</th><th>Actual</th><th>Limit</th><th></th></tr>';
-    rows.forEach(r=>{ h+=`<tr>
+    else h+='<div class="report-table-wrap"><table><tr><th>Driver</th><th>Vehicle</th><th>Infringement</th><th>When</th><th>Actual</th><th>Limit</th><th>Driver sign-off</th><th>Debrief</th><th></th></tr>';
+    rows.forEach(r=>{ const v=r.review||{}; h+=`<tr>
       <td>${esc(r.driver_ref)}</td><td>${esc(r.vehicle_ref||'Unassigned')}</td>
       <td><span class="sev ${r.severity}">${r.severity.replace('_',' ')}</span><br>${esc(r.title)}<div class="note">${esc(r.detail||'')}</div></td>
       <td>${dt(r.period_start)}</td><td>${hrs(r.actual_minutes)}</td><td>${hrs(r.limit_minutes)}</td>
-      <td><button class="btn small" data-ack="${r.id}">Acknowledge</button> <button class="btn small" data-dis="${r.id}">Dismiss</button></td>
+      <td>${v.driver_signed_at?`<span class="signed">✍ Signed ${dt(v.driver_signed_at)}</span>${v.has_signature?` <a href="${apiUrl('/api/tacho/infringements/'+r.id+'/signature')}" target="_blank" style="color:var(--acc);font-size:12px">view</a>`:''}${v.driver_comment?`<div class="note">“${esc(v.driver_comment)}”</div>`:''}`:'<span class="awaiting">Awaiting driver</span>'}</td>
+      <td>${v.debrief_action?`<b style="font-size:13px">${esc(v.debrief_action_label)}</b><div class="note">${esc(v.debriefed_by||'')} · ${dt(v.debriefed_at)}${v.debrief_notes?'<br>'+esc(v.debrief_notes):''}</div>`:''}
+        <button class="btn small" data-debrief="${r.id}" style="margin-top:4px">${v.debrief_action?'Change':'Record debrief'}</button></td>
+      <td>${r.status==='open'?`<button class="btn small" data-ack="${r.id}">Acknowledge</button> `:''}${r.status!=='dismissed'?`<button class="btn small" data-dis="${r.id}">Dismiss</button>`:'<span class="note">Dismissed</span>'}</td>
     </tr>`; });
     h+=(rows.length?'</table></div>':'')+'</div>';
     $('view').innerHTML=h;
+    $('view').querySelector('#if-status').onchange=e=>{ statusFilter=e.target.value; renderInfringements(); };
+    $('view').querySelectorAll('[data-debrief]').forEach(b=>b.onclick=()=>openDebrief(rows.find(r=>r.id===b.dataset.debrief)));
     $('view').querySelector('#if-driver').onchange=e=>{ driverFilter=e.target.value; renderInfringements(); };
     $('view').querySelector('#if-vehicle').onchange=e=>{ vehicleFilter=e.target.value; renderInfringements(); };
     $('view').querySelectorAll('[data-sev]').forEach(b=>b.onclick=()=>{ sevFilter=b.dataset.sev; renderInfringements(); });
     $('view').querySelectorAll('[data-ack]').forEach(b=>b.onclick=()=>setStatus(b.dataset.ack,'acknowledged'));
     $('view').querySelectorAll('[data-dis]').forEach(b=>b.onclick=()=>setStatus(b.dataset.dis,'dismissed'));
+  }
+  async function openDebrief(r){
+    if(!r) return;
+    if(!debriefActions){ const res=await jsonResponse(await api('/api/tacho/debrief-actions',{cache:'no-store'})); debriefActions=Array.isArray(res.data)?res.data:[]; }
+    const v=r.review||{};
+    const m=document.createElement('div'); m.className='modal';
+    m.innerHTML=`<div class="box"><h3>Debrief: ${esc(r.title)}</h3>
+      <div class="note">${esc(r.driver_ref)} · ${dt(r.period_start)}${v.driver_signed_at?' · driver signed '+dt(v.driver_signed_at):' · the driver has not signed yet'}</div>
+      <label>What was done</label><select id="dbAction"><option value="">Choose…</option>${debriefActions.map(a=>`<option value="${a.code}"${v.debrief_action===a.code?' selected':''}>${esc(a.label)}</option>`).join('')}</select>
+      <label>Notes</label><textarea id="dbNotes" maxlength="4000" placeholder="What was discussed, any follow-up">${esc(v.debrief_notes||'')}</textarea>
+      <div class="msg" id="dbMsg"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button class="btn small" id="dbCancel">Cancel</button><button class="btn" id="dbSave">Save debrief</button></div></div>`;
+    document.body.appendChild(m);
+    const close=()=>m.remove();
+    m.onclick=e=>{ if(e.target===m) close(); };
+    m.querySelector('#dbCancel').onclick=close;
+    m.querySelector('#dbSave').onclick=async()=>{
+      const action=m.querySelector('#dbAction').value;
+      const msg=m.querySelector('#dbMsg');
+      if(!action){ msg.className='msg bad'; msg.textContent='Choose what was done.'; return; }
+      const {response,data}=await jsonResponse(await api('/api/tacho/infringements/'+r.id+'/debrief',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action,notes:m.querySelector('#dbNotes').value||null})}));
+      if(!response.ok){ msg.className='msg bad'; msg.textContent=errorText(data,'Could not save.'); return; }
+      close(); kpis(); renderInfringements();
+    };
   }
   async function setStatus(id,status){
     await api('/api/tacho/infringements/'+id+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
@@ -353,7 +393,8 @@
       <div><label>To</label><input type="date" id="rt" value="${repTo}"></div>
       <div style="align-self:flex-end"><button class="btn small" id="rgo">Show</button>
       <a class="btn small" id="rpdf" href="${apiUrl('/api/tacho/report.pdf?'+q)}" style="text-decoration:none">Download PDF</a></div>
-      <div class="note" style="align-self:center">Leave the dates blank for everything the card holds.</div>
+      <div class="note" style="align-self:center">Leave the dates blank for everything the card holds.
+        <a href="report-settings" style="color:var(--acc)">Choose which infringements appear</a></div>
     </div><div id="rbody" class="empty">Loading…</div></div>`;
     $('view').innerHTML=h;
     $('rgo').onclick=()=>{ repFrom=$('rf').value; repTo=$('rt').value; repDriver=$('rd')?.value||repDriver; renderReport(); };
@@ -391,8 +432,10 @@
       const sect=(name,items,empty)=>{
         b+=`<div class="note" style="margin:10px 0 4px;font-weight:700">${name}</div>`;
         if(!items.length){ b+=`<div class="note">${empty}</div>`; return; }
-        items.forEach(i=>{ b+=`<div class="note">${dd(i.date)} ${i.time||''} — <span class="sev ${i.severity||''}">${(i.severity||'').replace('_',' ')}</span>
-          <b>${esc(i.title||i.name)}</b> ${esc(i.detail||'')}</div>`; });
+        items.forEach(i=>{ const v=i.review; b+=`<div class="note">${dd(i.date)} ${i.time||''} — <span class="sev ${i.severity||''}">${(i.severity||'').replace('_',' ')}</span>
+          <b>${esc(i.title||i.name)}</b> ${esc(i.detail||'')}
+          ${v&&v.driver_signed_at?`<span class="signed"> · ✍ driver signed ${dd(v.driver_signed_at.slice(0,10))}</span>`:(v?'<span class="awaiting"> · not signed yet</span>':'')}
+          ${v&&v.debrief_action_label?` · debrief: ${esc(v.debrief_action_label)}`:''}</div>`; });
       };
       sect('Working time infringements',w.working_time_infringements,'No messages found');
       sect('Infringements',w.infringements,'No messages found');
@@ -400,7 +443,51 @@
     });
     $('rbody').className=''; $('rbody').innerHTML=b||'<div class="empty">Nothing in this period.</div>';
   }
-  function render(){ if(tab==='compliance')renderCompliance(); else if(tab==='infringements')renderInfringements(); else if(tab==='timeline')renderTimeline(); else if(tab==='report')renderReport(); else renderFiles(); }
+  let wtdWeeks=26, wtdRef=17, wtdOpen=null;
+  async function renderWtd(){
+    const monthAgo=new Date(Date.now()-30*864e5).toISOString().slice(0,10), todayIso=new Date().toISOString().slice(0,10);
+    $('view').innerHTML=`<div class="card"><div class="row report-controls" style="margin-bottom:10px">
+        <div><label>Weeks shown</label><select id="wWeeks">${[13,26,52].map(n=>`<option value="${n}"${n===wtdWeeks?' selected':''}>${n}</option>`).join('')}</select></div>
+        <div><label>Reference period</label><select id="wRef">${[17,26].map(n=>`<option value="${n}"${n===wtdRef?' selected':''}>${n} weeks</option>`).join('')}</select></div>
+        <div class="note" style="align-self:center;max-width:520px">Working time is driving plus other work (availability doesn't count). Limits: 60 hours in any week, 48 hours on average over the reference period, and 10 hours in 24 on days with night work (00:00–04:00). Weeks with no card data (leave, sickness) aren't included in the average.</div>
+      </div>
+      <div class="row report-controls" style="margin-bottom:10px">
+        <div><label>Daily hours from</label><input type="date" id="hFrom" value="${monthAgo}"></div>
+        <div><label>to</label><input type="date" id="hTo" value="${todayIso}"></div>
+        <div style="align-self:flex-end"><a class="btn small" id="hCsv" style="text-decoration:none">Download daily hours (CSV)</a></div>
+        <div class="note" style="align-self:center">For payroll: card hours per day with app shift times.</div>
+      </div><div id="wbody" class="empty">Loading…</div></div>`;
+    const csvLink=()=>{ $('hCsv').href=apiUrl('/api/tacho/hours.csv?start='+$('hFrom').value+'&end='+$('hTo').value); };
+    $('hFrom').onchange=csvLink; $('hTo').onchange=csvLink; csvLink();
+    $('wWeeks').onchange=e=>{ wtdWeeks=Number(e.target.value); renderWtd(); };
+    $('wRef').onchange=e=>{ wtdRef=Number(e.target.value); renderWtd(); };
+    const {response,data}=await jsonResponse(await api('/api/tacho/wtd?weeks='+wtdWeeks+'&reference_weeks='+wtdRef,{cache:'no-store'}));
+    if(!response.ok){ $('wbody').textContent=errorText(data,'Could not build the working time report.'); return; }
+    if(!data.drivers.length){ $('wbody').textContent='No driver card data in this period.'; return; }
+    const hm=m=>m==null?'—':`${Math.floor(m/60)}:${String(m%60).padStart(2,'0')}`;
+    const over=(m,limit)=>m!=null&&m>limit?` style="color:var(--bad);font-weight:700"`:'';
+    let b='<div class="report-table-wrap"><table><tr><th>Driver</th><th>Latest average</th><th>Longest week</th><th>Weeks over 60h</th><th>Night work over 10h</th><th>Break infringements</th><th>Card data</th><th></th></tr>';
+    data.drivers.forEach((d,i)=>{
+      const w60=d.weeks.filter(w=>w.flags.some(f=>f.code==='week_over_60h')).length;
+      const n10=d.weeks.reduce((a,w)=>a+w.night_over_10h.length,0);
+      const brk=d.weeks.reduce((a,w)=>a+w.break_infringements,0);
+      b+=`<tr><td>${esc(d.driver_ref)}</td><td${over(d.latest_average_minutes,data.limits.average_minutes)}>${hm(d.latest_average_minutes)}</td>
+        <td${over(d.max_week_minutes,data.limits.week_minutes)}>${hm(d.max_week_minutes)}</td>
+        <td${w60?' style="color:var(--bad);font-weight:700"':''}>${w60}</td><td${n10?' style="color:var(--bad);font-weight:700"':''}>${n10}</td>
+        <td${brk?' style="color:var(--warn);font-weight:700"':''}>${brk}</td><td class="note">${d.data_from?dd(d.data_from)+' – '+dd(d.data_to):'—'}</td>
+        <td><button class="btn small" data-w="${i}">${wtdOpen===d.driver_ref?'Hide weeks':'Weeks'}</button></td></tr>`;
+      if(wtdOpen===d.driver_ref){
+        b+=`<tr><td colspan="8"><table class="report-table" data-no-stack style="min-width:760px;font-size:12px"><tr><th>Week starting</th><th>Working time</th><th>Driving</th><th>Other work</th><th>Availability</th><th>${data.reference_weeks}-week average</th><th>Night work days</th><th>Break infringements</th><th>Checks</th></tr>`+
+          d.weeks.map(w=>`<tr><td>${dd(w.week_start)}</td>${w.has_data?`<td${over(w.working_minutes,data.limits.week_minutes)}>${hm(w.working_minutes)}</td><td>${hm(w.drive_minutes)}</td><td>${hm(w.work_minutes)}</td><td>${hm(w.poa_minutes)}</td>`:'<td colspan="4" class="note">No card data</td>'}
+            <td${over(w.average_minutes,data.limits.average_minutes)}>${hm(w.average_minutes)} <span class="note">(${w.weeks_in_average} wk)</span></td>
+            <td>${w.night_work_days||''}${w.night_over_10h.length?` <span style="color:var(--bad)">${w.night_over_10h.map(n=>dd(n.date)+' '+hm(n.working_minutes)).join(', ')}</span>`:''}</td>
+            <td>${w.break_infringements||''}</td><td>${w.flags.map(f=>`<div style="color:var(--bad)">${esc(f.label)}</div>`).join('')}</td></tr>`).join('')+'</table></td></tr>';
+      }
+    });
+    $('wbody').className=''; $('wbody').innerHTML=b+'</table></div>';
+    $('wbody').querySelectorAll('[data-w]').forEach(btn=>btn.onclick=()=>{ const ref=data.drivers[Number(btn.dataset.w)].driver_ref; wtdOpen=wtdOpen===ref?null:ref; renderWtd(); });
+  }
+  function render(){ if(tab==='compliance')renderCompliance(); else if(tab==='wtd')renderWtd(); else if(tab==='infringements')renderInfringements(); else if(tab==='timeline')renderTimeline(); else if(tab==='report')renderReport(); else renderFiles(); }
   document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
     tab=b.dataset.t; document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); render();
   });

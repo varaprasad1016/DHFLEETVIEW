@@ -10,7 +10,7 @@ import TableShimmer from '../common/components/TableShimmer';
 import SearchHeader from './components/SearchHeader';
 import useSettingsStyles from './common/useSettingsStyles';
 import fetchOrThrow from '../common/util/fetchOrThrow';
-import { useManager } from '../common/util/permissions';
+import useComplianceAccess from '../common/util/useComplianceAccess';
 import { listDriverAppAccounts, syncDriverAppAccounts } from '../common/util/driverApp';
 
 const appStatus = (account) => {
@@ -28,7 +28,8 @@ const DriversPage = () => {
   const [items, setItems] = useState([]);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [hasMore, setHasMore] = useState(true);
-  const manager = useManager();
+  // Driver app PINs: managers, or users given compliance modules (the server checks driver_pins).
+  const manager = useComplianceAccess();
   const [appAccounts, setAppAccounts] = useState(null);
 
   const loadItems = useCallback(

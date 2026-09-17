@@ -9,6 +9,7 @@ evidence of a driver debrief rather than just a printout.
 from __future__ import annotations
 
 import io
+from xml.sax.saxutils import escape
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -124,6 +125,22 @@ def _day_table(week: dict, st: dict) -> Table:
     return table
 
 
+def _review_text(review: dict | None) -> str:
+    """Driver sign-off and office debrief, as a line under the infringement."""
+    if not review:
+        return ""
+    parts = []
+    if review.get("driver_signed_at"):
+        signed = _fmt_date(review["driver_signed_at"][:10])
+        parts.append(f"Driver signed {signed}" + (f' ("{escape(review["driver_comment"])}")' if review.get("driver_comment") else ""))
+    if review.get("debrief_action_label"):
+        by = f" by {escape(review['debriefed_by'])}" if review.get("debriefed_by") else ""
+        on = f" on {_fmt_date(review['debriefed_at'][:10])}" if review.get("debriefed_at") else ""
+        notes = f" — {escape(review['debrief_notes'])}" if review.get("debrief_notes") else ""
+        parts.append(f"Debrief: {escape(review['debrief_action_label'])}{by}{on}{notes}")
+    return ('<br/><font color="#374151">' + " · ".join(parts) + "</font>") if parts else ""
+
+
 def _findings(title: str, items: list[dict], st: dict, kind: str) -> list:
     out = [Paragraph(title, st["head"])]
     if not items:
@@ -143,7 +160,7 @@ def _findings(title: str, items: list[dict], st: dict, kind: str) -> list:
             _fmt_date(item["date"]), item["time"],
             Paragraph(f'<font color="#{colour.hexval()[2:]}"><b>{severity}</b></font>',
                       st["cell"]),
-            Paragraph(f"<b>{item['title']}.</b> {item['detail']}", st["note"]),
+            Paragraph(f"<b>{item['title']}.</b> {item['detail']}{_review_text(item.get('review'))}", st["note"]),
         ])
     table = Table(rows, colWidths=FINDING_WIDTHS)
     table.setStyle(TableStyle([

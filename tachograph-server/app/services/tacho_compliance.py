@@ -28,8 +28,18 @@ def _status(days: float | None, interval: int, warning: int) -> str:
     return "compliant"
 
 
+def download_time():
+    """When a file was downloaded from the card / vehicle unit: its last recorded activity,
+    or the upload time when it has none. Files are often uploaded days after the download."""
+    from app.models.tacho import TachoActivity
+
+    last = (select(func.max(TachoActivity.ended_at)).where(TachoActivity.source_file_id == TachoFile.id)
+            .correlate(TachoFile).scalar_subquery())
+    return func.coalesce(last, TachoFile.created_at)
+
+
 async def _latest_by(session: AsyncSession, column, kind: str, scope=None) -> dict[str, datetime]:
-    stmt = (select(column, func.max(TachoFile.created_at))
+    stmt = (select(column, func.max(download_time()))
             .where(TachoFile.file_kind == kind, column.isnot(None)))
     if scope is not None:
         stmt = stmt.where(scope.files())

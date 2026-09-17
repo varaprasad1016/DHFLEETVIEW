@@ -435,8 +435,24 @@ async def job_drivers(session: AsyncSession = Depends(get_session),
             .where(DriverMembership.traccar_driver_id.in_(ids))
         )).all()
         access = {tid: bool(m_active and a_active) for tid, m_active, a_active in rows}
+    # Live tachograph figures (FMC650) so the office can see who has the hours for a job.
+    from app.services import tacho_live
+    from app.services.tacho_scope import card_key
+
+    live: dict[str, dict] = {}
+    for status in await tacho_live.fresh_statuses(session):
+        if status.card_number and card_key(status.card_number) not in live:
+            view = tacho_live.status_view(status)
+            if not view["stale"]:
+                live[card_key(status.card_number)] = {
+                    "activity": view["activity"], "vehicle": view["vehicle_name"] or view["vehicle_reg"],
+                    "driving_left_today": view["figures"].get("driving_left_today"),
+                    "driving_until_break": view["figures"].get("driving_until_break"),
+                    "driving_left_week": view["figures"].get("driving_left_week")}
     out = [{"id": int(d["id"]), "name": " ".join(d["name"].split()), "unique_id": d.get("uniqueId"),
-            "app_access": access.get(int(d["id"]), False)} for d in drivers]
+            "app_access": access.get(int(d["id"]), False),
+            "live": live.get(card_key(d.get("uniqueId"))) if len(card_key(d.get("uniqueId"))) == 14 else None}
+           for d in drivers]
     return sorted(out, key=lambda e: e["name"].lower())
 
 

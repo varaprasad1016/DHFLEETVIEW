@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import base64
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from pydantic import BaseModel, Field
@@ -20,7 +20,9 @@ from app.database import get_session
 from app.models.core import Company, Vehicle
 from app.models.tacho import TachoActivity
 from app.models.tacho import Infringement, TachoFile
-from app.services import archive, ddd_go, ddd_parser, modules, tacho_compliance, tacho_pdf, tacho_report
+from app.services import (archive, ddd_go, ddd_parser, infringement_reviews, media_store, modules, report_settings,
+                          tacho_compliance, tacho_pdf, tacho_report)
+from app.models.infringement_review import InfringementReview
 from app.services.tacho_scope import TachoScope, scope_for
 from app.services.tacho_rules import Activity, Infringement as RuleInfringement, analyse
 
@@ -53,6 +55,16 @@ class UploadIn(BaseModel):
 
 class StatusIn(BaseModel):
     status: str = Field(pattern="^(open|acknowledged|dismissed)$")
+
+
+class DebriefIn(BaseModel):
+    action: str
+    notes: str | None = Field(default=None, max_length=4000)
+
+
+class ReportSettingsIn(BaseModel):
+    hidden: list[str] = []                # rule codes left off the weekly report
+    for_everyone: bool = False            # super administrator: save as everyone's default
 
 
 class ReanalyseIn(BaseModel):
@@ -363,6 +375,7 @@ async def upload(body: UploadIn, session: AsyncSession = Depends(get_session),
                           or f"file:{meta['sha256'][:8]}")[:40]
             tf.driver_ref = driver_ref
             tf.card_number = parsed.get("card_number") or tf.card_number
+            tf.card_expiry = parsed.get("card_expiry") or tf.card_expiry
             await _persist_activities(session, parsed, tf.id, company_id,
                                       vehicle.id if vehicle else None, vehicle.registration if vehicle else body.vehicle_ref,
                                       driver_ref)
@@ -536,6 +549,7 @@ async def reanalyse(body: ReanalyseIn, session: AsyncSession = Depends(get_sessi
                       or f"file:{(tf.sha256 or '')[:8]}")[:40]
         tf.driver_ref = driver_ref
         tf.card_number = parsed.get("card_number") or tf.card_number
+        tf.card_expiry = parsed.get("card_expiry") or tf.card_expiry
         tf.parsed = True
         tf.parse_error = None
 
@@ -544,10 +558,12 @@ async def reanalyse(body: ReanalyseIn, session: AsyncSession = Depends(get_sessi
                 Infringement.source_file_id == tf.id,
                 Infringement.status != "open"))).scalar_one()
         if body.replace_open:
+            reviewed = select(InfringementReview.infringement_id)   # signed or debriefed: keep
             removed = (await session.execute(
                 delete(Infringement).where(
                     Infringement.source_file_id == tf.id,
-                    Infringement.status == "open"))).rowcount or 0
+                    Infringement.status == "open",
+                    Infringement.id.not_in(reviewed)))).rowcount or 0
             out["removed"] += removed
             await session.flush()
 
@@ -569,8 +585,9 @@ async def reanalyse(body: ReanalyseIn, session: AsyncSession = Depends(get_sessi
 
 async def _report_for(session: AsyncSession, file_id: uuid.UUID | None,
                       driver_ref: str | None, start: date | None,
-                      end: date | None, scope: TachoScope) -> dict:
-    """Pick the card file the report is about, then build the report from it."""
+                      end: date | None, scope: TachoScope, hidden_rules: set[str] | None = None) -> dict:
+    """Pick the card file the report is about, then build the report from it.
+    hidden_rules: infringement types the user has chosen to leave off the report."""
     stmt = select(TachoFile).where(TachoFile.file_kind == "driver_card", scope.files())
     if file_id:
         stmt = stmt.where(TachoFile.id == file_id)
@@ -606,11 +623,19 @@ async def _report_for(session: AsyncSession, file_id: uuid.UUID | None,
     else:
         found = analyse(parsed["activities"], parsed.get("places"),
                         parsed.get("card_gaps"))
+    if hidden_rules:
+        found = [i for i in found if i.rule not in hidden_rules]
+    reviews = await infringement_reviews.reviews_for(session, [r.id for r in rows])
+    signoff = {(r.rule, r.period_start.isoformat()): infringement_reviews.view(reviews.get(r.id)) for r in rows}
 
-    return tacho_report.build_report(
+    report = tacho_report.build_report(
         parsed, found, start=start, end=end,
         driver_ref=tf.driver_ref or parsed.get("driver_ref"),
         company_name=await _latest_company_name(session, scope))
+    for week in report.get("weeks", []):
+        for item in week.get("infringements", []) + week.get("working_time_infringements", []):
+            item["review"] = signoff.get((item["rule"], item.get("start")))
+    return report
 
 
 @router.get("/timeline")
@@ -678,22 +703,179 @@ async def timeline_pdf_response(session: AsyncSession, scope: TachoScope, driver
 async def report(file_id: uuid.UUID | None = None, driver_ref: str | None = None,
                  start: date | None = None, end: date | None = None,
                  session: AsyncSession = Depends(get_session),
-                 scope: TachoScope = Depends(tacho_scope)) -> dict:
-    return await _report_for(session, file_id, driver_ref, start, end, scope)
+                 scope: TachoScope = Depends(tacho_scope),
+                 principal: Principal = Depends(require_manager)) -> dict:
+    hidden, _ = await report_settings.hidden_for(session, principal.user_id)
+    return await _report_for(session, file_id, driver_ref, start, end, scope, hidden)
 
 
 @router.get("/report.pdf")
 async def report_pdf(file_id: uuid.UUID | None = None, driver_ref: str | None = None,
                      start: date | None = None, end: date | None = None,
                      session: AsyncSession = Depends(get_session),
-                     scope: TachoScope = Depends(tacho_scope)) -> Response:
-    data = await _report_for(session, file_id, driver_ref, start, end, scope)
+                     scope: TachoScope = Depends(tacho_scope),
+                     principal: Principal = Depends(require_manager)) -> Response:
+    hidden, _ = await report_settings.hidden_for(session, principal.user_id)
+    data = await _report_for(session, file_id, driver_ref, start, end, scope, hidden)
     who = (data["driver"].get("name") or data["driver"].get("ref") or "driver")
     safe = "".join(c if c.isalnum() else "_" for c in who).strip("_") or "driver"
     name = f"{safe}_{data['period']['from']}_{data['period']['to']}.pdf"
     return Response(
         content=tacho_pdf.render(data), media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+async def _card_spans(session: AsyncSession, scope: TachoScope, since: datetime,
+                      driver_ref: str | None = None) -> dict[str, list]:
+    """Driver-card activity per card holder (your drivers only)."""
+    stmt = (select(TachoActivity.driver_ref, TachoActivity.activity_type, TachoActivity.started_at, TachoActivity.ended_at)
+            .join(TachoFile, TachoFile.id == TachoActivity.source_file_id)
+            .where(TachoFile.file_kind == "driver_card", scope.activities(), TachoActivity.ended_at >= since))
+    if driver_ref:
+        stmt = stmt.where(TachoActivity.driver_ref == driver_ref)
+    out: dict[str, list] = {}
+    for ref, kind, start, end in (await session.execute(stmt)).all():
+        if ref:
+            out.setdefault(ref, []).append((kind, start, end))
+    return out
+
+
+@router.get("/wtd")
+async def working_time(weeks: int = 26, reference_weeks: int = 17, driver_ref: str | None = None,
+                       session: AsyncSession = Depends(get_session), scope: TachoScope = Depends(tacho_scope)) -> dict:
+    """Road Transport Working Time: weekly totals, rolling average, 60h weeks and night work, per driver."""
+    from app.services import wtd
+
+    if weeks < 1 or weeks > 104 or reference_weeks not in (17, 26):
+        raise HTTPException(status_code=400, detail="Choose 1-104 weeks and a 17 or 26 week reference period.")
+    today = datetime.now(wtd.LONDON).date()
+    since_day = wtd.week_start(today) - timedelta(weeks=weeks + reference_weeks)
+    since = datetime.combine(since_day, datetime.min.time(), timezone.utc)
+    spans = await _card_spans(session, scope, since, driver_ref)
+    breaks = (await session.execute(
+        select(Infringement.driver_ref, Infringement.period_start).where(
+            Infringement.rule.in_(("wtd_break", "wtd_daily_break")), Infringement.status != "dismissed",
+            scope.infringements(), Infringement.period_start >= since)
+    )).all()
+    drivers = []
+    for ref, items in sorted(spans.items()):
+        rep = wtd.report(items, weeks=weeks, reference_weeks=reference_weeks, today=today)
+        per_week: dict[str, int] = {}
+        for bref, when in breaks:
+            if bref == ref:
+                key = wtd.week_start(when.astimezone(wtd.LONDON).date()).isoformat()
+                per_week[key] = per_week.get(key, 0) + 1
+        for w in rep["weeks"]:
+            w["break_infringements"] = per_week.get(w["week_start"], 0)
+        drivers.append({"driver_ref": ref, **rep})
+    return {"weeks": weeks, "reference_weeks": reference_weeks, "drivers": drivers,
+            "limits": {"week_minutes": wtd.WEEK_LIMIT, "average_minutes": wtd.AVERAGE_LIMIT, "night_minutes": wtd.NIGHT_LIMIT}}
+
+
+@router.get("/hours.csv")
+async def hours_csv(start: date, end: date, session: AsyncSession = Depends(get_session),
+                    scope: TachoScope = Depends(tacho_scope)) -> Response:
+    """Daily hours per driver from card data, with app shift times, for payroll and working time records."""
+    import csv
+    import io
+
+    from app.models.driver_auth import DriverAccount, DriverMembership
+    from app.models.shifts import Shift
+    from app.services import wtd
+    from app.services.tacho_scope import card_key
+
+    if end < start or (end - start).days > 400:
+        raise HTTPException(status_code=400, detail="Choose a date range of up to 400 days.")
+    since = datetime.combine(start - timedelta(days=1), datetime.min.time(), timezone.utc)
+    spans = await _card_spans(session, scope, since)
+    until = datetime.combine(end + timedelta(days=2), datetime.min.time(), timezone.utc)
+
+    # App shifts, matched to the card holder through the driver login's card number.
+    ref_cards = dict((await session.execute(
+        select(TachoFile.driver_ref, TachoFile.card_number).where(
+            TachoFile.file_kind == "driver_card", scope.files(), TachoFile.card_number.is_not(None)))).all())
+    accounts = {card_key(a.unique_id): a for a in (await session.execute(select(DriverAccount))).scalars().all()
+                if len(card_key(a.unique_id)) == 14}
+    memberships = (await session.execute(select(DriverMembership.account_id, DriverMembership.traccar_driver_id))).all()
+    shifts_by_day: dict[tuple[str, str], list] = {}
+    for ref, number in ref_cards.items():
+        account = accounts.get(card_key(number))
+        if not account:
+            continue
+        ids = [tid for aid, tid in memberships if aid == account.id]
+        rows = (await session.execute(select(Shift).where(
+            Shift.clocked_in_at >= since, Shift.clocked_in_at < until,
+            (Shift.traccar_driver_id.in_(ids) if ids else Shift.driver_name == account.name)))).scalars().all()
+        for sh in rows:
+            day = sh.clocked_in_at.astimezone(wtd.LONDON).date().isoformat()
+            shifts_by_day.setdefault((ref, day), []).append(sh)
+
+    buf = io.StringIO()
+    out = csv.writer(buf)
+    out.writerow(["Driver", "Date", "First activity", "Last activity", "Driving (h:mm)", "Other work (h:mm)",
+                  "Availability (h:mm)", "Working time (h:mm)", "Night work", "App shift start", "App shift end",
+                  "App shift length (h:mm)", "Vehicle"])
+    hm = lambda m: f"{m // 60}:{m % 60:02d}"  # noqa: E731
+    for ref in sorted(spans):
+        for row in wtd.daily_rows(spans[ref], start, end):
+            shifts = shifts_by_day.get((ref, row["date"]), [])
+            first = min(shifts, key=lambda x: x.clocked_in_at) if shifts else None
+            ends = [x.clocked_out_at for x in shifts if x.clocked_out_at]
+            last_end = max(ends) if ends else None
+            length = int((last_end - first.clocked_in_at).total_seconds() // 60) if first and last_end else None
+            out.writerow([ref, row["date"], row["first_activity"], row["last_activity"], hm(row["drive_minutes"]),
+                          hm(row["other_work_minutes"]), hm(row["poa_minutes"]), hm(row["working_minutes"]),
+                          "yes" if row["night_work"] else "",
+                          first.clocked_in_at.astimezone(wtd.LONDON).strftime("%H:%M") if first else "",
+                          last_end.astimezone(wtd.LONDON).strftime("%H:%M") if last_end else "",
+                          hm(length) if length is not None else "",
+                          ", ".join(sorted({x.vehicle_reg for x in shifts if x.vehicle_reg}))])
+    return Response(content=buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="driver-hours-{start}-to-{end}.csv"'})
+
+
+@router.get("/report-settings")
+async def get_report_settings(session: AsyncSession = Depends(get_session),
+                              scope: TachoScope = Depends(tacho_scope),
+                              principal: Principal = Depends(require_manager)) -> dict:
+    """Infringement types on the weekly report, with how often each occurs in your data."""
+    hidden, source = await report_settings.hidden_for(session, principal.user_id)
+    default_hidden, _ = await report_settings.hidden_for(session, None)
+    counts = dict((await session.execute(
+        select(Infringement.rule, func.count()).where(scope.infringements()).group_by(Infringement.rule))).all())
+    return {
+        "source": source,
+        "can_set_default": modules.is_super_admin(principal),
+        "rules": [{"code": code, "title": title, "group": group, "shown": code not in hidden,
+                   "shown_by_default": code not in default_hidden, "count": counts.get(code, 0)}
+                  for code, title, group in report_settings.RULES],
+    }
+
+
+@router.put("/report-settings")
+async def put_report_settings(body: ReportSettingsIn, session: AsyncSession = Depends(get_session),
+                              principal: Principal = Depends(require_manager)) -> dict:
+    unknown = set(body.hidden) - report_settings.CODES
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unknown infringement type: {', '.join(sorted(unknown))}")
+    if body.for_everyone:
+        _super_admin_only(principal)
+        hidden = await report_settings.save(session, report_settings.DEFAULT_KEY, body.hidden, principal.name)
+    else:
+        if principal.user_id is None:
+            raise HTTPException(status_code=400, detail="Your account can't store report settings.")
+        hidden = await report_settings.save(session, report_settings.user_key(principal.user_id), body.hidden, principal.name)
+    return {"hidden": hidden, "for_everyone": body.for_everyone}
+
+
+@router.delete("/report-settings")
+async def reset_report_settings(session: AsyncSession = Depends(get_session),
+                                principal: Principal = Depends(require_manager)) -> dict:
+    """Go back to the default choice."""
+    if principal.user_id is not None:
+        await report_settings.clear(session, report_settings.user_key(principal.user_id))
+    hidden, source = await report_settings.hidden_for(session, principal.user_id)
+    return {"hidden": sorted(hidden), "source": source}
 
 
 @router.get("/infringements")
@@ -711,13 +893,60 @@ async def list_infringements(status: str = "open", driver_ref: str | None = None
     if vehicle_ref:
         stmt = stmt.where(TachoFile.vehicle_ref == vehicle_ref)
     rows = (await session.execute(stmt.limit(1000))).all()
+    reviews = await infringement_reviews.reviews_for(session, [r.id for r, _ in rows])
     return [{
         "id": str(r.id), "driver_ref": r.driver_ref, "vehicle_ref": vehicle,
         "rule": r.rule, "title": r.title,
         "severity": r.severity, "status": r.status,
         "period_start": r.period_start.isoformat(), "period_end": r.period_end.isoformat(),
         "detail": r.detail, "limit_minutes": r.limit_minutes, "actual_minutes": r.actual_minutes,
+        "review": infringement_reviews.view(reviews.get(r.id)),
     } for r, vehicle in rows]
+
+
+@router.get("/debrief-actions")
+async def debrief_actions() -> list[dict]:
+    return [{"code": code, "label": label} for code, label in infringement_reviews.ACTIONS.items()]
+
+
+async def _visible_infringement(session: AsyncSession, scope: TachoScope, inf_id: uuid.UUID) -> Infringement:
+    inf = await session.get(Infringement, inf_id)
+    if inf is None or not scope.allows_infringement(inf):
+        raise HTTPException(status_code=404, detail="Infringement not found.")
+    return inf
+
+
+@router.post("/infringements/{inf_id}/debrief")
+async def debrief(inf_id: uuid.UUID, body: DebriefIn, session: AsyncSession = Depends(get_session),
+                  scope: TachoScope = Depends(tacho_scope), principal: Principal = Depends(require_manager)) -> dict:
+    """Record what the office did about an infringement (the driver's debrief)."""
+    if body.action not in infringement_reviews.ACTIONS:
+        raise HTTPException(status_code=400, detail="Choose what was done about this infringement.")
+    inf = await _visible_infringement(session, scope, inf_id)
+    review = (await infringement_reviews.reviews_for(session, [inf.id])).get(inf.id)
+    if review is None:
+        review = InfringementReview(infringement_id=inf.id)
+        session.add(review)
+    review.debriefed_at = datetime.now(timezone.utc)
+    review.debriefed_by = principal.name
+    review.debrief_action = body.action
+    review.debrief_notes = (body.notes or "").strip() or None
+    review.updated_at = review.debriefed_at
+    if inf.status == "open":
+        inf.status = "acknowledged"
+    await session.commit()
+    return {"id": str(inf.id), "status": inf.status, "review": infringement_reviews.view(review)}
+
+
+@router.get("/infringements/{inf_id}/signature")
+async def infringement_signature(inf_id: uuid.UUID, session: AsyncSession = Depends(get_session),
+                                 scope: TachoScope = Depends(tacho_scope)) -> Response:
+    inf = await _visible_infringement(session, scope, inf_id)
+    review = (await infringement_reviews.reviews_for(session, [inf.id])).get(inf.id)
+    if review is None or not review.driver_signature_path:
+        raise HTTPException(status_code=404, detail="Not signed yet.")
+    return Response(content=media_store.read(review.driver_signature_path), media_type="image/png",
+                    headers={"Cache-Control": "private, max-age=3600"})
 
 
 @router.post("/infringements/{inf_id}/status")

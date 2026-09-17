@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>${title} — Job Management</title>
 <style>
+  .hours-note{font-size:12px;color:var(--mut,#8aa0c0);margin-top:4px;min-height:0;}
+  .hours-note.low{color:var(--warn,#f59e0b);font-weight:700;}
   :root { color-scheme: dark; --bg:#0b1220; --card:#131c2e; --line:#22304a; --fg:#e6edf7; --mut:#8aa0c0; --acc:#38bdf8; --ok:#34d399; --warn:#f59e0b; --bad:#f87171; }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif; }
@@ -73,6 +75,7 @@
     <h2 style="margin:0 0 12px">Send Job to Driver</h2>
     <label for="cDriver">Driver *</label>
     <select id="cDriver" onchange="toggleOther('cDriver','cDriverOther')"><option value="">Loading drivers…</option></select>
+    <div id="cDriverHours" class="hours-note"></div>
     <input id="cDriverOther" class="hidden" placeholder="Type the driver's name" autocomplete="off" style="margin-top:8px" />
     <label>Job Title *</label>
     <input id="cTitle" placeholder="e.g. Delivery to Manchester" />
@@ -102,6 +105,7 @@
     <div id="resendInfo" style="font-size:13px;color:var(--mut);margin-bottom:6px"></div>
     <label for="rDriver">Send to</label>
     <select id="rDriver" onchange="toggleOther('rDriver','rDriverOther')"></select>
+    <div id="rDriverHours" class="hours-note"></div>
     <input id="rDriverOther" class="hidden" placeholder="Type the driver's name" autocomplete="off" style="margin-top:8px" />
     <label for="rWhen">Scheduled for (optional)</label>
     <input id="rWhen" type="datetime-local" />
@@ -201,6 +205,26 @@ async function loadDrivers(force){
   try { driverList = await api('GET', '/drivers'); } catch(e){ driverList = []; }
   return driverList;
 }
+// Live tachograph hours (FMC650), when the driver's card is in a tracked vehicle.
+const hmm = m => `${Math.floor(m/60)}h${String(m%60).padStart(2,'0')}`;
+function liveLabel(d){
+  const l = d.live;
+  if(!l || l.driving_left_today == null) return null;
+  return `${hmm(l.driving_left_today)} driving left today`;
+}
+function hoursWarning(selectId){
+  const v = $(selectId).value, d = (driverList || []).find(x => String(x.id) === v);
+  const box = $(selectId + 'Hours');
+  if(!box) return;
+  const l = d && d.live;
+  if(!l || l.driving_left_today == null){ box.textContent = ''; box.className = 'hours-note'; return; }
+  const low = l.driving_left_today < 60 || (l.driving_left_week != null && l.driving_left_week < 120);
+  box.className = 'hours-note' + (low ? ' low' : '');
+  box.textContent = `Live from the tachograph: ${hmm(l.driving_left_today)} driving left today`
+    + (l.driving_until_break != null ? `, break due in ${hmm(l.driving_until_break)}` : '')
+    + (l.driving_left_week != null ? `, ${hmm(l.driving_left_week)} left this week` : '')
+    + (low ? ' — may not have the hours for this job.' : '.');
+}
 // selected: {id, name} — your DH FleetView driver (by id), or a typed name.
 async function fillDriverSelect(selectId, otherId, selected){
   const sel = $(selectId);
@@ -209,7 +233,7 @@ async function fillDriverSelect(selectId, otherId, selected){
   const name = (selected.name || '').toLowerCase();
   const match = list.find(d => selected.id != null ? d.id === selected.id : d.name.toLowerCase() === name);
   sel.innerHTML = '<option value="">Choose a driver…</option>' + list.map(d => {
-    const extra = [d.unique_id, d.app_access ? null : 'no app PIN'].filter(Boolean).join(' · ');
+    const extra = [d.unique_id, d.app_access ? null : 'no app PIN', liveLabel(d)].filter(Boolean).join(' · ');
     return `<option value="${esc(d.id)}" ${match === d ? 'selected' : ''}>${esc(d.name)}${extra?' ('+esc(extra)+')':''}</option>`;
   }).join('') + (selected.name && !match ? `<option value="${OTHER}" selected>Other driver…</option>` : '');
   if(!list.length) sel.innerHTML = '<option value="">No drivers yet — add them in Settings → Drivers</option>';
@@ -217,6 +241,7 @@ async function fillDriverSelect(selectId, otherId, selected){
   toggleOther(selectId, otherId);
 }
 function toggleOther(selectId, otherId){
+  hoursWarning(selectId);
   const other = $(selectId).value === OTHER;
   $(otherId).classList.toggle('hidden', !other);
   if(other) $(otherId).focus();

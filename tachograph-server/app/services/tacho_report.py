@@ -245,6 +245,7 @@ def build_report(parsed: dict, infringements: list[Infringement],
         in_week = [i for i in infringements if ws <= lo.day(i.start) < we]
         as_dict = lambda i: {                                    # noqa: E731
             "date": lo.day(i.start).isoformat(), "time": lo.clock(i.start),
+            "start": i.start.isoformat(),
             "rule": i.rule, "title": i.title, "severity": i.severity,
             "detail": i.detail, "limit_minutes": i.limit_minutes,
             "actual_minutes": i.actual_minutes,

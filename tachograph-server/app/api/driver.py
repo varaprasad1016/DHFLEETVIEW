@@ -249,6 +249,7 @@ async def driver_state(principal: Principal = Depends(require_driver), scope: Sc
         "companies": [{"id": tid, "label": label} for tid, label in companies.items()],
         "vehicle": vehicle,
         "jobs": await _driver_jobs(session, scope, companies),
+        "infringements_to_sign": sum(1 for i in await _my_infringements(session, principal) if i["needs_signature"]),
         "modules": {"jobs": True},
         "server_time": datetime.now(timezone.utc).isoformat(),
     }
@@ -616,6 +617,99 @@ async def my_tacho(days: int = Query(28, ge=1, le=90), principal: Principal = De
                            "period_start": i.period_start.isoformat(), "period_end": i.period_end.isoformat(),
                            "limit_minutes": i.limit_minutes, "actual_minutes": i.actual_minutes} for i in infringements],
     }
+
+
+# --- the driver's own licence / qualification expiries -------------------------------------------
+
+@router.get("/my-records")
+async def my_records(principal: Principal = Depends(require_driver), session: AsyncSession = Depends(get_session)) -> dict:
+    """Licence, Driver CPC, tachograph card, medical and ADR dates the office holds for this driver."""
+    from app.api import driver_records as records_api
+    from app.models.driver_records import DriverCpcCourse, DriverRecord
+
+    account = (await session.execute(select(DriverAccount).where(DriverAccount.id == uuid.UUID(principal.driver_id)))).scalar_one_or_none()
+    ids = list(principal.driver_ids)
+    records = (await session.execute(select(DriverRecord).where(DriverRecord.traccar_driver_id.in_(ids or [-1]))
+                                     .order_by(DriverRecord.updated_at.desc()))).scalars().all()
+    record = records[0] if records else None
+    courses = (await session.execute(select(DriverCpcCourse).where(DriverCpcCourse.traccar_driver_id.in_(ids or [-1])))).scalars().all()
+    view = records_api._view({"id": record.traccar_driver_id if record else 0, "name": principal.name,
+                              "uniqueId": account.unique_id if account else None},
+                             record, list(courses), await records_api._card_expiries(session), datetime.now(timezone.utc).date())
+    items = [i for i in view["items"].values() if i["status"] != "not_applicable"]
+    return {"items": items, "attention": sum(1 for i in items if i["status"] in ("expired", "overdue", "due_soon"))}
+
+
+# --- infringement sign-off -----------------------------------------------------------------
+
+class SignInfringementIn(BaseModel):
+    signature: str = Field(..., min_length=50)            # PNG data URL from the signature pad
+    comment: str | None = Field(default=None, max_length=2000)
+
+
+async def _my_infringements(session: AsyncSession, principal: Principal) -> list[dict]:
+    """The driver's own infringements (linked by driver card), newest first, with sign-off state.
+    Types the administrator leaves off everyone's weekly report aren't asked for."""
+    from app.services import infringement_reviews, report_settings
+
+    _, refs = await _tacho_refs(session, principal)
+    if not refs:
+        return []
+    hidden, _ = await report_settings.hidden_for(session, None)
+    rows = (await session.execute(
+        select(Infringement).where(Infringement.driver_ref.in_(refs), Infringement.status != "dismissed")
+        .order_by(Infringement.period_start.desc()).limit(200)
+    )).scalars().all()
+    rows = [r for r in rows if r.rule not in hidden]
+    reviews = await infringement_reviews.reviews_for(session, [r.id for r in rows])
+    out = []
+    for r in rows:
+        review = reviews.get(r.id)
+        out.append({
+            "id": str(r.id), "rule": r.rule, "title": r.title, "severity": r.severity, "detail": r.detail,
+            "period_start": r.period_start.isoformat(), "period_end": r.period_end.isoformat(),
+            "limit_minutes": r.limit_minutes, "actual_minutes": r.actual_minutes,
+            "needs_signature": not (review and review.driver_signed_at),
+            "review": infringement_reviews.view(review),
+        })
+    return out
+
+
+@router.get("/infringements")
+async def my_infringements(principal: Principal = Depends(require_driver),
+                           session: AsyncSession = Depends(get_session)) -> list[dict]:
+    return await _my_infringements(session, principal)
+
+
+@router.post("/infringements/{inf_id}/sign")
+async def sign_infringement(inf_id: uuid.UUID, body: SignInfringementIn, principal: Principal = Depends(require_driver),
+                            session: AsyncSession = Depends(get_session)) -> dict:
+    """The driver confirms they've been told about an infringement."""
+    from app.models.infringement_review import InfringementReview
+    from app.services import infringement_reviews
+
+    mine = {i["id"]: i for i in await _my_infringements(session, principal)}
+    if str(inf_id) not in mine:
+        raise HTTPException(status_code=404, detail="Infringement not found.")
+    review = (await infringement_reviews.reviews_for(session, [inf_id])).get(inf_id)
+    if review and review.driver_signed_at:
+        raise HTTPException(status_code=409, detail="You've already signed for this one.")
+    try:
+        stored = media_store.save_data_url(body.signature)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Signature couldn't be saved: {exc}")
+    if review is None:
+        review = InfringementReview(infringement_id=inf_id)
+        session.add(review)
+    now = datetime.now(timezone.utc)
+    review.driver_account_id = uuid.UUID(principal.driver_id)
+    review.driver_name = principal.name
+    review.driver_signed_at = now
+    review.driver_signature_path = stored["storage_path"]
+    review.driver_comment = (body.comment or "").strip() or None
+    review.updated_at = now
+    await session.commit()
+    return {"id": str(inf_id), "review": infringement_reviews.view(review)}
 
 
 @router.get("/tacho/timeline.pdf")

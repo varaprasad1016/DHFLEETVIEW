@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>${title} — Earned Recognition</title>
+<style>
+  :root{color-scheme:dark;--bg:#0b1220;--card:#131c2e;--line:#22304a;--fg:#e6edf7;--mut:#8aa0c0;--acc:#38bdf8;--ok:#34d399;--warn:#f59e0b;--bad:#f87171;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif;}
+  header{padding:16px;max-width:1300px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;gap:10px;}
+  h1{font-size:19px;margin:0;} a.back{color:var(--acc);text-decoration:none;font-size:13px;}
+  main{padding:0 16px 60px;max-width:1300px;margin:0 auto;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:12px;}
+  .row{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;flex-wrap:wrap;}
+  .intro{color:var(--mut);font-size:13px;margin:0;}
+  .wrap{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th{text-align:left;color:var(--mut);font-weight:600;font-size:12px;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap;}
+  td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top;}
+  td.v{white-space:nowrap;font-variant-numeric:tabular-nums;text-align:right;}
+  tr.group td{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.04em;font-weight:700;padding-top:14px;}
+  .met{color:var(--ok);} .miss{color:var(--bad);font-weight:700;} .none{color:var(--mut);}
+  .expl{color:var(--mut);font-size:12px;}
+  .btn{background:var(--acc);color:var(--on-acc);font-weight:700;border:none;border-radius:8px;padding:9px 14px;font:inherit;cursor:pointer;text-decoration:none;display:inline-block;}
+  .btn.small{background:transparent;color:var(--acc);border:1px solid var(--line);padding:6px 10px;font-size:12px;font-weight:600;}
+  input,select{background:var(--input,#0f172a);border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:8px;font:inherit;}
+  label{display:block;font-size:12px;color:var(--mut);margin:0 0 3px;}
+  .tgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:10px;}
+  .tgrid input{width:100%;}
+  .msg{font-size:13px;margin-left:8px;} .msg.ok{color:var(--ok);} .msg.bad{color:var(--bad);}
+  .lock{text-align:center;color:var(--mut);padding:40px 16px;} .lock a{color:var(--acc);}
+  .hidden{display:none!important;}
+</style>
+</head>
+<body>
+<header><h1>Earned Recognition</h1><a class="back" href="compliance">← Compliance</a></header>
+<main>
+  <div id="lock" class="lock hidden"></div>
+  <div id="app" class="hidden">
+    <div class="card">
+      <div class="row">
+        <div style="flex:1;min-width:260px"><b>Inspection pack</b>
+          <p class="intro">One PDF with your measures, tachograph downloads, infringements with sign-off and debrief, working time, walkaround checks and defects, maintenance and driver records.</p></div>
+        <div><label for="pFrom">From</label><input type="date" id="pFrom"></div>
+        <div><label for="pTo">To</label><input type="date" id="pTo"></div>
+        <div><a class="btn" id="pack">Download inspection pack</a></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="row" style="margin-bottom:8px">
+        <p class="intro" style="max-width:760px">Maintenance and drivers' hours measures in 4-week periods (Monday to Sunday), newest first. Targets are yours to set —
+          <b>check them against the current DVSA Earned Recognition guidance</b>. <span id="tsrc"></span></p>
+        <button class="btn small" id="editTargets">Edit targets</button>
+      </div>
+      <div id="targets" class="hidden"></div>
+      <div id="dash" class="wrap"></div>
+    </div>
+  </div>
+</main>
+<script>
+  const $=(id)=>document.getElementById(id);
+  const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const dd=s=>new Date(s+'T12:00:00Z').toLocaleDateString('en-GB',{day:'2-digit',month:'short',timeZone:'UTC'});
+  const SRC={yours:'Using your targets.',default:"Using the administrator's targets.",suggested:'Using suggested starting targets.'};
+  async function api(path, opts){
+    const r=await fetch('api/earned-recognition'+path,{cache:'no-store',...(opts||{})});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok){ const e=new Error((d.detail&&d.detail.message)||(typeof d.detail==='string'?d.detail:'')||'Request failed ('+r.status+')'); e.detail=d.detail; throw e; }
+    return d;
+  }
+  const fmt=(k,v)=>v==null?'—':k.unit==='%'?v+'%':k.unit==='per driver'?v:String(v);
+  let data;
+  async function load(){
+    try{ data=await api('/dashboard?periods=13'); }
+    catch(e){ $('app').classList.add('hidden'); $('lock').classList.remove('hidden');
+      $('lock').innerHTML=e.detail&&e.detail.error==='licence_suspended'?'🔒 Locked. <a href="approver">Approve this month\'s licence</a> to see Earned Recognition.':esc(e.message||'Sign in to DH FleetView.'); return; }
+    $('lock').classList.add('hidden'); $('app').classList.remove('hidden');
+    $('tsrc').textContent=SRC[data.targets_source]||'';
+    const p=data.periods;
+    let h=`<table><tr><th>Measure</th><th>Target</th>${p.map(x=>`<th style="text-align:right">${dd(x.start)} – ${dd(x.end)}</th>`).join('')}</tr>`;
+    let group='';
+    data.kpis.forEach(k=>{
+      if(k.group!==group){ group=k.group; h+=`<tr class="group"><td colspan="${p.length+2}">${esc(group)}</td></tr>`; }
+      h+=`<tr><td style="min-width:260px"><b>${esc(k.label)}</b><div class="expl">${esc(k.explanation)}</div></td>
+        <td class="v">${k.direction==='min'?'≥':'≤'} ${fmt(k,k.target)}</td>
+        ${k.values.map((v,i)=>`<td class="v ${k.met[i]==null?'none':k.met[i]?'met':'miss'}">${fmt(k,v)}</td>`).join('')}</tr>`;
+    });
+    $('dash').innerHTML=h+`</table><p class="expl" style="margin-top:8px">Safety inspections overdue today: <b>${data.now.inspections_overdue}</b>. “—” means no data in that period.</p>`;
+  }
+  async function editTargets(){
+    const box=$('targets');
+    if(!box.classList.contains('hidden')){ box.classList.add('hidden'); return; }
+    const t=await api('/targets');
+    box.classList.remove('hidden');
+    box.innerHTML=`<div class="tgrid">${t.targets.map(x=>`<div><label for="t_${x.code}">${esc(x.label)} (${x.direction==='min'?'at least':'at most'}${x.unit==='%'?', %':', '+esc(x.unit)})</label>
+        <input id="t_${x.code}" type="number" step="0.1" min="0" ${x.unit==='%'?'max="100"':''} value="${x.value}" data-code="${x.code}"><div class="expl">Suggested: ${x.suggested}</div></div>`).join('')}</div>
+      <div style="margin:10px 0 14px"><button class="btn" id="tSave">Save my targets</button> ${data.can_set_default?'<button class="btn small" id="tSaveAll">Save as everyone\'s targets</button>':''}<span class="msg" id="tMsg"></span></div>`;
+    const collect=()=>Object.fromEntries([...box.querySelectorAll('[data-code]')].map(i=>[i.dataset.code,Number(i.value)]));
+    const save=async(everyone)=>{
+      try{ await api('/targets',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({targets:collect(),for_everyone:everyone})});
+        $('tMsg').className='msg ok'; $('tMsg').textContent='Saved.'; await load(); }
+      catch(e){ $('tMsg').className='msg bad'; $('tMsg').textContent=e.message; }
+    };
+    $('tSave').onclick=()=>save(false);
+    if($('tSaveAll')) $('tSaveAll').onclick=()=>save(true);
+  }
+  const iso=d=>d.toLocaleDateString('en-CA',{timeZone:'Europe/London'});
+  const now=new Date(); $('pTo').value=iso(now); $('pFrom').value=iso(new Date(now.getTime()-90*864e5));
+  const packLink=()=>{ $('pack').href='api/earned-recognition/inspection-pack.pdf?start='+$('pFrom').value+'&end='+$('pTo').value; };
+  $('pFrom').onchange=packLink; $('pTo').onchange=packLink; packLink();
+  $('editTargets').onclick=editTargets;
+  load();
+</script>
+</body>
+</html>

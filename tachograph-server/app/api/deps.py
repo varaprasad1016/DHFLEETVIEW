@@ -95,19 +95,29 @@ async def _driver_principal(request: Request, session: AsyncSession) -> Principa
                      driver_ids=tuple(tid for tid, active in memberships if active))
 
 
-async def _manager_principal(request: Request) -> Principal | None:
+async def _manager_principal(request: Request, session: AsyncSession | None = None) -> Principal | None:
     try:
         user = await auth.traccar_user(request.headers.get("cookie"), request.headers.get("authorization"))
     except (urllib.error.URLError, OSError, ValueError):
         raise HTTPException(status_code=503, detail="Can't reach DH FleetView to check your sign-in. Try again shortly.")
     if user is None:
         return None
+    limited = False
     if not auth.manager_allowed(user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"error": "not_manager",
-                    "message": "Your DH FleetView account doesn't have access to the office compliance tools."},
-        )
+        # A standard user gets in only for the modules the super administrator has ticked for them.
+        granted = False
+        if auth.office_user(user) and session is not None and user.get("id") is not None:
+            from app.services import modules
+
+            flags, _ = await modules.get_user_flags(session, user.get("id"), default_on=False)
+            granted = any(flags.values())
+        if not granted:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"error": "not_manager",
+                        "message": "The compliance tools aren't switched on for your DH FleetView account. Ask your administrator."},
+            )
+        limited = True
     # Cookie-authenticated writes must come from our own pages (CSRF guard).
     if request.method not in ("GET", "HEAD", "OPTIONS") and request.headers.get("cookie"):
         origin = (request.headers.get("origin") or "").rstrip("/")
@@ -115,15 +125,16 @@ async def _manager_principal(request: Request) -> Principal | None:
             raise HTTPException(status_code=403, detail="Cross-site request refused.")
     authorization = request.headers.get("authorization") or ""
     return Principal(kind="manager", name=user.get("name") or user.get("email") or "Office",
-                     user_id=user.get("id"), administrator=bool(user.get("administrator")),
+                     user_id=user.get("id"), administrator=bool(user.get("administrator")), limited=limited,
                      email=user.get("email") or "",
                      cookie=auth.session_cookie(request.headers.get("cookie") or ""),
                      authorization="" if authorization.startswith("Bearer " + auth.DRIVER_TOKEN_PREFIX) else authorization)
 
 
-async def require_manager(request: Request) -> Principal:
-    """Office staff signed in to DH FleetView."""
-    principal = await _manager_principal(request)
+async def require_manager(request: Request, session: AsyncSession = Depends(get_session)) -> Principal:
+    """Office staff signed in to DH FleetView (administrators, managers, and standard
+    users the super administrator has given compliance modules)."""
+    principal = await _manager_principal(request, session)
     if principal is None:
         raise _login_required("manager")
     return principal
@@ -141,7 +152,7 @@ async def require_driver_or_manager(request: Request, session: AsyncSession = De
     principal = await _driver_principal(request, session)
     if principal is not None:
         return principal
-    principal = await _manager_principal(request)
+    principal = await _manager_principal(request, session)
     if principal is None:
         raise _login_required("manager")
     return principal
@@ -206,10 +217,10 @@ def require_module(key: str):
     async def dependency(request: Request, session: AsyncSession = Depends(get_session)) -> None:
         if await _driver_principal(request, session) is not None:
             return
-        principal = await _manager_principal(request)
+        principal = await _manager_principal(request, session)
         if principal is None or modules.is_super_admin(principal):
             return
-        flags, _ = await modules.get_user_flags(session, principal.user_id)
+        flags, _ = await modules.get_user_flags(session, principal.user_id, default_on=not principal.limited)
         if not flags.get(key, True):
             label = next((lbl for k, lbl, _ in modules.MODULES if k == key), key)
             raise HTTPException(

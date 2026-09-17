@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>${title} — Weekly report settings</title>
+<style>
+  :root{color-scheme:dark;--bg:#0b1220;--card:#131c2e;--line:#22304a;--fg:#e6edf7;--mut:#8aa0c0;--acc:#38bdf8;--ok:#34d399;--warn:#f59e0b;--bad:#f87171;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif;}
+  header{padding:16px;max-width:760px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;gap:10px;}
+  h1{font-size:19px;margin:0;} a.back{color:var(--acc);text-decoration:none;font-size:13px;}
+  main{padding:0 16px 60px;max-width:760px;margin:0 auto;}
+  .intro{color:var(--mut);font-size:14px;margin:0 0 14px;}
+  section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:6px 14px;margin-bottom:12px;}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);margin:10px 0 4px;}
+  label.rule{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer;}
+  label.rule:last-child{border-bottom:0;}
+  label.rule input{width:20px;height:20px;flex:none;accent-color:var(--acc);}
+  .rule .t{flex:1;} .rule .n{color:var(--mut);font-size:12px;white-space:nowrap;}
+  .rule .d{display:block;color:var(--mut);font-size:12px;}
+  .bar{position:sticky;bottom:0;background:var(--bg);padding:12px 0;display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .btn{background:var(--acc);color:var(--on-acc);font-weight:700;border:none;border-radius:8px;padding:10px 16px;font:inherit;cursor:pointer;}
+  .btn.ghost{background:transparent;color:var(--acc);border:1px solid var(--line);font-weight:600;}
+  .msg{font-size:13px;color:var(--mut);} .msg.ok{color:var(--ok);} .msg.bad{color:var(--bad);}
+  .pill{font-size:12px;color:var(--mut);border:1px solid var(--line);border-radius:999px;padding:2px 10px;}
+  .lock{text-align:center;color:var(--mut);padding:40px 16px;} .lock a{color:var(--acc);}
+  .hidden{display:none!important;}
+</style>
+</head>
+<body>
+<header><h1>Weekly report settings</h1><a class="back" href="hours">← Tacho compliance</a></header>
+<main>
+  <div id="lock" class="lock hidden"></div>
+  <div id="app" class="hidden">
+    <p class="intro">Untick the infringement types you don't want on the driver weekly report (on screen and in the PDF).
+      They still appear in the Infringements list. <span class="pill" id="source"></span></p>
+    <div id="groups"></div>
+    <div class="bar">
+      <button class="btn" id="save">Save for my reports</button>
+      <button class="btn ghost hidden" id="saveAll">Save as everyone's default</button>
+      <button class="btn ghost" id="reset">Use the default</button>
+      <span class="msg" id="msg"></span>
+    </div>
+  </div>
+</main>
+<script>
+  const $=(id)=>document.getElementById(id);
+  const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const SOURCE={yours:'Using your own choice',default:"Using the administrator's default",standard:'Showing every type'};
+  let data;
+
+  async function load(){
+    let r, d;
+    try{ r=await fetch('api/tacho/report-settings',{cache:'no-store'}); d=await r.json().catch(()=>({})); }
+    catch{ $('lock').classList.remove('hidden'); $('lock').textContent='Cannot reach the service.'; return; }
+    if(!r.ok){
+      $('app').classList.add('hidden'); $('lock').classList.remove('hidden');
+      if(d.detail&&d.detail.error==='licence_suspended') $('lock').innerHTML='🔒 Locked. <a href="approver">Approve this month\'s licence</a> first.';
+      else $('lock').textContent=(d.detail&&d.detail.message)||d.detail||'Sign in to DH FleetView to change report settings.';
+      return; }
+    data=d; $('lock').classList.add('hidden'); $('app').classList.remove('hidden');
+    $('source').textContent=SOURCE[d.source]||'';
+    $('saveAll').classList.toggle('hidden',!d.can_set_default);
+    const groups=[...new Set(d.rules.map(x=>x.group))];
+    $('groups').innerHTML=groups.map(g=>`<section><h2>${esc(g)}</h2>${d.rules.filter(x=>x.group===g).map(x=>`
+      <label class="rule"><input type="checkbox" value="${esc(x.code)}" ${x.shown?'checked':''}>
+        <span class="t">${esc(x.title)}${d.can_set_default&&x.shown!==x.shown_by_default?`<span class="d">Default: ${x.shown_by_default?'shown':'hidden'}</span>`:''}</span>
+        <span class="n">${x.count?x.count+' on record':'none on record'}</span></label>`).join('')}</section>`).join('');
+  }
+  const hidden=()=>[...document.querySelectorAll('#groups input')].filter(i=>!i.checked).map(i=>i.value);
+  async function send(method, body){
+    $('msg').className='msg'; $('msg').textContent='Saving…';
+    try{
+      const r=await fetch('api/tacho/report-settings',{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+      const d=await r.json().catch(()=>({}));
+      if(!r.ok) throw new Error((d.detail&&d.detail.message)||d.detail||'Could not save.');
+      $('msg').className='msg ok';
+      $('msg').textContent=method==='DELETE'?'Now using the default.':body.for_everyone?'Saved as the default for everyone without their own choice.':'Saved. Your weekly reports use this from now on.';
+      await load();
+    }catch(e){ $('msg').className='msg bad'; $('msg').textContent=e.message; }
+  }
+  $('save').onclick=()=>send('PUT',{hidden:hidden(),for_everyone:false});
+  $('saveAll').onclick=()=>send('PUT',{hidden:hidden(),for_everyone:true});
+  $('reset').onclick=()=>send('DELETE');
+  load();
+</script>
+</body>
+</html>
