@@ -3,14 +3,25 @@ name: Build Mobile Apps
 # Builds the DH FleetView Android AAB and iOS app on GitHub-hosted runners.
 # iOS requires a macOS runner (Xcode) - no local Mac needed.
 # Android AAB is signed with the upload keystore from repo secrets and,
-# auto-published to Google Play (production, draft) on every push to main,
-# tag, or manual dispatch.
+# auto-published to Google Play (production, draft) on pushes to main that
+# change the app, tags, or manual dispatch.
+#
+# The repo is private, so every run is billed (macOS minutes at 10x). Only
+# changes to the app itself start a build, and a newer push cancels an older
+# run that is still going.
 
 on:
   workflow_dispatch:        # manual trigger from the Actions tab
   push:
     branches: [main]
     tags: ['v*']
+    paths:
+      - 'traccar-manager/**'
+      - '.github/workflows/build-mobile.yml'
+
+concurrency:
+  group: build-mobile-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
