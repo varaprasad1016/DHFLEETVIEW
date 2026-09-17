@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     tacho_parser_binary: str = ""
     tacho_parser_timeout: int = 30
     tacho_parser_authenticate: bool = False
+
+    # --- Live tacho data (FMC650 via DH FleetView position forwarding) ---
+    # Shared key DH FleetView sends in the X-Tacho-Live-Key header; blank = forwarding refused.
+    tacho_live_key: str = ""
     tacho_parser_fallback: bool = False
 
     # Uploads are assigned to the company belonging to the signed-in account.

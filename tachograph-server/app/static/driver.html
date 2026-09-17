@@ -247,6 +247,12 @@
   .hbar i { display: block; height: 100%; }
   .h-drive { background: #2563eb; } .h-work { background: #f59e0b; } .h-available { background: #8b5cf6; } .h-rest { background: #10b981; }
   .hlegend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--d-mut); margin: 8px 0 2px; }
+  .live-card { border: 1px solid var(--d-primary); }
+  .live-card .live-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; vertical-align: 1px; }
+  .live-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .live-grid .stat .n.low { color: var(--d-warn); } .live-grid .stat .n.out { color: var(--d-bad); }
+  .live-warn { border-radius: 10px; padding: 8px 10px; margin-top: 10px; font-weight: 600; font-size: 14px; }
+  .live-warn.warn { background: rgba(245,158,11,.14); color: var(--d-warn); } .live-warn.bad { background: rgba(239,68,68,.14); color: var(--d-bad); }
   .hlegend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; background: var(--c); }
 </style>
 </head>
@@ -1260,6 +1266,7 @@ async function fetchAndOpen(apiPath, baseName) {
 // ---------- HOURS (the driver's own tachograph card data) ----------
 function fmtMins(m) { m = Math.max(0, Math.round(m || 0)); return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`; }
 async function renderHours() {
+  clearTimers();   // re-rendered every minute while live data is showing
   setTopbar({ title: "My Hours", avatar: true, bell: true }); setNav("hours");
   const view = $("#view");
   view.innerHTML = `<div class="empty"><span class="spinner"></span></div>`;
@@ -1278,19 +1285,40 @@ async function renderHours() {
   }
   const days = t.days || [];
   const DAY_MIN = 1440;
+  const lv = t.live, lf = (lv && lv.figures) || {};
+  const ACT = { drive: "Driving", work: "Other work", available: "Available", rest: "Break / rest" };
+  // The tachograph's own weekly figures (all card data) win over what's been downloaded here.
+  const weekDriven = lf.weekly_driving != null ? lf.weekly_driving : (t.this_week_drive_minutes || 0);
+  const weekLeft = lf.driving_left_week != null ? lf.driving_left_week : Math.max(0, 3360 - weekDriven);
+  const leftStat = (m, warnAt, label) => `<div class="stat"><div class="n ${m == null ? "" : m <= 0 ? "out" : m <= warnAt ? "low" : ""}">${m == null ? "—" : fmtMins(m)}</div><div class="l">${label}</div></div>`;
+  const liveCard = lv ? `<div class="card live-card">
+      <div class="row between"><div class="card-title" style="margin:0"><span class="live-dot" style="background:${lv.stale ? "var(--d-mut)" : "var(--d-ok)"}"></span> Live from your tachograph</div>
+        <span class="mut small">${esc(fmtReg(lv.vehicle_reg || lv.vehicle_name || ""))}</span></div>
+      <div style="margin-top:8px;font-size:18px;font-weight:700">${esc(ACT[lv.activity] || "No activity")}${lv.since ? `<span class="mut small" style="font-weight:400"> since ${esc(fmtTime(lv.since))}</span>` : ""}</div>
+      ${lv.warning ? `<div class="live-warn ${lv.warning.level}">${esc(lv.warning.label)}</div>` : ""}
+      ${lv.no_card_driving ? `<div class="live-warn bad">Driving without your card inserted</div>` : ""}
+      <div class="live-grid">
+        ${leftStat(lf.driving_until_break, 30, "Driving before a break")}
+        ${leftStat(lf.driving_left_today, 60, "Driving left today")}
+        ${leftStat(lf.driving_left_week, 240, "Driving left this week")}
+        ${leftStat(lf.until_daily_rest, 60, "Daily rest must start in")}
+      </div>
+      ${lv.activity === "rest" && lf.remaining_current_break ? `<p class="mut small" style="margin:10px 0 0">Break still needed: ${fmtMins(lf.remaining_current_break)}</p>` : ""}
+      <p class="mut small" style="margin:10px 0 0">${lv.stale ? "Last update " + esc(fmtWhen(lv.recorded_at)) + " — the tracker may be out of signal. " : ""}A guide only: your tachograph is the official record.</p>
+    </div>` : "";
   const inf = t.infringements || [];
   const dayLabel = (d) => new Date(d + "T12:00:00Z").toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", timeZone: "UTC" });
   const bar = (d) => ["drive", "work", "available", "rest"].map((k) => d[k] ? `<i class="h-${k}" style="width:${Math.min(100, (d[k] / DAY_MIN) * 100)}%" title="${k} ${fmtMins(d[k])}"></i>` : "").join("");
-  view.innerHTML = `
+  view.innerHTML = `${liveCard}
     <div class="card">
       <div class="row between"><div class="card-title" style="margin:0">${ICON.clock} Tachograph hours</div>
         ${t.last_card_download ? `<span class="mut small">Card read ${esc(fmtWhen(t.last_card_download))}</span>` : ""}</div>
       <div class="stat-grid" style="margin-top:12px">
-        <div class="stat"><div class="n">${fmtMins(t.this_week_drive_minutes)}</div><div class="l">Driving this week</div></div>
-        <div class="stat"><div class="n">${fmtMins(Math.max(0, 3360 - (t.this_week_drive_minutes || 0)))}</div><div class="l">Left of 56h week</div></div>
+        <div class="stat"><div class="n">${fmtMins(weekDriven)}</div><div class="l">Driving this week</div></div>
+        <div class="stat"><div class="n">${fmtMins(weekLeft)}</div><div class="l">Left of 56h week</div></div>
         <div class="stat"><div class="n" style="color:${inf.length ? "var(--d-bad)" : "var(--d-ok)"}">${inf.length}</div><div class="l">Open infringements</div></div>
       </div>
-      <p class="mut small" style="margin:10px 0 0">From your last driver card download — driving since then isn't included.</p>
+      <p class="mut small" style="margin:10px 0 0">${lv || days.some((d) => d.live_minutes) ? "From your card downloads, plus live tachograph data since your last download." : "From your last driver card download — driving since then isn't included."}</p>
       <button class="btn btn-primary" id="hPdf" style="margin-top:12px">${ICON.doc} Download timeline PDF</button>
     </div>
     ${inf.length ? `<div class="section-title">Infringements</div><div class="card">${inf.map((i) => `<div class="fault-item">
@@ -1301,10 +1329,11 @@ async function renderHours() {
     <div class="card">
       <div class="hlegend"><span style="--c:#2563eb">Drive</span><span style="--c:#f59e0b">Other work</span><span style="--c:#8b5cf6">Available</span><span style="--c:#10b981">Rest</span></div>
       ${days.length ? days.map((d) => `<div class="hday"><span>${esc(dayLabel(d.date))}</span><div class="hbar">${bar(d)}</div>
-          <span style="text-align:right;font-variant-numeric:tabular-nums" title="Driving">${d.drive ? fmtMins(d.drive) : "—"}</span></div>`).join("")
+          <span style="text-align:right;font-variant-numeric:tabular-nums" title="Driving">${d.drive ? fmtMins(d.drive) : "—"}${d.live_minutes ? '<div class="mut" style="font-size:10px">incl. live</div>' : ""}</span></div>`).join("")
         : `<div class="empty">No card activity in the last 28 days.</div>`}
     </div>`;
   $("#hPdf").onclick = (e) => busy(e.currentTarget, () => fetchAndOpen("api/driver/tacho/timeline.pdf?days=28", "my-tacho-timeline"));
+  if (lv) S.timers.push(setInterval(() => { if (location.hash.startsWith("#/hours") && !$("#sheet").classList.contains("open")) renderHours(); }, 60000));
 }
 
 // ---------- CONTACTS ----------
