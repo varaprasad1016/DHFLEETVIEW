@@ -235,6 +235,27 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+  Future<void> _saveDataUrl(String url) async {
+    try {
+      final data = UriData.parse(url);
+      final bytes = data.contentAsBytes();
+      String? mime = data.mimeType;
+      if (mime == 'attachment/file' || mime == 'application/octet-stream') {
+        // file-saver drops the type; the app's exports are PDFs or Excel (zip) files.
+        final head = String.fromCharCodes(bytes.take(4));
+        mime = head == '%PDF'
+            ? 'application/pdf'
+            : head.startsWith('PK')
+                ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                : null;
+      }
+      await _saveDownloadedBytes(bytes, fileName: 'download', mimeType: mime);
+    } catch (e) {
+      developer.log('Failed to save data url', error: e);
+      _showMessage('The file could not be saved. Please try again.');
+    }
+  }
+
   // Cookies the WebView holds for this URL, so downloads use the same signed-in
   // session as the page (DH FleetView and the /tacho pages).
   Future<String?> _cookieHeaderFor(Uri uri) async {
@@ -619,7 +640,13 @@ class _MainScreenState extends State<MainScreen> {
                 return NavigationActionPolicy.ALLOW;
               }
               final uri = Uri.parse(target.toString());
-              if (uri.scheme == 'blob' || uri.scheme == 'data') {
+              if (uri.scheme == 'data') {
+                // A page navigating to a data: file (file-saver's fallback in
+                // desktop-mode WebViews, e.g. iPad): save it instead.
+                await _saveDataUrl(target.toString());
+                return NavigationActionPolicy.CANCEL;
+              }
+              if (uri.scheme == 'blob') {
                 // Handled by the injected page script; never navigate to them.
                 return NavigationActionPolicy.CANCEL;
               }
