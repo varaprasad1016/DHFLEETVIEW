@@ -22,6 +22,7 @@ import {
 import { makeStyles } from 'tss-react/mui';
 import CloseIcon from '@mui/icons-material/Close';
 import RouteIcon from '@mui/icons-material/Route';
+import HistoryIcon from '@mui/icons-material/History';
 import SendIcon from '@mui/icons-material/Send';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -284,6 +285,14 @@ const StatusCard = ({ deviceId, position, onClose, disableActions, desktopPaddin
                       <MyLocationIcon />
                     </IconButton>
                   </span>
+                </Tooltip>
+                <Tooltip title="Journeys and stops">
+                  <IconButton
+                    onClick={() => navigate(`/journeys?deviceId=${deviceId}`)}
+                    disabled={disableActions}
+                  >
+                    <HistoryIcon />
+                  </IconButton>
                 </Tooltip>
                 <Tooltip title={t('reportReplay')}>
                   <IconButton
