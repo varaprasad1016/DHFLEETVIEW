@@ -1,14 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
-import {
-  AppBar,
-  Box,
-  Chip,
-  CircularProgress,
-  IconButton,
-  Toolbar,
-  Typography,
-} from '@mui/material';
+import { AppBar, Box, CircularProgress, IconButton, Toolbar, Typography } from '@mui/material';
 import { makeStyles } from 'tss-react/mui';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -44,17 +36,31 @@ const useStyles = makeStyles()((theme) => ({
     gap: theme.spacing(1),
     padding: theme.spacing(1.5, 2),
     overflowX: 'auto',
+    scrollbarWidth: 'none',
+    '&::-webkit-scrollbar': { display: 'none' },
   },
   day: {
-    minWidth: 62,
+    width: 56,
+    minHeight: 68,
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    padding: theme.spacing(1, 0),
-    borderRadius: 10,
+    justifyContent: 'center',
+    gap: 2,
+    padding: theme.spacing(0.75, 0),
+    borderRadius: 12,
     border: `1px solid ${theme.palette.divider}`,
     cursor: 'pointer',
     flex: '0 0 auto',
+  },
+  dayName: {
+    fontSize: '0.7rem',
+    lineHeight: 1.2,
+  },
+  dayNumber: {
+    fontSize: '1rem',
+    fontWeight: 700,
+    lineHeight: 1.2,
   },
   daySelected: {
     backgroundColor: theme.palette.success.main,
@@ -124,8 +130,8 @@ const useStyles = makeStyles()((theme) => ({
     flexGrow: 1,
     border: `1px solid ${theme.palette.divider}`,
     borderRadius: 10,
-    padding: theme.spacing(1.25, 1.5),
-    margin: theme.spacing(0.5, 0, 1.5),
+    padding: theme.spacing(1, 1.25),
+    margin: theme.spacing(0.5, 0, 1),
     minWidth: 0,
   },
   cardDrive: {
@@ -141,8 +147,19 @@ const useStyles = makeStyles()((theme) => ({
   fact: {
     display: 'flex',
     alignItems: 'center',
-    gap: 4,
-    fontSize: '0.85rem',
+    gap: 3,
+    fontSize: '0.82rem',
+    whiteSpace: 'nowrap',
+  },
+  replay: {
+    marginLeft: 'auto',
+    fontSize: '0.75rem',
+    fontWeight: 600,
+    color: theme.palette.primary.main,
+    whiteSpace: 'nowrap',
+  },
+  address: {
+    marginTop: 4,
   },
   empty: {
     padding: theme.spacing(6, 2),
@@ -165,6 +182,8 @@ const JourneysPage = () => {
   const speedUnit = useAttributePreference('speedUnit', 'mph');
 
   const [day, setDay] = useState(() => dayjs().startOf('day'));
+  // The strip starts on today, at its right-hand end.
+  const daysRef = useRef(null);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -209,6 +228,12 @@ const JourneysPage = () => {
     load();
   }, [deviceId, day]);
 
+  useEffect(() => {
+    if (daysRef.current) {
+      daysRef.current.scrollLeft = daysRef.current.scrollWidth;
+    }
+  }, []);
+
   const totals = useMemo(() => {
     const trips = items.filter((item) => item.kind === 'trip');
     const stops = items.filter((item) => item.kind === 'stop');
@@ -237,16 +262,16 @@ const JourneysPage = () => {
         </Toolbar>
       </AppBar>
 
-      <div className={classes.days}>
+      <div className={classes.days} ref={daysRef}>
         {days.map((item) => (
           <div
             key={item.valueOf()}
             className={`${classes.day}${item.isSame(day, 'day') ? ` ${classes.daySelected}` : ''}`}
             onClick={() => setDay(item)}
           >
-            <Typography variant="caption">{item.format('ddd')}</Typography>
-            <Typography variant="subtitle2">{item.format('D')}</Typography>
-            <Typography variant="caption">{item.format('MMM')}</Typography>
+            <span className={classes.dayName}>{item.format('ddd')}</span>
+            <span className={classes.dayNumber}>{item.format('D')}</span>
+            <span className={classes.dayName}>{item.format('MMM')}</span>
           </div>
         ))}
       </div>
@@ -323,11 +348,13 @@ const JourneysPage = () => {
                         </span>
                       </>
                     )}
-                    {drive && <Chip size="small" label="Tap for replay" variant="outlined" />}
+                    {drive && <span className={classes.replay}>Replay ›</span>}
                   </div>
-                  <Typography variant="body2" color="text.secondary">
-                    {(drive ? item.startAddress : item.address) || '—'}
-                  </Typography>
+                  {(drive ? item.startAddress : item.address) && (
+                    <Typography variant="body2" color="text.secondary" className={classes.address}>
+                      {drive ? item.startAddress : item.address}
+                    </Typography>
+                  )}
                 </div>
               </div>
             );
