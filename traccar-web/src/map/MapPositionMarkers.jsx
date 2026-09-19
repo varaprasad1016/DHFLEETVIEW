@@ -3,8 +3,9 @@ import { useSelector } from 'react-redux';
 import { map } from './core/MapView';
 import MapMarkers from './MapMarkers';
 import { formatTime } from '../common/util/formatter';
+import { useTranslation } from '../common/components/LocalizationProvider';
 import { mapIconKey } from './core/preloadImages';
-import { getVehicleStatus, getStatusColor as getVehicleStatusColor } from '../common/util/vehicleStatus';
+import { drivingSpeed, getVehicleStatus, getStatusColor as getVehicleStatusColor } from '../common/util/vehicleStatus';
 import { useAttributePreference } from '../common/util/preferences';
 import { fromMapCoordinates } from './core/mapUtil';
 
@@ -22,6 +23,8 @@ const MapPositionMarkers = ({
 
   const mapCluster = useAttributePreference('mapCluster', true);
   const directionType = useAttributePreference('mapDirection', 'selected');
+  const speedUnit = useAttributePreference('speedUnit', 'mph');
+  const t = useTranslation();
 
   const onMapClickCallback = useCallback(
     (event) => {
@@ -66,7 +69,13 @@ const MapPositionMarkers = ({
     } else {
       color = 'neutral';
     }
-    const titles = { name: device.name, fixTime: formatTime(position.fixTime, 'seconds') };
+    // While a vehicle is driving its speed sits under the name on the map, so it
+    // is readable without opening the vehicle.
+    const speed = showStatus ? drivingSpeed(device, position, speedUnit, t) : null;
+    const titles = {
+      name: speed ? `${device.name}\n${speed}` : device.name,
+      fixTime: formatTime(position.fixTime, 'seconds'),
+    };
     return {
       id: position.id,
       deviceId: position.deviceId,

@@ -33,7 +33,7 @@ import { useAttributePreference } from '../common/util/preferences';
 import GeofencesValue from '../common/components/GeofencesValue';
 import DriverValue from '../common/components/DriverValue';
 import MotionBar from './components/MotionBar';
-import { getIgnition, getVehicleStatus, getStatusColor as getVehicleStatusColor } from '../common/util/vehicleStatus';
+import { drivingSpeed, getIgnition, getVehicleStatus, getStatusColor as getVehicleStatusColor } from '../common/util/vehicleStatus';
 
 dayjs.extend(relativeTime);
 
@@ -117,6 +117,7 @@ const DeviceRow = ({ devices, index, style }) => {
 
   const devicePrimary = useAttributePreference('devicePrimary', 'name');
   const deviceSecondary = useAttributePreference('deviceSecondary', '');
+  const speedUnit = useAttributePreference('speedUnit', 'mph');
 
   const resolveFieldValue = (field) => {
     if (field === 'geofenceIds') {
@@ -156,6 +157,8 @@ const DeviceRow = ({ devices, index, style }) => {
   // Icon library: selectable category icons (mapIcons) are shown in avatar; color by ignition
   // Gray when ignition off (parked/stopped/offline), green when running (spec)
   const vehicleStatusLabel = vehicleStatus.charAt(0).toUpperCase() + vehicleStatus.slice(1);
+  // Live speed, shown only while the vehicle is actually driving.
+  const speed = drivingSpeed(item, position, speedUnit, t);
 
   const secondaryText = () => {
     // Single source of truth for status: the operational vehicle status. The
@@ -175,6 +178,12 @@ const DeviceRow = ({ devices, index, style }) => {
             {vehicleStatusLabel}
           </span>
         </Tooltip>
+        {speed && (
+          <span className={classes.success} style={{ fontWeight: 600 }}>
+            {' • '}
+            {speed}
+          </span>
+        )}
         {vehicleStatus === 'offline' && lastSeen && (
           <span className={classes.neutral}>
             {' • '}

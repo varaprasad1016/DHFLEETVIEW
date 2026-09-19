@@ -1,3 +1,5 @@
+import { formatShortSpeed } from './formatter';
+
 /**
  * Vehicle status derived strictly from ignition parameter.
  * - DVR / CNMS: standard `ignition` attribute (existing, unchanged)
@@ -107,6 +109,16 @@ export const getVehicleStatus = (device, position) => {
   // ignition unknown – fallback to motion
   return speed >= SPEED_THRESHOLD_KTS ? 'running' : 'parked';
 };
+
+/**
+ * The vehicle's current speed while it is driving, e.g. "42 mph"; null when it
+ * isn't (idling, parked, offline). Shared by the map labels and the vehicle list
+ * so both show the same thing.
+ */
+export const drivingSpeed = (device, position, speedUnit, t) =>
+  getVehicleStatus(device, position) === 'running'
+    ? formatShortSpeed(position?.speed, speedUnit, t)
+    : null;
 
 /**
  * Normalize parked/stopped alias for filtering.
