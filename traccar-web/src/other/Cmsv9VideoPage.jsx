@@ -42,6 +42,11 @@ import {
   cmsv9StreamStatus,
 } from '../common/util/cmsv9';
 import { useCatch, useCatchCallback } from '../reactHelper';
+import MapView from '../map/core/MapView';
+import MapPositionMarkers from '../map/MapPositionMarkers';
+import MapCamera from '../map/MapCamera';
+import MapScale from '../map/MapScale';
+import MapCurrentLocation from '../map/MapCurrentLocation';
 
 const useStyles = makeStyles()((theme) => ({
   root: {
@@ -167,6 +172,34 @@ const useStyles = makeStyles()((theme) => ({
     color: '#666',
     fontSize: '0.8rem',
   },
+  // Live map under the video: half the screen alongside a single channel, and the
+  // space left under the grid in multi-channel view.
+  mapArea: {
+    position: 'relative',
+    flexGrow: 1,
+    minHeight: 200,
+    borderTop: `1px solid ${theme.palette.divider}`,
+  },
+  mapHalf: {
+    flex: '1 1 50%',
+    minHeight: 180,
+  },
+  videoHalf: {
+    flex: '1 1 50%',
+    maxHeight: 'none',
+  },
+  gridWithMap: {
+    flexGrow: 0,
+  },
+  mapEmpty: {
+    position: 'absolute',
+    inset: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.palette.background.paper,
+    zIndex: 1,
+  },
 }));
 
 let jessibucaPromise = null;
@@ -259,8 +292,31 @@ function resolveUrl(url) {
   }
 }
 
-// waitForStream removed: use waitForStreamReady (server-side check) instead
-// to avoid exhausting the browser's ~6-connections-per-host limit.
+async function waitForStream(url, timeoutMs = 45000, cancelFn) {
+  const absolute = resolveUrl(url);
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (cancelFn && cancelFn()) return false;
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 1200);
+      const res = await fetch(absolute, { signal: controller.signal, cache: 'no-store' });
+      clearTimeout(timer);
+      if (res.ok) {
+        // We only need to know the stream exists. Abort immediately so this probe
+        // does not hold a streaming connection open — otherwise N channels leak N
+        // connections and blow past the browser's ~6-per-host limit, leaving no
+        // sockets for the actual players (the "only 2 channels play" bug).
+        controller.abort();
+        return true;
+      }
+    } catch (e) {
+      // keep polling while device starts pushing
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+  return false;
+}
 
 const Cmsv9VideoPage = () => {
   const { classes } = useStyles();
@@ -274,6 +330,8 @@ const Cmsv9VideoPage = () => {
   const [searchParams] = useSearchParams();
   const deviceId = searchParams.get('deviceId');
   const device = useSelector((state) => state.devices.items[deviceId]);
+  // Live position of this vehicle, for the map under the video.
+  const position = useSelector((state) => state.session.positions[deviceId]);
 
   const defaultChannels = useAttributePreference('cmsv9Channels', 4);
 
@@ -381,7 +439,7 @@ const Cmsv9VideoPage = () => {
       const { flvUrl } = data;
       if (!flvUrl) throw new Error('No stream URL returned');
       setPlaying(true);
-      const found = await waitForStreamReady(deviceId, channel, 90000, () => cancelledRef.current);
+      const found = await waitForStream(flvUrl, 90000, () => cancelledRef.current);
       if (!found) {
         if (!cancelledRef.current) {
           setLiveError(true);
@@ -538,7 +596,7 @@ const Cmsv9VideoPage = () => {
       // Stagger startup: N tiles firing play-orders and spinning up N WASM
       // H.265 decoders at the same instant is what makes multi-channel struggle.
       if (idx > 0) {
-        await new Promise((resolve) => setTimeout(resolve, idx * 600));
+        await new Promise((resolve) => setTimeout(resolve, idx * 400));
         if (cancelledRef.current) return;
       }
       try {
@@ -551,7 +609,7 @@ const Cmsv9VideoPage = () => {
           setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
           return;
         }
-        const found = await waitForStreamReady(deviceId, ch, 150000, () => cancelledRef.current);
+        const found = await waitForStream(data.flvUrl, 150000, () => cancelledRef.current);
         if (!found) {
           if (!cancelledRef.current) {
             setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
@@ -699,7 +757,7 @@ const Cmsv9VideoPage = () => {
         // The platform pushes the recorded segment to the portal relay as a
         // regular FLV stream, so it plays directly in the browser just like
         // live does.
-        const found = await waitForStreamReady(deviceId, channel, 90000, () => cancelledRef.current);
+        const found = await waitForStream(flvUrl, 90000, () => cancelledRef.current);
         if (!found) {
           if (!cancelledRef.current) {
             setLiveError(true);
@@ -870,7 +928,7 @@ const Cmsv9VideoPage = () => {
             </Box>
           )}
           {tab === 0 && (
-            <div className={classes.video}>
+            <div className={`${classes.video} ${classes.videoHalf}`}>
               {playing && !liveError && (
                 <div ref={videoRef} className={classes.player} />
               )}
@@ -898,7 +956,7 @@ const Cmsv9VideoPage = () => {
             </div>
           )}
           {tab === 1 && (
-            <div className={classes.grid}>
+            <div className={`${classes.grid} ${classes.gridWithMap}`}>
               {visibleChannels.map((ch) => (
                 <div
                   key={ch}
@@ -948,6 +1006,25 @@ const Cmsv9VideoPage = () => {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+          {(tab === 0 || tab === 1) && (
+            <div className={`${classes.mapArea}${tab === 0 ? ` ${classes.mapHalf}` : ''}`}>
+              <MapView>
+                <MapPositionMarkers positions={position ? [position] : []} showStatus />
+              </MapView>
+              <MapScale />
+              <MapCurrentLocation />
+              {position && (
+                <MapCamera latitude={position.latitude} longitude={position.longitude} />
+              )}
+              {!position && (
+                <div className={classes.mapEmpty}>
+                  <Typography variant="body2" color="textSecondary">
+                    {t('sharedNoData')}
+                  </Typography>
+                </div>
+              )}
             </div>
           )}
           {tab === 2 && (
