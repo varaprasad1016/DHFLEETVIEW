@@ -9,6 +9,7 @@ import org.traccar.model.ObjectOperation;
 import org.traccar.model.Permission;
 import org.traccar.model.Position;
 import org.traccar.model.User;
+import org.traccar.helper.UnitsConverter;
 import org.traccar.session.ConnectionManager;
 import org.traccar.session.cache.CacheManager;
 import org.traccar.storage.Storage;
@@ -167,8 +168,11 @@ public class TaskCnmsSync extends SingleScheduleTask {
                 position.setLongitude(lng);
                 position.setAltitude(data.path("altitude").asDouble(0));
 
-                double speedKmh = data.path("speed").asDouble(0);
-                position.setSpeed(speedKmh / 3.6);
+                // The CNMS API reports speed in 0.1 km/h units; Traccar stores knots.
+                // (It used to divide the raw value by 3.6, which both kept the 0.1
+                // scale and converted to m/s, so speeds showed about 5x too high.)
+                double speedKmh = data.path("speed").asDouble(0) / 10.0;
+                position.setSpeed(UnitsConverter.knotsFromKph(speedKmh));
                 position.setCourse(data.path("direction").asDouble(0));
 
                 String gpstime = data.path("gpstime").asText("");
@@ -182,10 +186,11 @@ public class TaskCnmsSync extends SingleScheduleTask {
                 }
 
                 position.set(Position.KEY_IGNITION, acc);
-                position.set(Position.KEY_TOTAL_DISTANCE, data.path("summileage").asDouble(0));
+                // Mileage comes in 0.1 km units as well; Traccar stores metres.
+                position.set(Position.KEY_TOTAL_DISTANCE, data.path("summileage").asDouble(0) * 100.0);
                 position.set("cnmsOnline", carstatus > 0 && carstatus != 2);
                 position.set("cnmsAddress", data.path("baiduAddress").asText(""));
-                position.set("cnmsMileage", data.path("mileage").asDouble(0));
+                position.set("cnmsMileage", data.path("mileage").asDouble(0) * 100.0);
 
                 position.setServerTime(new Date());
 
@@ -388,10 +393,20 @@ public class TaskCnmsSync extends SingleScheduleTask {
             String hour = gpstime.substring(6, 8);
             String min = gpstime.substring(8, 10);
             String sec = gpstime.substring(10, 12);
-            return Date.from(java.time.LocalDateTime.of(
+            Date parsed = Date.from(java.time.LocalDateTime.of(
                     Integer.parseInt(year), Integer.parseInt(month), Integer.parseInt(day),
                     Integer.parseInt(hour), Integer.parseInt(min), Integer.parseInt(sec))
                     .toInstant(java.time.ZoneOffset.UTC));
+            // A DVR without a GPS fix sends a garbage clock (years in the future, or
+            // long past). Such a time would file the position at the wrong date and
+            // hide the vehicle's real last position, so treat it as unknown and let
+            // the caller fall back to the server clock.
+            long now = System.currentTimeMillis();
+            if (parsed.getTime() > now + TimeUnit.DAYS.toMillis(1)
+                    || parsed.getTime() < now - TimeUnit.DAYS.toMillis(365)) {
+                return null;
+            }
+            return parsed;
         } catch (Exception e) {
             return null;
         }
