@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "DH FleetView Tacho Bridge",
-  "version": "0.8.0-rc.16-dh.1",
+  "version": "0.8.0-rc.16-dh.2",
   "identifier": "com.dhfleetview.tachobridge",
   "build": {
     "frontendDist": "../dist/spa",

@@ -1185,7 +1185,7 @@ pub fn emit_all_card_configs() {
 
 // Default structure config
 /// DH FleetView server the app connects to by default (TLS).
-pub const DEFAULT_SERVER_HOST: &str = "dhfleetview.co.uk:8883";
+pub const DEFAULT_SERVER_HOST: &str = "dhfleetview.co.uk:443";
 
 fn generate_default_config() -> ConfigurationFile {
     ConfigurationFile {

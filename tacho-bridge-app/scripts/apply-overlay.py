@@ -17,7 +17,7 @@ import sys
 ROOT = sys.argv[1] if len(sys.argv) > 1 else "D:/tools/wt-tba/tacho-bridge-app"
 VERSION = sys.argv[2] if len(sys.argv) > 2 else "0.8.0-rc.16-dh.1"
 PUBKEY = sys.argv[3] if len(sys.argv) > 3 else None
-DEFAULT_HOST = "dhfleetview.co.uk:8883"
+DEFAULT_HOST = "dhfleetview.co.uk:443"
 
 
 def patch(rel, pairs, count=1):
@@ -64,23 +64,37 @@ patch("src-tauri/Cargo.toml", [
     (re.compile(r'(?m)^version = "[^"]+"'), f'version = "{VERSION}"'),
     ('repository = "https://git.gurtam.net/shev/flespi_tca"', 'repository = "https://github.com/varaprasad1016/DHFLEETVIEW"'),
     ('authors = ["Shatilo Evgeny"]', 'authors = ["Shatilo Evgeny", "DH FleetView"]'),
-    ('rumqttc = "0.25.1"', 'rumqttc = { version = "0.25.1", features = ["use-native-tls"] }'),
+    ('rumqttc = "0.25.1"', 'rumqttc = { version = "0.25.1", features = ["use-native-tls", "websocket"] }'),
 ])
 
-# ---- MQTT client: TLS on the secure port ---------------------------------------------
+# ---- MQTT client: HTTPS (websocket) by default, plain TLS on the secure port ----------
 patch("src-tauri/src/mqtt.rs", [
     ('''    let mut mqtt_options = MqttOptions::new(client_id.into(), host, port);
-    apply_mqtt_credentials(&mut mqtt_options);''', '''    let mut mqtt_options = MqttOptions::new(client_id.into(), host, port);
-    // DH FleetView: the secure MQTT port is TLS (certificate checked against the
-    // Windows trust store), so the sign-in and card traffic are encrypted.
-    if port == MQTT_TLS_PORT {
-        mqtt_options.set_transport(rumqttc::Transport::tls_with_config(
-            rumqttc::TlsConfiguration::Native,
-        ));
-    }
+    apply_mqtt_credentials(&mut mqtt_options);''', '''    // DH FleetView: both encrypted routes check the certificate against the
+    // Windows trust store, so the sign-in and card traffic are never in clear.
+    let mut mqtt_options = if port == MQTT_WSS_PORT {
+        let url = format!("wss://{}{}", host, WSS_PATH);
+        let mut options = MqttOptions::new(client_id.into(), url, port);
+        options.set_transport(rumqttc::Transport::Wss(rumqttc::TlsConfiguration::default()));
+        options
+    } else {
+        let mut options = MqttOptions::new(client_id.into(), host, port);
+        if port == MQTT_TLS_PORT {
+            options.set_transport(rumqttc::Transport::tls_with_config(
+                rumqttc::TlsConfiguration::Native,
+            ));
+        }
+        options
+    };
     apply_mqtt_credentials(&mut mqtt_options);'''),
     ('''pub(crate) fn build_mqtt_client(''', '''/// DH FleetView: connections to this port are made over TLS.
 pub(crate) const MQTT_TLS_PORT: u16 = 8883;
+
+/// DH FleetView: the HTTPS port carries MQTT over a WebSocket. Hosting and depot
+/// firewalls routinely allow nothing but 80 and 443, so this is the default: it
+/// reaches the server from anywhere a browser can.
+pub(crate) const MQTT_WSS_PORT: u16 = 443;
+const WSS_PATH: &str = "/tacho/bridge/ws";
 
 pub(crate) fn build_mqtt_client('''),
     ("the flespi broker allows one session per", "the server allows one session per"),

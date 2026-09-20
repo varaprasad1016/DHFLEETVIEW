@@ -261,19 +261,33 @@ const MQTT_CHANNEL_CAPACITY: usize = 10;
 /// DH FleetView: connections to this port are made over TLS.
 pub(crate) const MQTT_TLS_PORT: u16 = 8883;
 
+/// DH FleetView: the HTTPS port carries MQTT over a WebSocket. Hosting and
+/// depot firewalls routinely allow nothing but 80 and 443, so this is the
+/// default: it reaches the server from anywhere a browser can.
+pub(crate) const MQTT_WSS_PORT: u16 = 443;
+const WSS_PATH: &str = "/tacho/bridge/ws";
+
 pub(crate) fn build_mqtt_client(
     client_id: impl Into<String>,
     host: &str,
     port: u16,
 ) -> (AsyncClient, rumqttc::v5::EventLoop) {
-    let mut mqtt_options = MqttOptions::new(client_id.into(), host, port);
-    // DH FleetView: the secure MQTT port is TLS (certificate checked against the
-    // Windows trust store), so the sign-in and card traffic are encrypted.
-    if port == MQTT_TLS_PORT {
-        mqtt_options.set_transport(rumqttc::Transport::tls_with_config(
-            rumqttc::TlsConfiguration::Native,
-        ));
-    }
+    // DH FleetView: both encrypted routes check the certificate against the
+    // Windows trust store, so the sign-in and card traffic are never in clear.
+    let mut mqtt_options = if port == MQTT_WSS_PORT {
+        let url = format!("wss://{}{}", host, WSS_PATH);
+        let mut options = MqttOptions::new(client_id.into(), url, port);
+        options.set_transport(rumqttc::Transport::Wss(rumqttc::TlsConfiguration::default()));
+        options
+    } else {
+        let mut options = MqttOptions::new(client_id.into(), host, port);
+        if port == MQTT_TLS_PORT {
+            options.set_transport(rumqttc::Transport::tls_with_config(
+                rumqttc::TlsConfiguration::Native,
+            ));
+        }
+        options
+    };
     apply_mqtt_credentials(&mut mqtt_options);
     mqtt_options.set_keep_alive(Duration::from_secs(MQTT_KEEP_ALIVE_SECS));
     // No Debug dump of mqtt_options anywhere: it would print the credentials.

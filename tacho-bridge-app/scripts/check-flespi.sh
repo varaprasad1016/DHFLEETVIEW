@@ -21,8 +21,9 @@ fi
 # The server, update feed and bundle identity must be ours.
 grep -q '"identifier": "com.dhfleetview.tachobridge"' src-tauri/tauri.conf.json || { echo "::error::bundle identifier is not com.dhfleetview.tachobridge"; fail=1; }
 grep -q 'https://dhfleetview.co.uk/tacho/bridge/latest.json' src-tauri/tauri.conf.json || { echo "::error::updater endpoint is not the DH FleetView server"; fail=1; }
-grep -q 'DEFAULT_SERVER_HOST: &str = "dhfleetview.co.uk:8883"' src-tauri/src/config.rs || { echo "::error::default server is not dhfleetview.co.uk:8883"; fail=1; }
+grep -q 'DEFAULT_SERVER_HOST: &str = "dhfleetview.co.uk:443"' src-tauri/src/config.rs || { echo "::error::default server is not dhfleetview.co.uk:443"; fail=1; }
 grep -q 'MQTT_TLS_PORT' src-tauri/src/mqtt.rs || { echo "::error::TLS for the secure port was dropped from mqtt.rs"; fail=1; }
+grep -q 'MQTT_WSS_PORT' src-tauri/src/mqtt.rs || { echo "::error::the 443 websocket route was dropped from mqtt.rs"; fail=1; }
 
 if [ "$fail" = "0" ]; then
   echo "OK - fork is flespi-free; it talks only to the DH FleetView server."

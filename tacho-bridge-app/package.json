@@ -1,6 +1,6 @@
 {
   "name": "tacho-bridge-application",
-  "version": "0.8.0-rc.16-dh.1",
+  "version": "0.8.0-rc.16-dh.2",
   "description": "Tachograph authentication application",
   "productName": "DH FleetView Tacho Bridge",
   "author": "DH FleetView",
