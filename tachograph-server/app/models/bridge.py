@@ -47,5 +47,9 @@ class BridgeNode(Base):
     online: Mapped[bool] = mapped_column(Boolean, default=False)
     info: Mapped[dict | None] = mapped_column(JSONB)
     remote_addr: Mapped[str | None] = mapped_column(String(64))
+    # The company a card belongs to: the account whose vehicles it may download,
+    # and the only account its files are visible to. Set on the Tachograph page.
+    assigned_user_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
+    assigned_name: Mapped[str | None] = mapped_column(String(160))
     first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

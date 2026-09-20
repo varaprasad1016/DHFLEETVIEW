@@ -12,6 +12,8 @@ GET    /api/bridge/overview                 release, sign-ins, apps, cards, rack
 POST   /api/bridge/sign-ins                 create a sign-in (the password is shown once)
 DELETE /api/bridge/sign-ins/{id}            revoke: the apps using it are disconnected
 POST   /api/bridge/cards/{card}/test        check a company card answers through the bridge
+GET    /api/bridge/companies                accounts a card can be attached to
+PUT    /api/bridge/cards/{card}/company     attach a card to a company (or detach it)
 DELETE /api/bridge/nodes/{id}               forget an app, card or rack that is offline
 """
 
@@ -33,8 +35,9 @@ from app.config import settings
 from app.database import get_session
 from app.models.bridge import BridgeCredential, BridgeNode
 from app.services import modules
+from app.services import auth
 from app.services.auth import Principal
-from app.services.bridge_server import SELECT_TACHOGRAPH, BridgeError, bridge, new_sign_in, now
+from app.services.bridge_server import SELECT_TACHOGRAPH, BridgeError, bridge, new_sign_in, now, read_company
 
 public_router = APIRouter(prefix="/bridge", tags=["bridge"])
 router = APIRouter(prefix="/api/bridge", tags=["bridge"],
@@ -133,6 +136,10 @@ async def overview(principal: Principal = Depends(require_manager), session: Asy
     if owner is not None:
         creds_q = creds_q.where(BridgeCredential.owner_user_id == owner)
         nodes_q = nodes_q.where(BridgeNode.owner_user_id == owner)
+    if owner is not None:
+        nodes_q = select(BridgeNode).where(
+            (BridgeNode.owner_user_id == owner) | (BridgeNode.assigned_user_id == owner),
+        ).order_by(BridgeNode.kind, BridgeNode.key)
     creds = (await session.execute(creds_q)).scalars().all()
     nodes = (await session.execute(nodes_q)).scalars().all()
     owner_names = {c.owner_user_id: c.owner_name for c in creds if c.owner_name}
@@ -154,7 +161,13 @@ async def overview(principal: Principal = Depends(require_manager), session: Asy
             view.update(via="rack" if (rack_link or info.get("via") == "rack") else "reader",
                         rack=(rack_link or {}).get("rack") or info.get("rack"),
                         slot=(rack_link or {}).get("slot") or info.get("slot"),
-                        atr=info.get("atr"), last_test=info.get("last_test"))
+                        atr=info.get("atr"), last_test=info.get("last_test"),
+                        # Read from the card itself: whose card this is.
+                        company_name=info.get("company_name"), company_address=info.get("company_address"),
+                        # The account the card is attached to: whose vehicles it
+                        # may download, and who can see the files it brings in.
+                        assigned_user_id=n.assigned_user_id, assigned_name=n.assigned_name,
+                        can_assign=owner is None or n.owner_user_id == owner)
         elif n.kind == "rack":
             view.update(state=info.get("state"), app=info.get("app"), cards=len(info.get("cards") or []))
         return view
@@ -171,6 +184,58 @@ async def overview(principal: Principal = Depends(require_manager), session: Asy
         "cards": [node_view(n) for n in nodes if n.kind == "card"],
         "racks": [node_view(n) for n in nodes if n.kind == "rack"],
     }
+
+
+@router.get("/companies")
+async def assignable_companies(principal: Principal = Depends(require_manager)):
+    """The accounts a card may be attached to: the ones this user administers."""
+    users = await auth.traccar_get(principal, "/api/users") or []
+    companies = [{"id": u["id"], "name": u.get("name") or u.get("email") or f"Account {u['id']}"}
+                 for u in users if not u.get("disabled") and not u.get("readonly")]
+    if principal.user_id is not None and not any(c["id"] == principal.user_id for c in companies):
+        companies.insert(0, {"id": principal.user_id, "name": principal.name})
+    companies.sort(key=lambda c: c["name"].lower())
+    return {"companies": companies}
+
+
+@router.put("/cards/{card_number}/company")
+async def assign_card(card_number: str, body: dict = Body(default={}),
+                      principal: Principal = Depends(require_manager),
+                      session: AsyncSession = Depends(get_session)):
+    """Attach a company card to an account - or detach it with a null id.
+
+    Only the account running the bridge (or a super administrator) may do this;
+    once attached, the card downloads for that account's tachograph vehicles and
+    its files belong to that account alone.
+    """
+    owner = _owner_filter(principal)
+    nodes = (await session.execute(select(BridgeNode).where(
+        BridgeNode.kind == "card", BridgeNode.key == card_number))).scalars().all()
+    nodes = [n for n in nodes if owner is None or n.owner_user_id == owner]
+    if not nodes:
+        raise HTTPException(status_code=404, detail="That company card isn't known to the bridge.")
+
+    user_id = body.get("user_id")
+    if user_id is None:
+        for node in nodes:
+            node.assigned_user_id = None
+            node.assigned_name = None
+        await session.commit()
+        return {"card": card_number, "assigned_user_id": None, "assigned_name": None}
+
+    try:
+        user_id = int(user_id)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Choose a company to attach the card to.") from exc
+    user = await auth.traccar_get(principal, f"/api/users/{user_id}")
+    if not user:
+        raise HTTPException(status_code=404, detail="That company isn't one you can attach cards to.")
+    name = user.get("name") or user.get("email") or f"Account {user_id}"
+    for node in nodes:
+        node.assigned_user_id = user_id
+        node.assigned_name = name
+    await session.commit()
+    return {"card": card_number, "assigned_user_id": user_id, "assigned_name": name}
 
 
 @router.post("/sign-ins", status_code=201)
@@ -234,6 +299,8 @@ async def test_card(card_number: str, owner_user_id: int | None = None, principa
             reply = await card.apdu(SELECT_TACHOGRAPH)
             status = reply[-2:].hex().upper() if len(reply) >= 2 else ""
             result["select_status"] = status
+            if status == "9000":
+                result.update(await read_company(card, select=False))
             result["ok"] = bool(result["atr"]) and status == "9000"
             result["message"] = ("The card answered and its tachograph application is ready." if result["ok"] else
                                  f"The card answered but the tachograph application check returned {status or 'nothing'}.")

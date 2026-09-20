@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   Alert,
   Box,
+  MenuItem,
   Button,
   Chip,
   Dialog,
@@ -84,6 +85,9 @@ const TachoBridgePanel = () => {
   const [revoking, setRevoking] = useState(null);
   const [busy, setBusy] = useState('');
   const [checks, setChecks] = useState({});
+  const [companies, setCompanies] = useState([]);
+  const [assigning, setAssigning] = useState(null);
+  const [assignTo, setAssignTo] = useState('');
 
   const load = async () => {
     try {
@@ -98,6 +102,13 @@ const TachoBridgePanel = () => {
     load();
     const timer = setInterval(load, 15000);
     return () => clearInterval(timer);
+  }, []);
+
+  // The accounts a card can be attached to, fetched once for the picker.
+  useEffect(() => {
+    request('/companies')
+      .then((result) => setCompanies(result?.companies || []))
+      .catch(() => setCompanies([]));
   }, []);
 
   const act = async (key, action) => {
@@ -135,6 +146,15 @@ const TachoBridgePanel = () => {
         method: 'POST',
       });
       setChecks((current) => ({ ...current, [card.id]: result }));
+    });
+
+  const assign = () =>
+    act('assign', async () => {
+      await request(`/cards/${encodeURIComponent(assigning.key)}/company`, {
+        method: 'PUT',
+        body: JSON.stringify({ user_id: assignTo === '' ? null : Number(assignTo) }),
+      });
+      setAssigning(null);
     });
 
   const forget = (node) =>
@@ -309,7 +329,9 @@ const TachoBridgePanel = () => {
           <TableHead>
             <TableRow>
               <TableCell>Card number</TableCell>
-              {showCompany && <TableCell>Company</TableCell>}
+              <TableCell>Company on card</TableCell>
+              <TableCell>Attached to</TableCell>
+              {showCompany && <TableCell>Account</TableCell>}
               <TableCell>In</TableCell>
               <TableCell>Status</TableCell>
               <TableCell>Last check</TableCell>
@@ -322,6 +344,24 @@ const TachoBridgePanel = () => {
               return (
                 <TableRow key={c.id}>
                   <TableCell sx={{ fontFamily: 'monospace' }}>{c.key}</TableCell>
+                  <TableCell>
+                    {c.company_name ? (
+                      <Tooltip title={c.company_address || ''}>
+                        <span>{c.company_name}</span>
+                      </Tooltip>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        {c.online ? 'Reading…' : '-'}
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {c.assigned_name ? (
+                      <Chip size="small" label={c.assigned_name} />
+                    ) : (
+                      <Chip size="small" color="warning" label="Not attached" />
+                    )}
+                  </TableCell>
                   {showCompany && <TableCell>{c.company || '-'}</TableCell>}
                   <TableCell>
                     {c.via === 'rack'
@@ -350,6 +390,17 @@ const TachoBridgePanel = () => {
                     )}
                   </TableCell>
                   <TableCell align="right">
+                    {c.can_assign !== false && (
+                      <Button
+                        size="small"
+                        onClick={() => {
+                          setAssigning(c);
+                          setAssignTo(c.assigned_user_id ?? '');
+                        }}
+                      >
+                        {c.assigned_name ? 'Change' : 'Attach'}
+                      </Button>
+                    )}
                     {c.online && c.via !== 'rack' && (
                       <Button
                         size="small"
@@ -374,7 +425,7 @@ const TachoBridgePanel = () => {
             })}
             {(data?.cards || []).length === 0 && (
               <TableRow>
-                <TableCell colSpan={showCompany ? 6 : 5} align="center">
+                <TableCell colSpan={showCompany ? 8 : 7} align="center">
                   No company card has connected yet
                 </TableCell>
               </TableRow>
@@ -444,6 +495,40 @@ const TachoBridgePanel = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setCreated(null)}>Done</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={Boolean(assigning)} onClose={() => setAssigning(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Attach card to a company</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            {`Card ${assigning?.key || ''}${assigning?.company_name ? ` — ${assigning.company_name}` : ''}`}
+          </Typography>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            The card downloads for that company&apos;s tachograph vehicles, and the files it brings
+            in are visible to that company only.
+          </Typography>
+          <TextField
+            select
+            fullWidth
+            size="small"
+            label="Company"
+            value={assignTo}
+            onChange={(e) => setAssignTo(e.target.value)}
+          >
+            <MenuItem value="">Not attached</MenuItem>
+            {companies.map((company) => (
+              <MenuItem key={company.id} value={company.id}>
+                {company.name}
+              </MenuItem>
+            ))}
+          </TextField>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAssigning(null)}>Cancel</Button>
+          <Button variant="contained" onClick={assign} disabled={busy === 'assign'}>
+            Save
+          </Button>
         </DialogActions>
       </Dialog>
 

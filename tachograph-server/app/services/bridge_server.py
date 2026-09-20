@@ -59,6 +59,12 @@ RACK_TOPIC = re.compile(r"^rack/([0-9A-Z]{1,40})/(.+)$")
 SW_TECHNICAL_PROBLEM = "6F00"
 # SELECT the tachograph application by name (DF Tachograph, AID FF 54 41 43 48 4F).
 SELECT_TACHOGRAPH = bytes.fromhex("00A4040C06FF544143484F")
+# EF_Identification (file 0520) holds the company card's own details. Its company
+# block is a 36-byte Name (a code-page byte then 35 characters) at offset 65, with
+# the address in the same shape at 101 - Annex 1C, CardIdentification.
+SELECT_EF_IDENTIFICATION = bytes.fromhex("00A4020C020520")
+READ_COMPANY_NAME = bytes.fromhex("00B0004124")
+READ_COMPANY_ADDRESS = bytes.fromhex("00B0006524")
 
 
 class BridgeError(Exception):
@@ -188,6 +194,36 @@ class CardSession:
             await self.server.request(self._conn(), {"finish": True}, self.sender)
 
 
+def card_name(field: bytes) -> str | None:
+    """A tachograph `Name`: a code-page byte, then characters padded with 0xFF."""
+    text = field[1:].rstrip(b"\xff\x00\x20").decode("latin-1", "replace").strip()
+    return text or None
+
+
+async def read_company(card: "CardSession", select: bool = True) -> dict:
+    """The company this card belongs to, read from the card itself.
+
+    Reading identification needs no authentication, so this works whenever the
+    card is in a reader - it is what lets the office see whose card is plugged in
+    where, rather than just a 16-digit number.
+    """
+    details: dict = {}
+    if select:
+        reply = await card.apdu(SELECT_TACHOGRAPH)
+        if reply[-2:].hex().upper() != "9000":
+            return details
+    reply = await card.apdu(SELECT_EF_IDENTIFICATION)
+    if reply[-2:].hex().upper() != "9000":
+        return details
+    for key, command in (("company_name", READ_COMPANY_NAME), ("company_address", READ_COMPANY_ADDRESS)):
+        reply = await card.apdu(command)
+        if reply[-2:].hex().upper() == "9000" and len(reply) > 2:
+            value = card_name(reply[:-2])
+            if value:
+                details[key] = value
+    return details
+
+
 class BridgeServer:
     REQUEST_TIMEOUT = 15.0
     FAILED_AUTH_LIMIT = 10
@@ -261,6 +297,23 @@ class BridgeServer:
 
     def connections_for(self, owner_user_id: int | None) -> list[Connection]:
         return [c for c in self.connections.values() if owner_user_id is None or c.owner_user_id == owner_user_id]
+
+    async def company_cards(self, company_user_id: int) -> list[Connection]:
+        """The connected company cards attached to this account.
+
+        A card may only download the vehicles of the company it is attached to,
+        so every download picks its card from here - which is what keeps one
+        company's DDD files out of another company's account.
+        """
+        async with SessionLocal() as session:
+            rows = (await session.execute(select(BridgeNode.owner_user_id, BridgeNode.key).where(
+                BridgeNode.kind == "card", BridgeNode.assigned_user_id == company_user_id))).all()
+        cards = []
+        for owner_user_id, card_number in rows:
+            conn = self.card_connection(owner_user_id, card_number)
+            if conn is not None:
+                cards.append(conn)
+        return cards
 
     @contextlib.asynccontextmanager
     async def card_session(self, owner_user_id: int, card_number: str, sender: str = "0", wait: float = 30.0):
@@ -434,6 +487,8 @@ class BridgeServer:
             if kind in ("app", "card"):
                 await self._save_node(owner, kind, client_id, True, info={"connected_at": conn.connected_at.isoformat()},
                                       credential_id=credential_id, remote=ip)
+            if kind == "card":
+                self._spawn(self._identify_card(conn))
             await self._serve(conn)
         except ssl.SSLError as exc:
             # A client that can't complete TLS (wrong port, old TLS, certificate
@@ -461,6 +516,26 @@ class BridgeServer:
             else:
                 with contextlib.suppress(Exception):
                     writer.close()
+
+    async def _identify_card(self, conn: Connection) -> None:
+        """Read whose card this is, shortly after it connects, so the office sees
+        the company rather than a 16-digit number."""
+        await asyncio.sleep(2)
+        if conn.closed or conn.rack_link:
+            return
+        try:
+            async with self.card_session(conn.owner_user_id, conn.client_id, wait=20) as card:
+                await card.start()
+                details = await read_company(card)
+        except BridgeError as exc:
+            logger.info("bridge: card %s not identified (%s)", conn.client_id, exc.code)
+            return
+        except Exception:  # noqa: BLE001 - identification is a convenience, never fatal
+            logger.exception("bridge: identifying card %s failed", conn.client_id)
+            return
+        if details:
+            logger.info("bridge: card %s belongs to %s", conn.client_id, details.get("company_name"))
+            await self._save_node(conn.owner_user_id, "card", conn.client_id, True, info=details)
 
     async def _serve(self, conn: Connection) -> None:
         idle = conn.keep_alive * 1.5 if conn.keep_alive else None
