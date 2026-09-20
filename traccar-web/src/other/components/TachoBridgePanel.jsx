@@ -345,13 +345,21 @@ const TachoBridgePanel = () => {
                 <TableRow key={c.id}>
                   <TableCell sx={{ fontFamily: 'monospace' }}>{c.key}</TableCell>
                   <TableCell>
-                    {c.company_name ? (
+                    {c.company_name && (
                       <Tooltip title={c.company_address || ''}>
                         <span>{c.company_name}</span>
                       </Tooltip>
-                    ) : (
+                    )}
+                    {!c.company_name && c.company_read === 'protected' && (
+                      <Tooltip title="This card only gives up its company details to an authenticated reader, so they arrive with the first download.">
+                        <Typography variant="caption" color="text.secondary">
+                          On first download
+                        </Typography>
+                      </Tooltip>
+                    )}
+                    {!c.company_name && c.company_read !== 'protected' && (
                       <Typography variant="caption" color="text.secondary">
-                        {c.online ? 'Reading…' : '-'}
+                        {c.online ? 'Checking…' : '-'}
                       </Typography>
                     )}
                   </TableCell>

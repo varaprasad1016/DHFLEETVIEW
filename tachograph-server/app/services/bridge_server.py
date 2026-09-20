@@ -203,24 +203,39 @@ def card_name(field: bytes) -> str | None:
 async def read_company(card: "CardSession", select: bool = True) -> dict:
     """The company this card belongs to, read from the card itself.
 
-    Reading identification needs no authentication, so this works whenever the
-    card is in a reader - it is what lets the office see whose card is plugged in
-    where, rather than just a 16-digit number.
+    Older (Gen1) cards hand their identification over to anyone who asks, and
+    those are read here. A smart tachograph (Gen2) card refuses with 6982 unless
+    the reader has authenticated, which only a vehicle unit does - so for those
+    the details arrive later, from the download session itself, and the result
+    says `protected` rather than pretending nothing is there.
     """
     details: dict = {}
     if select:
         reply = await card.apdu(SELECT_TACHOGRAPH)
         if reply[-2:].hex().upper() != "9000":
+            logger.info("bridge: %s select tachograph -> %s", card.card_number, reply[-2:].hex().upper())
             return details
     reply = await card.apdu(SELECT_EF_IDENTIFICATION)
     if reply[-2:].hex().upper() != "9000":
+        logger.info("bridge: %s select EF_Identification -> %s", card.card_number, reply[-2:].hex().upper())
         return details
+    protected = False
     for key, command in (("company_name", READ_COMPANY_NAME), ("company_address", READ_COMPANY_ADDRESS)):
         reply = await card.apdu(command)
-        if reply[-2:].hex().upper() == "9000" and len(reply) > 2:
+        status = reply[-2:].hex().upper()
+        if status == "9000" and len(reply) > 2:
             value = card_name(reply[:-2])
             if value:
                 details[key] = value
+            else:
+                logger.info("bridge: %s %s read blank (%s)", card.card_number, key, reply[:-2].hex())
+        else:
+            protected = protected or status in ("6982", "6900", "6E00")
+            logger.info("bridge: %s read %s -> %s", card.card_number, key, status)
+    if protected and not details:
+        # A smart card guarding its identification: say so, so the office isn't
+        # left watching a spinner that will never finish.
+        details["company_read"] = "protected"
     return details
 
 
@@ -528,13 +543,18 @@ class BridgeServer:
                 await card.start()
                 details = await read_company(card)
         except BridgeError as exc:
-            logger.info("bridge: card %s not identified (%s)", conn.client_id, exc.code)
+            logger.info("bridge: card %s not identified (%s: %s)", conn.client_id, exc.code, exc.message)
             return
         except Exception:  # noqa: BLE001 - identification is a convenience, never fatal
             logger.exception("bridge: identifying card %s failed", conn.client_id)
             return
+        if details.get("company_name"):
+            logger.info("bridge: card %s belongs to %s", conn.client_id, details["company_name"])
+        elif details.get("company_read") == "protected":
+            logger.info("bridge: card %s keeps its company details for an authenticated reader", conn.client_id)
+        else:
+            logger.info("bridge: card %s did not give up its company details", conn.client_id)
         if details:
-            logger.info("bridge: card %s belongs to %s", conn.client_id, details.get("company_name"))
             await self._save_node(conn.owner_user_id, "card", conn.client_id, True, info=details)
 
     async def _serve(self, conn: Connection) -> None:

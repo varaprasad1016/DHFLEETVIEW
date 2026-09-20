@@ -164,6 +164,7 @@ async def overview(principal: Principal = Depends(require_manager), session: Asy
                         atr=info.get("atr"), last_test=info.get("last_test"),
                         # Read from the card itself: whose card this is.
                         company_name=info.get("company_name"), company_address=info.get("company_address"),
+                        company_read=info.get("company_read"),
                         # The account the card is attached to: whose vehicles it
                         # may download, and who can see the files it brings in.
                         assigned_user_id=n.assigned_user_id, assigned_name=n.assigned_name,
