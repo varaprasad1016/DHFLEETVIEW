@@ -388,12 +388,17 @@ class BridgeServer:
         peer = writer.get_extra_info("peername") or ("?", 0)
         ip = str(peer[0])
         conn: Connection | None = None
+        # Logged so a bridge that never gets in can be told apart from one that
+        # never reaches the server at all.
+        logger.info("bridge: connection from %s", ip)
         try:
             first = await asyncio.wait_for(mq.read_packet(reader, 64 * 1024), 20)
             if first.type != mq.CONNECT:
+                logger.info("bridge: %s sent packet type %s before signing in", ip, first.type)
                 return
             connect = mq.decode_connect(first)
             if connect.protocol_version != 5:
+                logger.info("bridge: %s speaks MQTT v%s, not v5", ip, connect.protocol_version)
                 writer.write(mq.connack(mq.UNSUPPORTED_PROTOCOL_VERSION))
                 await writer.drain()
                 return
@@ -405,6 +410,7 @@ class BridgeServer:
             elif CARD_ID.match(client_id):
                 kind = "card"
             else:
+                logger.info("bridge: %s used an unusable client id %r", ip, client_id[:40])
                 writer.write(mq.connack(mq.CLIENT_ID_NOT_VALID))
                 await writer.drain()
                 return
@@ -429,8 +435,13 @@ class BridgeServer:
                 await self._save_node(owner, kind, client_id, True, info={"connected_at": conn.connected_at.isoformat()},
                                       credential_id=credential_id, remote=ip)
             await self._serve(conn)
-        except (asyncio.IncompleteReadError, ConnectionError, asyncio.TimeoutError, ssl.SSLError, OSError):
-            pass
+        except ssl.SSLError as exc:
+            # A client that can't complete TLS (wrong port, old TLS, certificate
+            # not trusted) never reaches the sign-in, so say so plainly.
+            logger.info("bridge: TLS failed for %s: %s", ip, exc)
+        except (asyncio.IncompleteReadError, ConnectionError, asyncio.TimeoutError, OSError) as exc:
+            if conn is None:
+                logger.info("bridge: %s disconnected before signing in (%s)", ip, type(exc).__name__)
         except mq.MalformedPacket as exc:
             logger.info("bridge: malformed packet from %s: %s", ip, exc)
             with contextlib.suppress(Exception):
@@ -523,6 +534,60 @@ class BridgeServer:
                         logger.info("bridge: rack %s link %s on app %s", rack_id, state, conn.client_id)
             return
         logger.debug("bridge app %s: unhandled topic %s", conn.client_id, topic)
+
+    # ---------------------------------------------------------------- websocket
+    async def serve_websocket(self, websocket) -> None:
+        """The same protocol over a WebSocket, so the app can reach us on 443.
+
+        Hosting firewalls (and depot networks) often allow nothing but 80 and
+        443, which leaves the plain MQTT port unreachable. MQTT over WebSocket
+        rides the site's own HTTPS port through Apache, so the app connects
+        wherever a browser would.
+        """
+        client = getattr(websocket, "client", None)
+        peer = (getattr(client, "host", "?"), getattr(client, "port", 0))
+        reader = asyncio.StreamReader(limit=mq.MAX_PACKET)
+        writer = _WebSocketWriter(websocket, peer)
+
+        async def pump() -> None:
+            try:
+                while True:
+                    message = await websocket.receive_bytes()
+                    reader.feed_data(message)
+            except Exception:  # noqa: BLE001 - any end of the socket ends the stream
+                reader.feed_eof()
+
+        pumping = asyncio.create_task(pump())
+        try:
+            await self._client(reader, writer)
+        finally:
+            pumping.cancel()
+            with contextlib.suppress(Exception):
+                await websocket.close()
+
+
+class _WebSocketWriter:
+    """The writer half of a WebSocket, shaped like an asyncio stream writer."""
+
+    def __init__(self, websocket, peer):
+        self._websocket = websocket
+        self._peer = peer
+        self._buffer = bytearray()
+        self._closed = False
+
+    def write(self, data: bytes) -> None:
+        self._buffer += data
+
+    async def drain(self) -> None:
+        if self._buffer and not self._closed:
+            payload, self._buffer = bytes(self._buffer), bytearray()
+            await self._websocket.send_bytes(payload)
+
+    def close(self) -> None:
+        self._closed = True
+
+    def get_extra_info(self, name: str, default=None):
+        return self._peer if name == "peername" else default
 
 
 bridge = BridgeServer()

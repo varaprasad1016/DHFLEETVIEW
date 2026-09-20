@@ -5,6 +5,7 @@ GET    /bridge/download                     newest installer
 GET    /bridge/latest.json                  updater manifest (stable)
 GET    /bridge/latest-beta.json             updater manifest (pre-release channel)
 GET    /bridge/files/{version}/{name}       installer / signature referenced by the manifests
+WS     /bridge/ws                           the app's MQTT over a WebSocket, so it works on 443
 
 Office (licence + office user + "tacho" module; each company sees its own):
 GET    /api/bridge/overview                 release, sign-ins, apps, cards, racks
@@ -22,7 +23,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, WebSocket
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,7 +41,7 @@ router = APIRouter(prefix="/api/bridge", tags=["bridge"],
                    dependencies=[Depends(require_license), Depends(require_manager), Depends(require_module("tacho"))])
 
 SAFE_NAME = re.compile(r"^[A-Za-z0-9._ -]+$")
-SERVER_ADDRESS = "dhfleetview.co.uk:8883"
+SERVER_ADDRESS = "dhfleetview.co.uk:443"
 
 
 # ------------------------------------------------------------------ releases
@@ -65,6 +66,18 @@ def _installer(manifest: dict | None) -> Path | None:
         return None
     path = _release_dir() / version / name
     return path if path.is_file() else None
+
+
+@public_router.websocket("/ws")
+async def bridge_websocket(websocket: WebSocket):
+    """The Tacho Bridge App's own protocol, carried over the site's HTTPS port.
+
+    Apache proxies /tacho/bridge/ws here, so an app that cannot reach the plain
+    MQTT port (blocked by a hosting or depot firewall) still connects. The
+    sign-in and everything after it are identical to the MQTT port.
+    """
+    await websocket.accept(subprotocol="mqtt")
+    await bridge.serve_websocket(websocket)
 
 
 @public_router.get("/latest.json")

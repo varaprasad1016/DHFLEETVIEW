@@ -184,7 +184,7 @@ const TachoBridgePanel = () => {
         </Typography>
         <Typography component="li" variant="body2">
           In the app&apos;s settings the server address is{' '}
-          <b>{data?.server || 'dhfleetview.co.uk:8883'}</b>.
+          <b>{data?.server || 'dhfleetview.co.uk:443'}</b>.
         </Typography>
         <Typography component="li" variant="body2">
           Turn on <b>Server authentication</b> and enter a sign-in created below.
