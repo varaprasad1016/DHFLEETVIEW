@@ -32,7 +32,9 @@ public class TaskCnmsSync extends SingleScheduleTask {
     private static final Logger LOG = LoggerFactory.getLogger(TaskCnmsSync.class);
 
     private static final long GPS_SYNC_INTERVAL_SECONDS = 15;
-    private static final long DEVICE_SYNC_INTERVAL_MINUTES = 5;
+    // A camera added in CNMS should show up here while the fitter is still at the
+    // vehicle, so the device list is re-read every minute rather than every five.
+    private static final long DEVICE_SYNC_INTERVAL_MINUTES = 1;
     // A real tracker takes priority over the DVR's GPS. While a device has a fix
     // from an actual tracker no older than this, the DVR GPS fallback is skipped.
     private static final long TRACKER_FRESH_MS = TimeUnit.MINUTES.toMillis(30);
@@ -225,6 +227,33 @@ public class TaskCnmsSync extends SingleScheduleTask {
         }
     }
 
+    /**
+     * Carries a rename in CNMS across to the vehicle here, but only while nobody has
+     * renamed it locally: a camera is usually added under a placeholder name and
+     * given its registration minutes later, and that should not need doing twice.
+     */
+    private void renameFromCnms(Device device, String nodeName) {
+        if (device == null || nodeName.isBlank() || nodeName.equals(device.getName())) {
+            return;
+        }
+        String knownAs = device.getString("cmsv9Name");
+        if (knownAs == null || !knownAs.equals(device.getName())) {
+            return;   // renamed here, or linked before we started tracking the CNMS name
+        }
+        try {
+            String previous = device.getName();
+            device.setName(nodeName);
+            device.getAttributes().put("cmsv9Name", nodeName);
+            storage.updateObject(device, new Request(
+                    new Columns.Include("name", "attributes"),
+                    new Condition.Equals("id", device.getId())));
+            cacheManager.invalidateObject(true, Device.class, device.getId(), ObjectOperation.UPDATE);
+            LOG.info("Renamed device {} from '{}' to '{}' (renamed in CNMS)", device.getId(), previous, nodeName);
+        } catch (Exception e) {
+            LOG.warn("Could not rename device {} to '{}': {}", device.getId(), nodeName, e.getMessage());
+        }
+    }
+
     private void syncDevices() throws StorageException {
         if (!cmsv9Manager.isConfigured()) {
             return;
@@ -246,6 +275,7 @@ public class TaskCnmsSync extends SingleScheduleTask {
             //    so a DVR can be auto-linked onto the matching tracker instead of
             //    spawning a separate "cnms-<terminal>" device.
             Set<String> linkedTerminals = new HashSet<>();
+            Map<String, Device> linkedDevices = new HashMap<>();
             Map<String, Device> trackersByPlate = new HashMap<>();
             // Standalone auto-created placeholders (uniqueId "cnms-<terminal>") that we
             // previously created; kept so we can spot ones that should fold into a tracker.
@@ -255,6 +285,7 @@ public class TaskCnmsSync extends SingleScheduleTask {
                 String linked = device.getString("cmsv9DeviceId");
                 if (linked != null && !linked.isBlank()) {
                     linkedTerminals.add(linked);
+                    linkedDevices.put(linked, device);
                     String uid = device.getUniqueId();
                     if (uid != null && uid.startsWith("cnms-")) {
                         placeholders.put(linked, device);
@@ -278,7 +309,11 @@ public class TaskCnmsSync extends SingleScheduleTask {
                     continue;
                 }
                 String terminal = node.path("terminal").asText("");
-                if (terminal.isBlank() || linkedTerminals.contains(terminal)) {
+                if (terminal.isBlank()) {
+                    continue;
+                }
+                if (linkedTerminals.contains(terminal)) {
+                    renameFromCnms(linkedDevices.get(terminal), node.path("nodeName").asText(""));
                     continue;
                 }
 
@@ -308,6 +343,10 @@ public class TaskCnmsSync extends SingleScheduleTask {
                     device.setUniqueId("cnms-" + terminal);
                     device.setCategory("CNMS");
                     device.getAttributes().put("cmsv9DeviceId", terminal);
+                    // What CNMS called it when we created it. While the local name still
+                    // matches this, a rename in CNMS is carried across (see renameFromCnms);
+                    // once someone renames the vehicle here, that name is left alone.
+                    device.getAttributes().put("cmsv9Name", nodeName);
 
                     long deviceId = storage.addObject(device, new Request(new Columns.Exclude("id")));
                     device.setId(deviceId);
