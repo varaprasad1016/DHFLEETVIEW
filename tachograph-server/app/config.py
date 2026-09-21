@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     # Built installers + updater manifests (scripts/publish_bridge_release.py writes here)
     bridge_release_dir: str = "D:/DHFleetViewData/tacho/bridge/releases"
     bridge_public_url: str = "https://dhfleetview.co.uk/tacho"
+
+    # --- DVR setup by SMS (a spare Android phone polls the queue and sends) ---
+    dvr_sms_key: str = ""          # the phone signs in with this; blank = the queue is closed
+    dvr_sms_from: str = ""         # the sending phone's own number, shown in the office UI
     api_port: int = 8000
 
     # --- Infrastructure ---

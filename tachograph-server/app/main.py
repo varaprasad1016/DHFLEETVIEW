@@ -29,6 +29,7 @@ from app.api.earned_recognition import router as earned_recognition_router
 from app.api.tacho_live import ingest_router as tacho_live_ingest_router, router as tacho_live_router
 from app.api.driver_accounts import accounts_router as driver_accounts_router, auth_router as driver_auth_router
 from app.api.bridge import public_router as bridge_public_router, router as bridge_router
+from app.api.dvr import router as dvr_router
 from app.services.auth import allowed_origins
 from app.services.bridge_server import bridge
 
@@ -67,6 +68,7 @@ app.include_router(driver_router)
 app.include_router(driver_accounts_router)
 app.include_router(modules_router)
 app.include_router(bridge_router)
+app.include_router(dvr_router)
 app.include_router(bridge_public_router)
 app.include_router(admin_router)
 app.include_router(maintenance_router)
