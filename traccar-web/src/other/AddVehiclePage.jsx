@@ -121,6 +121,7 @@ const AddVehiclePage = () => {
             registration: label.registration || '',
             account_user_id: '',
             cnms_company: cnms.default || '',
+            channels: 4,
             state: label.already_here ? 'exists' : 'new',
           },
         ]);
@@ -149,6 +150,7 @@ const AddVehiclePage = () => {
           photo_id: label.photo_id,
           account_user_id: label.account_user_id || null,
           cnms_company: label.cnms_company || null,
+          channels: label.channels,
         }),
       });
       setLabels((current) =>
@@ -276,22 +278,39 @@ const AddVehiclePage = () => {
                   </MenuItem>
                 ))}
               </TextField>
-              {cnms.available && (
-                <TextField
-                  select
-                  size="small"
-                  label="Company in CNMS"
-                  value={label.cnms_company}
-                  onChange={(e) => update(label.key, 'cnms_company', e.target.value)}
-                  disabled={label.state === 'created'}
-                  helperText="Checked against CNMS — the camera itself is still added there by hand"
-                >
-                  {cnms.companies.map((company) => (
-                    <MenuItem key={company.id} value={company.name}>
-                      {`${company.name} (${company.used}/${company.limit})`}
-                    </MenuItem>
-                  ))}
-                </TextField>
+              {cnms.available && !label.already_in_cnms && (
+                <>
+                  <TextField
+                    select
+                    size="small"
+                    label="Company in CNMS"
+                    value={label.cnms_company}
+                    onChange={(e) => update(label.key, 'cnms_company', e.target.value)}
+                    disabled={label.state === 'created'}
+                    helperText="The camera is created in CNMS under this company too"
+                  >
+                    {cnms.companies.map((company) => (
+                      <MenuItem key={company.id} value={company.name}>
+                        {`${company.name} (${company.used}/${company.limit})`}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <TextField
+                    select
+                    size="small"
+                    label="Cameras on this unit"
+                    value={label.channels}
+                    onChange={(e) => update(label.key, 'channels', Number(e.target.value))}
+                    disabled={label.state === 'created'}
+                    helperText="Count the camera leads going into the DVR"
+                  >
+                    {[1, 2, 3, 4, 5, 6, 7, 8].map((count) => (
+                      <MenuItem key={count} value={count}>
+                        {count}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                </>
               )}
 
               {label.state === 'created' ? (
@@ -299,17 +318,23 @@ const AddVehiclePage = () => {
                   <Alert severity="success" icon={<CheckCircleIcon fontSize="inherit" />}>
                     {`${label.registration} created${label.created?.account ? ' and shared with the account' : ''}.`}
                   </Alert>
-                  {label.created?.cnms_existing ? (
+                  {label.created?.cnms && (
                     <Alert severity="success">
-                      {`CNMS already has this camera under ${label.created.cnms_existing.company}${
+                      {`Added to CNMS under ${label.created.cnms.company}, so video will work once the camera dials in.`}
+                    </Alert>
+                  )}
+                  {label.created?.cnms_existing && (
+                    <Alert severity="success">
+                      {`CNMS already had this camera under ${label.created.cnms_existing.company}${
                         label.created.cnms_existing.plate
                           ? ` as ${label.created.cnms_existing.plate}`
                           : ''
-                      } — video will work straight away.`}
+                      }, and was left as it is.`}
                     </Alert>
-                  ) : (
+                  )}
+                  {label.created?.cnms_error && (
                     <Alert severity="warning">
-                      {`Still to do in CNMS: add device ${label.device_id}${label.sim_no ? ` with SIM ${label.sim_no}` : ''} under ${label.cnms_company || cnms.default} so video works.`}
+                      {`${label.created.cnms_error} Add device ${label.device_id}${label.sim_no ? ` with SIM ${label.sim_no}` : ''} in CNMS by hand, under ${label.cnms_company || cnms.default}.`}
                     </Alert>
                   )}
                   {label.mobile_no && (

@@ -21,10 +21,10 @@ POST   /api/dvr/outbox/{id}         report each one sent or failed
 
 from __future__ import annotations
 
+import logging
+import urllib.error
 import uuid
 from datetime import datetime, timedelta, timezone
-
-import urllib.error
 from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, File, Header, HTTPException, Query, UploadFile
@@ -38,6 +38,8 @@ from app.database import get_session
 from app.models.dvr import DvrCommand, DvrMessage
 from app.services import auth, cnms_db, dvr_labels, modules
 from app.services.auth import Principal
+
+logger = logging.getLogger("tacho.dvr")
 
 router = APIRouter(prefix="/api/dvr", tags=["dvr"])
 
@@ -185,12 +187,24 @@ async def create_vehicle(body: dict = Body(...), principal: Principal = Depends(
         except Exception:  # noqa: BLE001 - the vehicle exists; the sharing can be fixed by hand
             result["account_error"] = "The vehicle was created but could not be given to that account."
 
-    # CNMS: report what would happen. Creating there writes to the CNMS database,
-    # which is switched on separately (see cnms_write in the service layer).
+    # Then CNMS, so the camera's video works as well as its position. A camera
+    # already there is left exactly as it is.
     try:
         result["cnms_existing"] = cnms_db.find_device(device_id)
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - CNMS being unreachable must not undo the vehicle
         result["cnms_existing"] = None
+        result["cnms_error"] = "CNMS could not be reached, so the camera was not added there."
+        return result
+
+    if result["cnms_existing"] is None:
+        try:
+            result["cnms"] = cnms_db.create_vehicle(
+                device_id=device_id, registration=registration, sim_no=sim_no,
+                company=str(body.get("cnms_company") or "").strip(),
+                channels=int(body.get("channels") or 4))
+        except Exception as exc:  # noqa: BLE001 - the vehicle here stands either way
+            logger.exception("could not add %s to CNMS", device_id)
+            result["cnms_error"] = str(exc)
     return result
 
 
