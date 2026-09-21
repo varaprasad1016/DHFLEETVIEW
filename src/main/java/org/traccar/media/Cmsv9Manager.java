@@ -37,6 +37,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -108,15 +110,14 @@ public class Cmsv9Manager {
     public String buildLiveFlvUrl(String terminal, int channel) {
         String host = apiUri("").getHost();
         int port = getMediaPort();
-        return "https://" + host + ":" + port
-                + "/live/0" + terminal + "_channel_" + channel + ".live.flv";
+        return "https://" + host + ":" + port + "/live/" + liveStreamName(terminal, channel) + ".live.flv";
     }
 
     public String buildPlaybackFlvUrl(String terminal, int channel) {
         String host = apiUri("").getHost();
         int port = getMediaPort();
         return "https://" + host + ":" + port
-                + "/live/0" + terminal + "_channel_" + channel + "_playback.live.flv";
+                + "/live/" + canonicalTerminal(terminal) + "_channel_" + channel + "_playback.live.flv";
     }
 
     public String rtmpToFlv(String rtmpUrl) {
@@ -294,6 +295,9 @@ public class Cmsv9Manager {
                 return t;
             });
     private final Map<String, ScheduledFuture<?>> pendingStops = new ConcurrentHashMap<>();
+    /** Stream names CNMS reported for a terminal/channel, keyed by "terminal/channel". */
+    private final Map<String, String> streamNames = new ConcurrentHashMap<>();
+    private static final Pattern STREAM_IN_URL = Pattern.compile("/live/([^/.]+)\\.live\\.flv");
     private final Map<String, InputStream> keepAliveStreams = new ConcurrentHashMap<>();
 
     private static String streamKey(String terminal, int channel) {
@@ -374,15 +378,18 @@ public class Cmsv9Manager {
         cancelPendingStop(terminal, channel);
         playExecutor.submit(() -> {
             try {
-                String streamName = liveStreamName(terminal, channel);
-                if (!isStreamLive(streamName)) {
-                    // Reset under the WS lock, then issue the play order.
-                    synchronized (wsOrderLock) {
-                        wsStop(terminal, channel);
+                synchronized (wsOrderLock) {
+                    String streamName = liveStreamName(terminal, channel);
+                    if (!isStreamLive(streamName)) {
+                        resetChannel(terminal, channel);
                         wsPlay(terminal, channel, streamType);
+                        mediacontrol(terminal, channel, 0, streamType);
+                        // Do NOT block here waiting for the stream to appear: this
+                        // task is fire-and-forget (the frontend polls readiness), and
+                        // holding the play lane for up to 45s per channel makes a
+                        // channel that can't establish stall every other channel in a
+                        // multi-view grid. Send the order and move on.
                     }
-                    // mediacontrol is a local HTTP call — no WS lock needed.
-                    mediacontrol(terminal, channel, 0, streamType);
                 }
             } catch (Exception e) {
                 LOG.warn("Live play failed for {}/{}: {}", terminal, channel, e.getMessage());
@@ -394,7 +401,7 @@ public class Cmsv9Manager {
         wsStop(terminal, channel);
         mediacontrol(terminal, channel, 1);
         try {
-            Thread.sleep(200);
+            Thread.sleep(400);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -436,7 +443,7 @@ public class Cmsv9Manager {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("sign", "ifNTSJ5vmA");
             body.put("type", type);
-            body.put("terminal", "0" + terminal);
+            body.put("terminal", terminal);
             body.put("id", String.valueOf(channel));
             body.put("protocol", 1);
             body.put("vedioType", 1);
@@ -450,13 +457,51 @@ public class Cmsv9Manager {
                     .build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             LOG.info("mediacontrol type={} terminal={} channel={} -> {}", type, terminal, channel, response.body());
+            rememberStreamName(terminal, channel, response.body());
         } catch (Exception e) {
             LOG.warn("mediacontrol failed for {}/{}: {}", terminal, channel, e.getMessage());
         }
     }
 
+    /**
+     * CNMS answers a play order with the URL it will publish the stream on. That
+     * URL carries the stream name CNMS chose, which is the only reliable source:
+     * it normalises device numbers itself (padding some, trimming others), so a
+     * name built here can disagree with the one the media server registers.
+     */
+    private void rememberStreamName(String terminal, int channel, String body) {
+        try {
+            JsonNode data = objectMapper.readTree(body).path("resultData");
+            String url = data.path("httpurl").asText(data.path("url").asText(""));
+            Matcher matcher = STREAM_IN_URL.matcher(url);
+            if (matcher.find()) {
+                String name = matcher.group(1);
+                String previous = streamNames.put(streamKey(terminal, channel), name);
+                if (!name.equals(previous)) {
+                    LOG.info("CNMS stream for {}/{} is {}", terminal, channel, name);
+                }
+            }
+        } catch (Exception e) {
+            LOG.debug("no stream name in mediacontrol reply for {}/{}", terminal, channel);
+        }
+    }
+
+    /**
+     * The device number as CNMS spells it in stream names: eleven digits, so a
+     * shorter number is zero-padded and a longer one loses its leading zeros.
+     * Only used until CNMS tells us the real name (see rememberStreamName).
+     */
+    private static String canonicalTerminal(String terminal) {
+        try {
+            return String.format("%011d", Long.parseLong(terminal.trim()));
+        } catch (NumberFormatException e) {
+            return terminal;
+        }
+    }
+
     public String liveStreamName(String terminal, int channel) {
-        return "0" + terminal + "_channel_" + channel;
+        String known = streamNames.get(streamKey(terminal, channel));
+        return known != null ? known : canonicalTerminal(terminal) + "_channel_" + channel;
     }
 
     /**
