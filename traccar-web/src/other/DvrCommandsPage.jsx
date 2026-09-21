@@ -88,7 +88,10 @@ const DvrCommandsPage = () => {
   const [commands, setCommands] = useState([]);
   const [gatewayNumber, setGatewayNumber] = useState('');
   const [selected, setSelected] = useState({});
-  const [deviceId, setDeviceId] = useState('');
+  // Arriving straight from a vehicle that was just added, with it already chosen.
+  const [deviceId, setDeviceId] = useState(
+    () => new URLSearchParams(window.location.search).get('device') || '',
+  );
   const [number, setNumber] = useState('');
   const [messages, setMessages] = useState([]);
   const [error, setError] = useState('');

@@ -15,6 +15,8 @@ import HelpIcon from '@mui/icons-material/Help';
 import PaymentIcon from '@mui/icons-material/Payment';
 import CampaignIcon from '@mui/icons-material/Campaign';
 import CalculateIcon from '@mui/icons-material/Calculate';
+import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
+import SmsIcon from '@mui/icons-material/Sms';
 import { useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useTranslation } from '../../common/components/LocalizationProvider';
@@ -144,12 +146,26 @@ const SettingsMenu = () => {
               selected={location.pathname === '/settings/announcement'}
             />
             {admin && (
-              <MenuItem
-                title={t('settingsServer')}
-                link="/settings/server"
-                icon={<SettingsIcon />}
-                selected={location.pathname === '/settings/server'}
-              />
+              <>
+                <MenuItem
+                  title="Add vehicles from labels"
+                  link="/add-vehicle"
+                  icon={<PhotoCameraIcon />}
+                  selected={location.pathname === '/add-vehicle'}
+                />
+                <MenuItem
+                  title="Camera setup commands"
+                  link="/dvr-commands"
+                  icon={<SmsIcon />}
+                  selected={location.pathname === '/dvr-commands'}
+                />
+                <MenuItem
+                  title={t('settingsServer')}
+                  link="/settings/server"
+                  icon={<SettingsIcon />}
+                  selected={location.pathname === '/settings/server'}
+                />
+              </>
             )}
             <MenuItem
               title={t('settingsUsers')}

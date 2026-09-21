@@ -6,6 +6,9 @@ commands are kept here so they can be sent from the platform, in order, and seen
 again later.
 
 Office (super administrator):
+POST   /api/dvr/labels              read a photo of a DVR label
+GET    /api/dvr/labels/{id}         the photo again, for the review screen
+POST   /api/dvr/vehicles            create the vehicle from a confirmed label
 GET    /api/dvr/commands            the saved commands
 PUT    /api/dvr/commands            replace the saved commands
 POST   /api/dvr/send                queue commands for one vehicle
@@ -21,7 +24,11 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
+import urllib.error
+from pathlib import Path
+
+from fastapi import APIRouter, Body, Depends, File, Header, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,7 +36,7 @@ from app.api.deps import require_manager
 from app.config import settings
 from app.database import get_session
 from app.models.dvr import DvrCommand, DvrMessage
-from app.services import auth, modules
+from app.services import auth, cnms_db, dvr_labels, modules
 from app.services.auth import Principal
 
 router = APIRouter(prefix="/api/dvr", tags=["dvr"])
@@ -70,6 +77,121 @@ async def _commands(session: AsyncSession) -> list[DvrCommand]:
 def _view(command: DvrCommand) -> dict:
     return {"id": str(command.id), "name": command.name, "body": command.body,
             "position": command.position, "enabled": command.enabled}
+
+
+# ------------------------------------------------------------------ labels
+def _label_dir() -> Path:
+    path = Path(settings.dvr_label_dir)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+@router.post("/labels")
+async def read_label(photo: UploadFile = File(...), principal: Principal = Depends(require_manager)):
+    """What a photo of a DVR label says: the numbers come from its barcodes.
+
+    The registration and the customer are handwritten on these labels, so they
+    are left for the operator to confirm against the photo.
+    """
+    _require_super(principal)
+    data = await photo.read()
+    if len(data) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="That photo is too large. 15 MB is the limit.")
+    fields = dvr_labels.read_label(data)
+
+    identifier = uuid.uuid4().hex
+    (_label_dir() / f"{identifier}.jpg").write_bytes(data)
+    fields["photo_id"] = identifier
+    fields["photo_url"] = f"/tacho/api/dvr/labels/{identifier}"
+
+    # Say straight away if this camera is already known on either side.
+    device_id = fields.get("device_id")
+    if device_id:
+        existing = await auth.traccar_get(principal, "/api/devices") or []
+        match = next((d for d in existing if (d.get("attributes") or {}).get("cmsv9DeviceId") == device_id), None)
+        fields["already_here"] = {"id": match["id"], "name": match["name"]} if match else None
+        try:
+            fields["already_in_cnms"] = cnms_db.find_device(device_id)
+        except Exception:  # noqa: BLE001 - CNMS being unreachable must not stop the read
+            fields["already_in_cnms"] = None
+    return fields
+
+
+@router.get("/labels/{photo_id}")
+async def label_photo(photo_id: str, principal: Principal = Depends(require_manager)):
+    _require_super(principal)
+    if not photo_id.isalnum():
+        raise HTTPException(status_code=404)
+    path = _label_dir() / f"{photo_id}.jpg"
+    if not path.is_file():
+        raise HTTPException(status_code=404)
+    return FileResponse(path, media_type="image/jpeg")
+
+
+@router.get("/cnms/companies")
+async def cnms_companies(principal: Principal = Depends(require_manager)):
+    """The CNMS companies a camera can be created under, and how full each is."""
+    _require_super(principal)
+    try:
+        return {"companies": cnms_db.companies(), "default": settings.cnms_default_company, "available": True}
+    except Exception as exc:  # noqa: BLE001
+        return {"companies": [], "default": settings.cnms_default_company, "available": False, "detail": str(exc)}
+
+
+@router.post("/vehicles")
+async def create_vehicle(body: dict = Body(...), principal: Principal = Depends(require_manager)):
+    """Create the vehicle from a confirmed label: here first, then CNMS."""
+    _require_super(principal)
+    registration = str(body.get("registration") or "").strip().upper()
+    device_id = str(body.get("device_id") or "").strip()
+    sim_no = str(body.get("sim_no") or "").strip()
+    mobile_no = str(body.get("mobile_no") or "").strip().replace(" ", "")
+    serial = str(body.get("serial") or "").strip()
+    account_id = body.get("account_user_id")
+
+    if not registration or not device_id:
+        raise HTTPException(status_code=400, detail="A registration and a device ID are needed.")
+
+    existing = await auth.traccar_get(principal, "/api/devices") or []
+    if any((d.get("attributes") or {}).get("cmsv9DeviceId") == device_id for d in existing):
+        raise HTTPException(status_code=409, detail=f"Device {device_id} is already on DH FleetView.")
+
+    device = {
+        "name": registration,
+        "uniqueId": f"cnms-{device_id}",
+        "category": "CNMS",
+        "phone": mobile_no,
+        "attributes": {k: v for k, v in {
+            "cmsv9DeviceId": device_id,
+            "cmsv9Name": registration,
+            "cmsv9Mobile": mobile_no,
+            "cmsv9Sim": sim_no,
+            "cmsv9Serial": serial,
+            "labelPhoto": body.get("photo_id"),
+        }.items() if v},
+    }
+    try:
+        created = await auth.traccar_send(principal, "POST", "/api/devices", device)
+    except urllib.error.HTTPError as exc:
+        raise HTTPException(status_code=400, detail=f"DH FleetView refused the vehicle: {exc.read().decode()[:200]}") from exc
+
+    result = {"device": {"id": created.get("id"), "name": created.get("name")}, "cnms": None, "account": None}
+
+    if account_id:
+        try:
+            await auth.traccar_send(principal, "POST", "/api/permissions",
+                                    {"userId": int(account_id), "deviceId": created["id"]})
+            result["account"] = int(account_id)
+        except Exception:  # noqa: BLE001 - the vehicle exists; the sharing can be fixed by hand
+            result["account_error"] = "The vehicle was created but could not be given to that account."
+
+    # CNMS: report what would happen. Creating there writes to the CNMS database,
+    # which is switched on separately (see cnms_write in the service layer).
+    try:
+        result["cnms_existing"] = cnms_db.find_device(device_id)
+    except Exception:  # noqa: BLE001
+        result["cnms_existing"] = None
+    return result
 
 
 @router.get("/commands")

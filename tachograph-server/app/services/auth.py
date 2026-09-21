@@ -108,6 +108,25 @@ def _traccar_get(path: str, cookie: str, authorization: str):
     # URLError (Traccar down) propagates: callers turn it into 503, never into access.
 
 
+def _traccar_send(method: str, path: str, body: dict, cookie: str, authorization: str):
+    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    if cookie:
+        headers["Cookie"] = cookie
+    if authorization:
+        headers["Authorization"] = authorization
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    req = urllib.request.Request(settings.traccar_url.rstrip("/") + path, data=data, headers=headers, method=method)
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        raw = resp.read().decode("utf-8")
+        return json.loads(raw) if raw else {}
+
+
+async def traccar_send(principal: "Principal", method: str, path: str, body: dict | None = None):
+    """POST/PUT to Traccar as the signed-in office user, so Traccar applies its own
+    permissions. HTTP errors are raised for the caller to turn into a message."""
+    return await asyncio.to_thread(_traccar_send, method, path, body, principal.cookie, principal.authorization)
+
+
 async def traccar_get(principal: "Principal", path: str):
     """GET a Traccar API path as the signed-in office user, so Traccar's own
     permissions decide what they can see. None when not found / not allowed."""

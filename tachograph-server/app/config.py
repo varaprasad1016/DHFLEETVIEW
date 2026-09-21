@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     # --- DVR setup by SMS (a spare Android phone polls the queue and sends) ---
     dvr_sms_key: str = ""          # the phone signs in with this; blank = the queue is closed
     dvr_sms_from: str = ""         # the sending phone's own number, shown in the office UI
+    # Photos of DVR labels, and where CNMS keeps its own database details.
+    dvr_label_dir: str = "D:/DHFleetViewData/tacho/labels"
+    cnms_database_ini: str = "D:/CMSServer/Database.ini"
+    cnms_default_company: str = "DH Group Fleet View"
     api_port: int = 8000
 
     # --- Infrastructure ---
