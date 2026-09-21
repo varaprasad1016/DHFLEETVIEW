@@ -21,10 +21,11 @@ POST   /api/dvr/outbox/{id}         report each one sent or failed
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import urllib.error
 import uuid
 from datetime import datetime, timedelta, timezone
-
-import urllib.error
 from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, File, Header, HTTPException, Query, UploadFile
@@ -39,6 +40,8 @@ from app.models.dvr import DvrCommand, DvrMessage
 from app.services import auth, cnms_db, dvr_labels, modules
 from app.services.auth import Principal
 
+logger = logging.getLogger("tacho.dvr")
+
 router = APIRouter(prefix="/api/dvr", tags=["dvr"])
 
 # What a new DVR is normally told: which protocol to speak, where to report, and
@@ -51,6 +54,8 @@ DEFAULT_COMMANDS = [
     ("Check base", "*GETSTATEBASE"),
 ]
 CLAIM_TIMEOUT = timedelta(minutes=5)
+# Longer than any healthy sender's round trip: past this, nothing is collecting.
+STALE_AFTER = timedelta(minutes=10)
 
 
 def now() -> datetime:
@@ -97,7 +102,8 @@ async def read_label(photo: UploadFile = File(...), principal: Principal = Depen
     data = await photo.read()
     if len(data) > 15 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="That photo is too large. 15 MB is the limit.")
-    fields = dvr_labels.read_label(data)
+    # Barcodes and OCR both take a moment; keep the server answering meanwhile.
+    fields = await asyncio.to_thread(dvr_labels.read_label, data)
 
     identifier = uuid.uuid4().hex
     (_label_dir() / f"{identifier}.jpg").write_bytes(data)
@@ -185,12 +191,24 @@ async def create_vehicle(body: dict = Body(...), principal: Principal = Depends(
         except Exception:  # noqa: BLE001 - the vehicle exists; the sharing can be fixed by hand
             result["account_error"] = "The vehicle was created but could not be given to that account."
 
-    # CNMS: report what would happen. Creating there writes to the CNMS database,
-    # which is switched on separately (see cnms_write in the service layer).
+    # Then CNMS, so the camera's video works as well as its position. A camera
+    # already there is left exactly as it is.
     try:
         result["cnms_existing"] = cnms_db.find_device(device_id)
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - CNMS being unreachable must not undo the vehicle
         result["cnms_existing"] = None
+        result["cnms_error"] = "CNMS could not be reached, so the camera was not added there."
+        return result
+
+    if result["cnms_existing"] is None:
+        try:
+            result["cnms"] = cnms_db.create_vehicle(
+                device_id=device_id, registration=registration, sim_no=sim_no,
+                company=str(body.get("cnms_company") or "").strip(),
+                channels=int(body.get("channels") or 4))
+        except Exception as exc:  # noqa: BLE001 - the vehicle here stands either way
+            logger.exception("could not add %s to CNMS", device_id)
+            result["cnms_error"] = str(exc)
     return result
 
 
@@ -279,12 +297,23 @@ async def list_messages(limit: int = Query(50, ge=1, le=200), principal: Princip
     _require_super(principal)
     rows = (await session.execute(
         select(DvrMessage).order_by(DvrMessage.queued_at.desc()).limit(limit))).scalars().all()
+
+    # Queueing is not sending. Nothing leaves here until something collects it,
+    # so say plainly how long the oldest message has been waiting - otherwise a
+    # full queue and a working one look exactly alike.
+    waiting = (await session.execute(
+        select(DvrMessage.queued_at).where(DvrMessage.status.in_(("queued", "sending")))
+        .order_by(DvrMessage.queued_at).limit(1))).scalars().first()
+    stale = bool(waiting and now() - waiting > STALE_AFTER)
+
     return {"messages": [{
         "id": str(m.id), "to": m.to_number, "body": m.body, "device": m.device_name,
         "command": m.command_name, "status": m.status, "detail": m.detail,
         "queued_at": m.queued_at.isoformat() if m.queued_at else None,
         "sent_at": m.sent_at.isoformat() if m.sent_at else None,
-    } for m in rows]}
+    } for m in rows],
+        "waiting_since": waiting.isoformat() if waiting else None,
+        "nothing_is_collecting": stale}
 
 
 # ------------------------------------------------------------------ the sending phone

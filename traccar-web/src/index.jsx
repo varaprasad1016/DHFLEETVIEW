@@ -12,8 +12,14 @@ import NativeInterface from './common/components/NativeInterface';
 import ServerProvider from './ServerProvider';
 import ErrorBoundary from './ErrorBoundary';
 import AppThemeProvider from './AppThemeProvider';
+import { savePersistedState } from './common/util/usePersistedState';
 
 preloadImages();
+
+// Opening the app shows the dashboard, whichever view it was left on. This has
+// to happen before the first render, or the old view appears for a moment
+// first. Returning to a backgrounded app is handled in useOpenOnDashboard.
+savePersistedState('fleetView', 'dashboard');
 
 const root = createRoot(document.getElementById('root'));
 root.render(

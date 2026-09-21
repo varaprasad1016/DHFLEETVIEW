@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     dvr_label_dir: str = "D:/DHFleetViewData/tacho/labels"
     cnms_database_ini: str = "D:/CMSServer/Database.ini"
     cnms_default_company: str = "DH Group Fleet View"
+    # CNMS is the live video platform's own database. Adding a camera there is
+    # off unless this is set, so it cannot happen by accident on a test box.
+    cnms_write_enabled: bool = False
     api_port: int = 8000
 
     # --- Infrastructure ---

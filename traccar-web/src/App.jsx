@@ -16,6 +16,7 @@ import Loader from './common/components/Loader';
 import fetchOrThrow from './common/util/fetchOrThrow';
 import ErrorBoundary from './ErrorBoundary';
 import useComplianceAccess from './common/util/useComplianceAccess';
+import useOpenOnDashboard from './common/util/useOpenOnDashboard';
 
 const useStyles = makeStyles()((theme) => {
   const dark = theme.palette.mode === 'dark';
@@ -86,6 +87,7 @@ const App = () => {
   const desktop = useMediaQuery(theme.breakpoints.up('md'));
   // The user loads asynchronously; don't read its role before it exists.
   const complianceAccess = useComplianceAccess();
+  useOpenOnDashboard();
 
   const newServer = useSelector((state) => state.session.server.newServer);
   const termsUrl = useSelector((state) => state.session.server.attributes.termsUrl);
