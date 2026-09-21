@@ -96,6 +96,7 @@ const DvrCommandsPage = () => {
   );
   const [number, setNumber] = useState('');
   const [messages, setMessages] = useState([]);
+  const [stalled, setStalled] = useState(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState('');
@@ -110,6 +111,7 @@ const DvrCommandsPage = () => {
       setGatewayNumber(saved.gateway_number || '');
       setSelected(Object.fromEntries((saved.commands || []).map((c) => [c.id, true])));
       setMessages(history.messages || []);
+      setStalled(history.nothing_is_collecting ? history.waiting_since : null);
       setError('');
     } catch (e) {
       setError(e.message);
@@ -122,6 +124,7 @@ const DvrCommandsPage = () => {
       try {
         const history = await request('/messages?limit=50');
         setMessages(history.messages || []);
+        setStalled(history.nothing_is_collecting ? history.waiting_since : null);
       } catch {
         // leave the last view in place
       }
@@ -225,6 +228,11 @@ const DvrCommandsPage = () => {
         {notice && (
           <Alert severity="success" onClose={() => setNotice('')}>
             {notice}
+          </Alert>
+        )}
+        {stalled && (
+          <Alert severity="warning">
+            {`Nothing is sending these. Messages have been waiting since ${dayjs(stalled).format('D MMM HH:mm')} — queueing them here is not the same as sending them, and they will all go out at once whenever a sender is connected.`}
           </Alert>
         )}
 

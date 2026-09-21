@@ -1,9 +1,28 @@
-# Setting up the sending phone
+# Sending the camera setup commands
 
-The platform queues the camera setup commands; a spare Android phone with the
-DH Group SIM () collects them and sends them as ordinary
-text messages. Nothing else on the phone is touched, and the phone can only see
-the queue - it has no login to the platform.
+The platform queues the setup commands; something then has to collect them and
+send them as text messages. The queue does not care what that something is.
+
+**The chosen route: the Caburn SIM portal API.** The SIMs in these cameras come
+from Caburn, whose portal can send texts over an API, so there is no handset to
+keep charged and nothing to go wrong in a drawer. This is not built yet - it
+needs the portal's API documentation and a key. When those arrive, the work is
+one service that drains the same queue these endpoints already expose:
+
+    claim:   GET  /api/dvr/outbox?limit=5      -> the messages waiting
+    report:  POST /api/dvr/outbox/<id>         -> {"sent": true} or false
+
+A message nobody reports on is offered again after five minutes, so a failed
+send is never silently lost.
+
+Until something is connected, queued commands simply wait, and the Camera setup
+commands screen says so rather than letting a full queue look like a sent one.
+
+## The fallback: a spare Android phone
+
+Kept here because it needs no third party and can be stood up in ten minutes if
+a camera is needed urgently. A spare handset with the DH Group SIM
+() polls the queue and sends each message itself.
 
 ## What the phone needs to know
 

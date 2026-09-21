@@ -54,6 +54,8 @@ DEFAULT_COMMANDS = [
     ("Check base", "*GETSTATEBASE"),
 ]
 CLAIM_TIMEOUT = timedelta(minutes=5)
+# Longer than any healthy sender's round trip: past this, nothing is collecting.
+STALE_AFTER = timedelta(minutes=10)
 
 
 def now() -> datetime:
@@ -295,12 +297,23 @@ async def list_messages(limit: int = Query(50, ge=1, le=200), principal: Princip
     _require_super(principal)
     rows = (await session.execute(
         select(DvrMessage).order_by(DvrMessage.queued_at.desc()).limit(limit))).scalars().all()
+
+    # Queueing is not sending. Nothing leaves here until something collects it,
+    # so say plainly how long the oldest message has been waiting - otherwise a
+    # full queue and a working one look exactly alike.
+    waiting = (await session.execute(
+        select(DvrMessage.queued_at).where(DvrMessage.status.in_(("queued", "sending")))
+        .order_by(DvrMessage.queued_at).limit(1))).scalars().first()
+    stale = bool(waiting and now() - waiting > STALE_AFTER)
+
     return {"messages": [{
         "id": str(m.id), "to": m.to_number, "body": m.body, "device": m.device_name,
         "command": m.command_name, "status": m.status, "detail": m.detail,
         "queued_at": m.queued_at.isoformat() if m.queued_at else None,
         "sent_at": m.sent_at.isoformat() if m.sent_at else None,
-    } for m in rows]}
+    } for m in rows],
+        "waiting_since": waiting.isoformat() if waiting else None,
+        "nothing_is_collecting": stale}
 
 
 # ------------------------------------------------------------------ the sending phone
