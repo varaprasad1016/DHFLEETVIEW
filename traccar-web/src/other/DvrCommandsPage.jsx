@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
 import {
   Alert,
@@ -76,13 +76,15 @@ const DvrCommandsPage = () => {
   const { classes } = useStyles();
   const navigate = useNavigate();
 
-  const devices = useSelector((state) => Object.values(state.devices.items));
+  // Take the devices map itself rather than Object.values(...): that builds a
+  // new array on every store update, and vehicles report constantly.
+  const deviceItems = useSelector((state) => state.devices.items);
   const cameraDevices = useMemo(
     () =>
-      devices
+      Object.values(deviceItems)
         .filter((d) => d.attributes?.cmsv9DeviceId)
         .sort((a, b) => a.name.localeCompare(b.name)),
-    [devices],
+    [deviceItems],
   );
 
   const [commands, setCommands] = useState([]);
@@ -127,8 +129,19 @@ const DvrCommandsPage = () => {
     return () => clearInterval(timer);
   }, []);
 
+  // Choosing a vehicle fills in its own number, but only on the change of
+  // choice: a vehicle reporting its position mid-typing must not overwrite what
+  // is being typed, and the number can always be corrected by hand.
+  const numberFilledForRef = useRef(undefined);
   useEffect(() => {
+    if (numberFilledForRef.current === deviceId) {
+      return;
+    }
     const device = cameraDevices.find((d) => String(d.id) === String(deviceId));
+    if (deviceId && !device) {
+      return; // arrived with a vehicle in the link; its details are still loading
+    }
+    numberFilledForRef.current = deviceId;
     setNumber(device?.attributes?.cmsv9Mobile || device?.phone || '');
   }, [deviceId, cameraDevices]);
 
