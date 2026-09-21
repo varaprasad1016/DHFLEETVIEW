@@ -42,6 +42,11 @@ import {
   cmsv9StreamStatus,
 } from '../common/util/cmsv9';
 import { useCatch, useCatchCallback } from '../reactHelper';
+import MapView from '../map/core/MapView';
+import MapPositionMarkers from '../map/MapPositionMarkers';
+import MapCamera from '../map/MapCamera';
+import MapScale from '../map/MapScale';
+import MapCurrentLocation from '../map/MapCurrentLocation';
 
 const useStyles = makeStyles()((theme) => ({
   root: {
@@ -167,7 +172,41 @@ const useStyles = makeStyles()((theme) => ({
     color: '#666',
     fontSize: '0.8rem',
   },
+  // Live map under the video: half the screen alongside a single channel, and the
+  // space left under the grid in multi-channel view.
+  mapArea: {
+    position: 'relative',
+    flexGrow: 1,
+    minHeight: 200,
+    borderTop: `1px solid ${theme.palette.divider}`,
+  },
+  mapHalf: {
+    flex: '1 1 50%',
+    minHeight: 180,
+  },
+  videoHalf: {
+    flex: '1 1 50%',
+    maxHeight: 'none',
+  },
+  gridWithMap: {
+    flexGrow: 0,
+  },
+  mapEmpty: {
+    position: 'absolute',
+    inset: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.palette.background.paper,
+    zIndex: 1,
+  },
 }));
+
+// How often a stalled tile is restarted from the DVR before it gives up, and
+// how long a tile may show nothing before it counts as stalled.
+const GRID_RESTART_LIMIT = 3;
+const GRID_RESTART_DELAY_MS = 1500;
+const GRID_FIRST_FRAME_MS = 45000;
 
 let jessibucaPromise = null;
 function loadJessibuca() {
@@ -211,6 +250,13 @@ async function createFlvPlayer(container, url, options = {}) {
     useWebFullScreen: false,
     timeout: options.timeout || 20,
     loadingTimeout: options.loadingTimeout || 30,
+    // A live tile that stops receiving frames used to sit there frozen. Let the
+    // player notice the silence and reconnect on its own; the page restarts the
+    // channel from the DVR if those attempts run out (see startChannel).
+    heartTimeout: options.heartTimeout || 8,
+    heartTimeoutReplay: true,
+    heartTimeoutReplayTimes: 2,
+    loadingTimeoutReplay: true,
   });  player.on('error', (err) => console.log('[cmsv9] error:', err));
   player.on('videoInfo', (d) => console.log('[cmsv9] videoInfo:', d));
   player.on('audioInfo', (d) => console.log('[cmsv9] audioInfo:', d));
@@ -259,8 +305,31 @@ function resolveUrl(url) {
   }
 }
 
-// waitForStream removed: use waitForStreamReady (server-side check) instead
-// to avoid exhausting the browser's ~6-connections-per-host limit.
+async function waitForStream(url, timeoutMs = 45000, cancelFn) {
+  const absolute = resolveUrl(url);
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (cancelFn && cancelFn()) return false;
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 1200);
+      const res = await fetch(absolute, { signal: controller.signal, cache: 'no-store' });
+      clearTimeout(timer);
+      if (res.ok) {
+        // We only need to know the stream exists. Abort immediately so this probe
+        // does not hold a streaming connection open — otherwise N channels leak N
+        // connections and blow past the browser's ~6-per-host limit, leaving no
+        // sockets for the actual players (the "only 2 channels play" bug).
+        controller.abort();
+        return true;
+      }
+    } catch (e) {
+      // keep polling while device starts pushing
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+  return false;
+}
 
 const Cmsv9VideoPage = () => {
   const { classes } = useStyles();
@@ -274,6 +343,8 @@ const Cmsv9VideoPage = () => {
   const [searchParams] = useSearchParams();
   const deviceId = searchParams.get('deviceId');
   const device = useSelector((state) => state.devices.items[deviceId]);
+  // Live position of this vehicle, for the map under the video.
+  const position = useSelector((state) => state.session.positions[deviceId]);
 
   const defaultChannels = useAttributePreference('cmsv9Channels', 4);
 
@@ -292,6 +363,7 @@ const Cmsv9VideoPage = () => {
 
   const [gridActive, setGridActive] = useState(false);
   const [gridHd, setGridHd] = useState(false);
+  const gridHdRef = useRef(false);
   const [singleHd, setSingleHd] = useState(true);
   const singleHdRef = useRef(true);
   const [gridErrors, setGridErrors] = useState({});
@@ -381,7 +453,7 @@ const Cmsv9VideoPage = () => {
       const { flvUrl } = data;
       if (!flvUrl) throw new Error('No stream URL returned');
       setPlaying(true);
-      const found = await waitForStreamReady(deviceId, channel, 90000, () => cancelledRef.current);
+      const found = await waitForStream(flvUrl, 90000, () => cancelledRef.current);
       if (!found) {
         if (!cancelledRef.current) {
           setLiveError(true);
@@ -520,6 +592,7 @@ const Cmsv9VideoPage = () => {
   const setGridQuality = useCallback(
     (hd) => {
       setGridHd(hd);
+      gridHdRef.current = hd;
       if (gridActive) {
         stopGrid();
         setTimeout(() => startGrid(), 350);
@@ -528,68 +601,88 @@ const Cmsv9VideoPage = () => {
     [gridActive, stopGrid, startGrid],
   );
 
+  // Starts one tile of the grid, and restarts it if the picture stops arriving.
+  // A live stream can stall a few seconds in (the vehicle's uplink drops frames,
+  // or the DVR stops feeding); the player retries on its own first, and if that
+  // fails we ask the DVR for the channel again, up to GRID_RESTART_LIMIT times.
+  const startChannel = useCallback(async (ch, attempt = 0) => {
+    const entry = gridPlayers.current[ch];
+    const videoEl = entry?.videoEl;
+    if (!videoEl || cancelledRef.current) return;
+    clearTimeout(entry?.timer);
+    destroyFlvPlayer(entry?.player);
+    gridPlayers.current[ch] = { videoEl };
+    setGridErrors((prev) => {
+      if (!prev[ch]) return prev;
+      const next = { ...prev };
+      delete next[ch];
+      return next;
+    });
+
+    const stalled = (reason) => {
+      if (cancelledRef.current || gridPlayers.current[ch]?.videoEl !== videoEl) return;
+      if (attempt + 1 < GRID_RESTART_LIMIT) {
+        console.log(`[cmsv9] channel ${ch + 1} ${reason}; restarting (attempt ${attempt + 2})`);
+        gridPlayers.current[ch] = {
+          videoEl,
+          timer: setTimeout(() => startChannel(ch, attempt + 1), GRID_RESTART_DELAY_MS),
+        };
+      } else {
+        setGridErrors((prev) => ({ ...prev, [ch]: 'stalled' }));
+      }
+    };
+
+    try {
+      const data = await cmsv9StartLive(deviceId, ch, gridHdRef.current ? 0 : 1);
+      if ((data.errCode !== 0 && data.errCode !== -1) || !data.flvUrl) {
+        setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
+        return;
+      }
+      const found = await waitForStream(data.flvUrl, 150000, () => cancelledRef.current);
+      if (!found) {
+        if (!cancelledRef.current) {
+          setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
+        }
+        return;
+      }
+      if (cancelledRef.current || gridPlayers.current[ch]?.videoEl !== videoEl) return;
+      const player = await createFlvPlayer(videoEl, data.flvUrl, { hasAudio: false });
+      if (!player) {
+        setGridErrors((prev) => ({ ...prev, [ch]: 'error' }));
+        return;
+      }
+      // No picture at all within this window counts as a stall too.
+      const timer = setTimeout(() => stalled('never showed a picture'), GRID_FIRST_FRAME_MS);
+      gridPlayers.current[ch] = { player, videoEl, timer };
+      videoEl.dataset.attached = '1';
+      player.on('videoInfo', () => clearTimeout(gridPlayers.current[ch]?.timer));
+      player.on('timeout', () => stalled('stopped sending video'));
+      player.on('error', () => stalled('reported an error'));
+    } catch (e) {
+      if (!cancelledRef.current) {
+        setGridErrors((prev) => ({ ...prev, [ch]: 'error' }));
+      }
+    }
+  }, [deviceId]);
+
   useEffect(() => {
     if (!gridActive || !config) return;
-    const timers = [];
-    const cancelled = new Set();
+    cancelledRef.current = false;
     visibleChannels.forEach(async (ch, idx) => {
       const videoEl = gridPlayers.current[ch]?.videoEl;
       if (!videoEl || videoEl.dataset.attached) return;
       // Stagger startup: N tiles firing play-orders and spinning up N WASM
       // H.265 decoders at the same instant is what makes multi-channel struggle.
       if (idx > 0) {
-        await new Promise((resolve) => setTimeout(resolve, idx * 600));
+        await new Promise((resolve) => setTimeout(resolve, idx * 400));
         if (cancelledRef.current) return;
       }
-      try {
-        const data = await cmsv9StartLive(deviceId, ch, gridHd ? 0 : 1);
-        if (data.errCode !== 0 && data.errCode !== -1) {
-          setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
-          return;
-        }
-        if (!data.flvUrl) {
-          setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
-          return;
-        }
-        const found = await waitForStreamReady(deviceId, ch, 150000, () => cancelledRef.current);
-        if (!found) {
-          if (!cancelledRef.current) {
-            setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
-          }
-          return;
-        }
-        if (cancelled.has(ch) || cancelledRef.current) return;
-        const player = await createFlvPlayer(videoEl, data.flvUrl, { hasAudio: false });
-        gridPlayers.current[ch] = { player, videoEl };
-        videoEl.dataset.attached = '1';
-        if (player) {
-          const timer = setTimeout(() => {
-            setGridErrors((prev) => ({ ...prev, [ch]: 'error' }));
-            destroyFlvPlayer(player);
-            delete gridPlayers.current[ch];
-          }, 120000);
-          timers.push(timer);
-          player.on('videoInfo', () => {
-            clearTimeout(timer);
-          });
-          player.on('error', () => {
-            clearTimeout(timer);
-            setGridErrors((prev) => ({ ...prev, [ch]: 'error' }));
-          });
-        } else {
-          setGridErrors((prev) => ({ ...prev, [ch]: 'error' }));
-        }
-      } catch (e) {
-        if (!cancelledRef.current) {
-          setGridErrors((prev) => ({ ...prev, [ch]: 'error' }));
-        }
-      }
+      startChannel(ch, 0);
     });
     return () => {
       cancelledRef.current = true;
-      visibleChannels.forEach((ch) => cancelled.add(ch));
-      timers.forEach(clearTimeout);
       visibleChannels.forEach((ch) => {
+        clearTimeout(gridPlayers.current[ch]?.timer);
         destroyFlvPlayer(gridPlayers.current[ch]?.player);
         if (gridPlayers.current[ch]?.videoEl) {
           delete gridPlayers.current[ch].videoEl.dataset.attached;
@@ -604,7 +697,7 @@ const Cmsv9VideoPage = () => {
         }
       });
     };
-  }, [gridActive, config, cmsv9DeviceId, deviceId, visibleChannels]);
+  }, [gridActive, config, cmsv9DeviceId, deviceId, visibleChannels, startChannel]);
 
   const takeSnapshot = useCatch(
     async (player) => {
@@ -699,7 +792,7 @@ const Cmsv9VideoPage = () => {
         // The platform pushes the recorded segment to the portal relay as a
         // regular FLV stream, so it plays directly in the browser just like
         // live does.
-        const found = await waitForStreamReady(deviceId, channel, 90000, () => cancelledRef.current);
+        const found = await waitForStream(flvUrl, 90000, () => cancelledRef.current);
         if (!found) {
           if (!cancelledRef.current) {
             setLiveError(true);
@@ -870,7 +963,7 @@ const Cmsv9VideoPage = () => {
             </Box>
           )}
           {tab === 0 && (
-            <div className={classes.video}>
+            <div className={`${classes.video} ${classes.videoHalf}`}>
               {playing && !liveError && (
                 <div ref={videoRef} className={classes.player} />
               )}
@@ -898,12 +991,12 @@ const Cmsv9VideoPage = () => {
             </div>
           )}
           {tab === 1 && (
-            <div className={classes.grid}>
+            <div className={`${classes.grid} ${classes.gridWithMap}`}>
               {visibleChannels.map((ch) => (
                 <div
                   key={ch}
                   className={`${classes.cell}${selectedChannel === ch ? ` ${classes.cellSelected}` : ''}`}
-                  onClick={() => setSelectedChannel(ch)}
+                  onClick={() => (gridErrors[ch] ? startChannel(ch, 0) : setSelectedChannel(ch))}
                 >
                   <Chip
                     label={`${device?.name ? `${device.name} - ` : ''}CH${ch + 1}`}
@@ -920,8 +1013,9 @@ const Cmsv9VideoPage = () => {
                   )}
                   {(!gridActive || gridErrors[ch]) && (
                     <Typography className={classes.cellPlaceholder}>
-                      {gridErrors[ch] === 'novideo' && t('cmsv9NoVideo')}
-                      {gridErrors[ch] === 'error' && t('errorConnection')}
+                      {gridErrors[ch] === 'novideo' && `${t('cmsv9NoVideo')} — tap to retry`}
+                      {gridErrors[ch] === 'stalled' && 'Picture stopped — tap to retry'}
+                      {gridErrors[ch] === 'error' && `${t('errorConnection')} — tap to retry`}
                       {!gridErrors[ch] && t('sharedPlay')}
                     </Typography>
                   )}
@@ -948,6 +1042,25 @@ const Cmsv9VideoPage = () => {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+          {(tab === 0 || tab === 1) && (
+            <div className={`${classes.mapArea}${tab === 0 ? ` ${classes.mapHalf}` : ''}`}>
+              <MapView>
+                <MapPositionMarkers positions={position ? [position] : []} showStatus />
+              </MapView>
+              <MapScale />
+              <MapCurrentLocation />
+              {position && (
+                <MapCamera latitude={position.latitude} longitude={position.longitude} />
+              )}
+              {!position && (
+                <div className={classes.mapEmpty}>
+                  <Typography variant="body2" color="textSecondary">
+                    {t('sharedNoData')}
+                  </Typography>
+                </div>
+              )}
             </div>
           )}
           {tab === 2 && (

@@ -34,9 +34,15 @@ from app.models.tacho_live import TachoLiveActivity, TachoLiveAlert, TachoLiveSt
 from app.models.infringement_review import InfringementReview
 from app.models.maintenance import MaintenanceRecord, MaintenanceSchedule
 from app.models.driver_records import DriverCpcCourse, DriverRecord
+from app.models.bridge import BridgeCredential, BridgeNode
+from app.models.dvr import DvrCommand, DvrMessage
 
 __all__ = [
     "Base",
+    "BridgeCredential",
+    "DvrCommand",
+    "DvrMessage",
+    "BridgeNode",
     "Company",
     "Device",
     "Vehicle",

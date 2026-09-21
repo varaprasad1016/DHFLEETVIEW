@@ -11,7 +11,27 @@ class Settings(BaseSettings):
     # --- Listener ports (all configurable) ---
     tachosync_port: int = 29000   # Path B: TachoSync binary protocol
     gprs_port: int = 21756        # Path A: Teltonika data protocol (query_ddd)
-    tba_ws_port: int = 8765       # forked Tacho Bridge App connects here
+    tba_ws_port: int = 8765       # legacy WebSocket bridge (pre-0.8 app), unused
+
+    # --- Tacho Bridge App endpoint (MQTT v5, the app's own protocol) ---
+    bridge_enabled: bool = True
+    bridge_host: str = "0.0.0.0"
+    bridge_tls_port: int = 8883   # what the app connects to (dhfleetview.co.uk:8883)
+    bridge_tls_cert: str = "D:/CMSServer/cert/dhfleetview/dhfleetview-chain.pem"
+    bridge_tls_key: str = "D:/CMSServer/cert/dhfleetview/dhfleetview-key.pem"
+    bridge_plain_port: int = 0    # unencrypted listener for local testing only (0 = off)
+    bridge_plain_host: str = "127.0.0.1"
+    # Built installers + updater manifests (scripts/publish_bridge_release.py writes here)
+    bridge_release_dir: str = "D:/DHFleetViewData/tacho/bridge/releases"
+    bridge_public_url: str = "https://dhfleetview.co.uk/tacho"
+
+    # --- DVR setup by SMS (a spare Android phone polls the queue and sends) ---
+    dvr_sms_key: str = ""          # the phone signs in with this; blank = the queue is closed
+    dvr_sms_from: str = ""         # the sending phone's own number, shown in the office UI
+    # Photos of DVR labels, and where CNMS keeps its own database details.
+    dvr_label_dir: str = "D:/DHFleetViewData/tacho/labels"
+    cnms_database_ini: str = "D:/CMSServer/Database.ini"
+    cnms_default_company: str = "DH Group Fleet View"
     api_port: int = 8000
 
     # --- Infrastructure ---

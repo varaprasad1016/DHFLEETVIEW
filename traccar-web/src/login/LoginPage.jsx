@@ -20,7 +20,7 @@ import { useNavigate } from 'react-router-dom';
 import { sessionActions } from '../store';
 import { useLocalization, useTranslation } from '../common/components/LocalizationProvider';
 import LoginLayout from './LoginLayout';
-import usePersistedState from '../common/util/usePersistedState';
+import usePersistedState, { savePersistedState } from '../common/util/usePersistedState';
 import {
   generateLoginToken,
   handleLoginTokenListeners,
@@ -149,6 +149,7 @@ const LoginPage = () => {
         const user = await response.json();
         generateLoginToken();
         dispatch(sessionActions.updateUser(user));
+        savePersistedState('fleetView', 'dashboard');
         const target = window.sessionStorage.getItem('postLogin') || '/';
         window.sessionStorage.removeItem('postLogin');
         navigate(target, { replace: true });
@@ -169,6 +170,7 @@ const LoginPage = () => {
     if (response.ok) {
       const user = await response.json();
       dispatch(sessionActions.updateUser(user));
+      savePersistedState('fleetView', 'dashboard');
       navigate('/');
     } else if (response.status === 401) {
       nativePostMessage('logout');

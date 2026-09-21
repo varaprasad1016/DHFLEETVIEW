@@ -9,6 +9,7 @@ import org.traccar.model.ObjectOperation;
 import org.traccar.model.Permission;
 import org.traccar.model.Position;
 import org.traccar.model.User;
+import org.traccar.helper.UnitsConverter;
 import org.traccar.session.ConnectionManager;
 import org.traccar.session.cache.CacheManager;
 import org.traccar.storage.Storage;
@@ -31,7 +32,9 @@ public class TaskCnmsSync extends SingleScheduleTask {
     private static final Logger LOG = LoggerFactory.getLogger(TaskCnmsSync.class);
 
     private static final long GPS_SYNC_INTERVAL_SECONDS = 15;
-    private static final long DEVICE_SYNC_INTERVAL_MINUTES = 5;
+    // A camera added in CNMS should show up here while the fitter is still at the
+    // vehicle, so the device list is re-read every minute rather than every five.
+    private static final long DEVICE_SYNC_INTERVAL_MINUTES = 1;
     // A real tracker takes priority over the DVR's GPS. While a device has a fix
     // from an actual tracker no older than this, the DVR GPS fallback is skipped.
     private static final long TRACKER_FRESH_MS = TimeUnit.MINUTES.toMillis(30);
@@ -167,8 +170,11 @@ public class TaskCnmsSync extends SingleScheduleTask {
                 position.setLongitude(lng);
                 position.setAltitude(data.path("altitude").asDouble(0));
 
-                double speedKmh = data.path("speed").asDouble(0);
-                position.setSpeed(speedKmh / 3.6);
+                // The CNMS API reports speed in 0.1 km/h units; Traccar stores knots.
+                // (It used to divide the raw value by 3.6, which both kept the 0.1
+                // scale and converted to m/s, so speeds showed about 5x too high.)
+                double speedKmh = data.path("speed").asDouble(0) / 10.0;
+                position.setSpeed(UnitsConverter.knotsFromKph(speedKmh));
                 position.setCourse(data.path("direction").asDouble(0));
 
                 String gpstime = data.path("gpstime").asText("");
@@ -182,10 +188,11 @@ public class TaskCnmsSync extends SingleScheduleTask {
                 }
 
                 position.set(Position.KEY_IGNITION, acc);
-                position.set(Position.KEY_TOTAL_DISTANCE, data.path("summileage").asDouble(0));
+                // Mileage comes in 0.1 km units as well; Traccar stores metres.
+                position.set(Position.KEY_TOTAL_DISTANCE, data.path("summileage").asDouble(0) * 100.0);
                 position.set("cnmsOnline", carstatus > 0 && carstatus != 2);
                 position.set("cnmsAddress", data.path("baiduAddress").asText(""));
-                position.set("cnmsMileage", data.path("mileage").asDouble(0));
+                position.set("cnmsMileage", data.path("mileage").asDouble(0) * 100.0);
 
                 position.setServerTime(new Date());
 
@@ -220,6 +227,33 @@ public class TaskCnmsSync extends SingleScheduleTask {
         }
     }
 
+    /**
+     * Carries a rename in CNMS across to the vehicle here, but only while nobody has
+     * renamed it locally: a camera is usually added under a placeholder name and
+     * given its registration minutes later, and that should not need doing twice.
+     */
+    private void renameFromCnms(Device device, String nodeName) {
+        if (device == null || nodeName.isBlank() || nodeName.equals(device.getName())) {
+            return;
+        }
+        String knownAs = device.getString("cmsv9Name");
+        if (knownAs == null || !knownAs.equals(device.getName())) {
+            return;   // renamed here, or linked before we started tracking the CNMS name
+        }
+        try {
+            String previous = device.getName();
+            device.setName(nodeName);
+            device.getAttributes().put("cmsv9Name", nodeName);
+            storage.updateObject(device, new Request(
+                    new Columns.Include("name", "attributes"),
+                    new Condition.Equals("id", device.getId())));
+            cacheManager.invalidateObject(true, Device.class, device.getId(), ObjectOperation.UPDATE);
+            LOG.info("Renamed device {} from '{}' to '{}' (renamed in CNMS)", device.getId(), previous, nodeName);
+        } catch (Exception e) {
+            LOG.warn("Could not rename device {} to '{}': {}", device.getId(), nodeName, e.getMessage());
+        }
+    }
+
     private void syncDevices() throws StorageException {
         if (!cmsv9Manager.isConfigured()) {
             return;
@@ -241,6 +275,7 @@ public class TaskCnmsSync extends SingleScheduleTask {
             //    so a DVR can be auto-linked onto the matching tracker instead of
             //    spawning a separate "cnms-<terminal>" device.
             Set<String> linkedTerminals = new HashSet<>();
+            Map<String, Device> linkedDevices = new HashMap<>();
             Map<String, Device> trackersByPlate = new HashMap<>();
             // Standalone auto-created placeholders (uniqueId "cnms-<terminal>") that we
             // previously created; kept so we can spot ones that should fold into a tracker.
@@ -250,6 +285,7 @@ public class TaskCnmsSync extends SingleScheduleTask {
                 String linked = device.getString("cmsv9DeviceId");
                 if (linked != null && !linked.isBlank()) {
                     linkedTerminals.add(linked);
+                    linkedDevices.put(linked, device);
                     String uid = device.getUniqueId();
                     if (uid != null && uid.startsWith("cnms-")) {
                         placeholders.put(linked, device);
@@ -273,7 +309,11 @@ public class TaskCnmsSync extends SingleScheduleTask {
                     continue;
                 }
                 String terminal = node.path("terminal").asText("");
-                if (terminal.isBlank() || linkedTerminals.contains(terminal)) {
+                if (terminal.isBlank()) {
+                    continue;
+                }
+                if (linkedTerminals.contains(terminal)) {
+                    renameFromCnms(linkedDevices.get(terminal), node.path("nodeName").asText(""));
                     continue;
                 }
 
@@ -303,6 +343,10 @@ public class TaskCnmsSync extends SingleScheduleTask {
                     device.setUniqueId("cnms-" + terminal);
                     device.setCategory("CNMS");
                     device.getAttributes().put("cmsv9DeviceId", terminal);
+                    // What CNMS called it when we created it. While the local name still
+                    // matches this, a rename in CNMS is carried across (see renameFromCnms);
+                    // once someone renames the vehicle here, that name is left alone.
+                    device.getAttributes().put("cmsv9Name", nodeName);
 
                     long deviceId = storage.addObject(device, new Request(new Columns.Exclude("id")));
                     device.setId(deviceId);
@@ -388,10 +432,20 @@ public class TaskCnmsSync extends SingleScheduleTask {
             String hour = gpstime.substring(6, 8);
             String min = gpstime.substring(8, 10);
             String sec = gpstime.substring(10, 12);
-            return Date.from(java.time.LocalDateTime.of(
+            Date parsed = Date.from(java.time.LocalDateTime.of(
                     Integer.parseInt(year), Integer.parseInt(month), Integer.parseInt(day),
                     Integer.parseInt(hour), Integer.parseInt(min), Integer.parseInt(sec))
                     .toInstant(java.time.ZoneOffset.UTC));
+            // A DVR without a GPS fix sends a garbage clock (years in the future, or
+            // long past). Such a time would file the position at the wrong date and
+            // hide the vehicle's real last position, so treat it as unknown and let
+            // the caller fall back to the server clock.
+            long now = System.currentTimeMillis();
+            if (parsed.getTime() > now + TimeUnit.DAYS.toMillis(1)
+                    || parsed.getTime() < now - TimeUnit.DAYS.toMillis(365)) {
+                return null;
+            }
+            return parsed;
         } catch (Exception e) {
             return null;
         }

@@ -3,6 +3,7 @@ wired in once the persistence + services layers land (Phase 4)."""
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -27,15 +28,23 @@ from app.api.driver_records import router as driver_records_router
 from app.api.earned_recognition import router as earned_recognition_router
 from app.api.tacho_live import ingest_router as tacho_live_ingest_router, router as tacho_live_router
 from app.api.driver_accounts import accounts_router as driver_accounts_router, auth_router as driver_auth_router
+from app.api.bridge import public_router as bridge_public_router, router as bridge_router
+from app.api.dvr import router as dvr_router
 from app.services.auth import allowed_origins
+from app.services.bridge_server import bridge
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Phase 4 wires the DB-backed dependencies and starts the Path A / Path B /
-    # TBA listeners here. Kept minimal so the API boots without infra during
-    # early phases.
+    # The Tacho Bridge App endpoint (company cards and card racks) runs inside
+    # the API process. Path A / Path B download listeners are still to come.
+    if settings.bridge_enabled:
+        try:
+            await bridge.start()
+        except Exception:  # noqa: BLE001 - the API must still come up
+            logging.getLogger("tacho.bridge").exception("Tacho Bridge endpoint failed to start")
     yield
+    await bridge.stop()
 
 
 app = FastAPI(title="Tachograph Server", version="0.1.0", lifespan=lifespan)
@@ -58,6 +67,9 @@ app.include_router(driver_auth_router)
 app.include_router(driver_router)
 app.include_router(driver_accounts_router)
 app.include_router(modules_router)
+app.include_router(bridge_router)
+app.include_router(dvr_router)
+app.include_router(bridge_public_router)
 app.include_router(admin_router)
 app.include_router(maintenance_router)
 app.include_router(driver_records_router)
