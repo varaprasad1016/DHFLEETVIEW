@@ -231,14 +231,8 @@ const AddVehiclePage = () => {
             </a>
             <div className={classes.fields}>
               <div className={classes.readRow}>
-                {label.device_id ? (
+                {label.device_id_source === 'barcode' && (
                   <Chip size="small" color="success" label={`ID ${label.device_id}`} />
-                ) : (
-                  <Chip
-                    size="small"
-                    color="warning"
-                    label="No device ID found — retake the photo"
-                  />
                 )}
                 {label.sim_no && <Chip size="small" label={`SIM ${label.sim_no}`} />}
                 {label.mobile_no && <Chip size="small" label={`Mobile ${label.mobile_no}`} />}
@@ -256,6 +250,23 @@ const AddVehiclePage = () => {
                 </Alert>
               )}
 
+              {label.device_id_source !== 'barcode' && (
+                <TextField
+                  size="small"
+                  label="Device ID"
+                  value={label.device_id || ''}
+                  onChange={(e) =>
+                    update(label.key, 'device_id', e.target.value.replace(/\D/g, ''))
+                  }
+                  disabled={label.state === 'created'}
+                  error={Boolean(label.device_id) && !/^\d{12}$/.test(label.device_id)}
+                  helperText={
+                    label.device_id_source === 'text'
+                      ? 'Read from the printed ID line — check it against the photo'
+                      : 'Not readable on this photo — type the number after ID: on the label'
+                  }
+                />
+              )}
               <TextField
                 size="small"
                 label="Registration (handwritten on the label)"
@@ -355,7 +366,11 @@ const AddVehiclePage = () => {
                 <Box sx={{ display: 'flex', gap: 1 }}>
                   <Button
                     variant="contained"
-                    disabled={!label.device_id || !label.registration || label.state === 'creating'}
+                    disabled={
+                      !/^\d{12}$/.test(label.device_id || '') ||
+                      !label.registration ||
+                      label.state === 'creating'
+                    }
                     onClick={() => create(label)}
                   >
                     {label.state === 'creating' ? 'Creating…' : 'Create vehicle'}

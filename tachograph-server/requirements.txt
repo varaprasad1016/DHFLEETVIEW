@@ -17,6 +17,13 @@ reportlab==5.*            # the weekly driver report, rendered to PDF
 python-multipart==0.0.*   # the uploaded label photo
 pillow==12.*              # rotating and shrinking that photo before it is read
 pyzbar==0.1.*             # the barcodes on a DVR label (needs the zbar DLL on Windows)
+# The device ID is printed on a DVR label but never barcoded, so the print is
+# read with the OCR engine built into Windows - no third-party OCR to install.
+winrt-Windows.Media.Ocr==3.2.*; sys_platform == 'win32'
+winrt-Windows.Graphics.Imaging==3.2.*; sys_platform == 'win32'
+winrt-Windows.Storage.Streams==3.2.*; sys_platform == 'win32'
+winrt-Windows.Foundation==3.2.*; sys_platform == 'win32'
+winrt-Windows.Foundation.Collections==3.2.*; sys_platform == 'win32'
 pymysql==1.*              # CNMS keeps its device list in MySQL, with no usable API
 
 # --- dev / test ---

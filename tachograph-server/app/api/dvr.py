@@ -21,6 +21,7 @@ POST   /api/dvr/outbox/{id}         report each one sent or failed
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import urllib.error
 import uuid
@@ -99,7 +100,8 @@ async def read_label(photo: UploadFile = File(...), principal: Principal = Depen
     data = await photo.read()
     if len(data) > 15 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="That photo is too large. 15 MB is the limit.")
-    fields = dvr_labels.read_label(data)
+    # Barcodes and OCR both take a moment; keep the server answering meanwhile.
+    fields = await asyncio.to_thread(dvr_labels.read_label, data)
 
     identifier = uuid.uuid4().hex
     (_label_dir() / f"{identifier}.jpg").write_bytes(data)
