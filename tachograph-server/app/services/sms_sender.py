@@ -6,15 +6,21 @@ DVR. Anything can do the sending - originally a spare Android handset polling
 directly. The queue does not care which, so this drains the same rows the phone
 would have claimed.
 
-The provider is described in settings rather than in code, because every
-provider's send call is the same shape - a URL, a way of proving who you are,
-and a body carrying the number and the text - and differs only in the details.
-That means a new provider is four lines of .env rather than a new module:
+Two providers:
 
-    SMS_URL=https://portal.example.com/api/v1/sms
-    SMS_AUTH_HEADER=Authorization
-    SMS_AUTH_VALUE=Bearer <the key>
-    SMS_BODY_TEMPLATE={"msisdn": "{to}", "message": "{text}"}
+  "caburn"   - Caburn Telecom's SIM Insight API, which the fleet's SIMs are on.
+               An XML POST carrying the credentials in the body rather than a
+               header, and answering 200 whether or not it sent anything: the
+               real outcome is <api-outcome> inside the response, so that is
+               what is believed. Needs only SMS_URL, SMS_USERNAME, SMS_PASSWORD.
+  "template" - anyone else. The request is described in settings, since every
+               other portal is the same shape with different names:
+
+                   SMS_PROVIDER=template
+                   SMS_URL=https://portal.example.com/api/v1/sms
+                   SMS_AUTH_HEADER=Authorization
+                   SMS_AUTH_VALUE=Bearer <the key>
+                   SMS_BODY_TEMPLATE={"msisdn": "{to}", "message": "{text}"}
 
 Nothing runs at all unless SMS_URL is set, so a server without it keeps the
 old behaviour and waits for something to collect the queue.
@@ -25,7 +31,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
+from xml.sax.saxutils import escape
 
 import httpx
 from sqlalchemy import select
@@ -49,6 +57,50 @@ class SmsError(Exception):
     """The provider would not send this message."""
 
 
+MAX_LENGTH = 160            # Caburn reject anything longer as "Invalid Content"
+
+
+def international(number: str) -> str:
+    """A UK mobile as the SIM platforms want it: 07940732131 -> 447940732131."""
+    digits = re.sub(r"\D", "", number or "")
+    if digits.startswith("07"):
+        return "44" + digits[1:]
+    if digits.startswith("00"):
+        return digits[2:]
+    return digits
+
+
+def _caburn_body(to: str, text: str, reference: str) -> str:
+    """The <send-sms> document their API expects.
+
+    The five XML reserved characters are escaped, because these are DVR
+    commands and are nothing but punctuation. The SIM is addressed by number
+    rather than ICCID: both are accepted, and the number is what the label
+    gives us for every camera.
+    """
+    # " and ' are escaped as well as the three escape() does by default: their
+    # documentation asks for &#39; rather than &apos;, which HTML also knows.
+    quotes = {'"': "&quot;", "'": "&#39;"}
+    user = escape(settings.sms_username, quotes)
+    secret = escape(settings.sms_password, quotes)
+    message = escape(text, quotes)
+    return (
+        '<send-sms version="1">'
+        f"<authentication><username>{user}</username>"
+        f"<password>{secret}</password></authentication>"
+        f"<msisdn>{international(to)}</msisdn>"
+        f"<message-text>{message}</message-text>"
+        f"<sms-uid>{escape(reference[:12], quotes)}</sms-uid>"
+        "</send-sms>"
+    )
+
+
+def _caburn_outcome(body: str) -> str:
+    """What their response actually says happened."""
+    found = re.search(r"<api-outcome>\s*(.*?)\s*</api-outcome>", body, re.I | re.S)
+    return found.group(1) if found else ""
+
+
 def _fill(template: str, to: str, text: str) -> str:
     """Put the number and the message into the provider's body template.
 
@@ -61,15 +113,24 @@ def _fill(template: str, to: str, text: str) -> str:
     return template.replace("{to}", to).replace("{text}", text)
 
 
-async def send_one(client: httpx.AsyncClient, to: str, text: str) -> str:
+async def send_one(client: httpx.AsyncClient, to: str, text: str, reference: str = "") -> str:
     """Hand one message to the provider. Returns whatever it called the message."""
     if not settings.sms_url:
         raise SmsError("No SMS provider is configured on this server.")
+    if len(text) > MAX_LENGTH:
+        raise SmsError(f"That command is {len(text)} characters; the limit is {MAX_LENGTH}.")
+    caburn = settings.sms_provider == "caburn"
 
-    headers = {"Content-Type": settings.sms_content_type}
-    if settings.sms_auth_header and settings.sms_auth_value:
-        headers[settings.sms_auth_header] = settings.sms_auth_value
-    body = _fill(settings.sms_body_template, to, text)
+    if caburn:
+        if not settings.sms_username or not settings.sms_password:
+            raise SmsError("The SIM portal username and password are not set on this server.")
+        headers = {"Content-Type": "text/xml; charset=utf-8"}
+        body = _caburn_body(to, text, reference)
+    else:
+        headers = {"Content-Type": settings.sms_content_type}
+        if settings.sms_auth_header and settings.sms_auth_value:
+            headers[settings.sms_auth_header] = settings.sms_auth_value
+        body = _fill(settings.sms_body_template, to, text)
 
     try:
         response = await client.request(settings.sms_method, settings.sms_url,
@@ -82,6 +143,16 @@ async def send_one(client: httpx.AsyncClient, to: str, text: str) -> str:
         # Keep the provider's own words: "SIM not active" is the whole answer.
         raise SmsError(f"The SMS provider refused it ({response.status_code}): "
                        f"{response.text.strip()[:200]}")
+
+    # A 200 is not a send. Caburn answer 200 and put the real outcome in the
+    # body, so believing the status code would mark failures as sent.
+    if caburn:
+        outcome = _caburn_outcome(response.text)
+        if outcome.lower() != "success":
+            raise SmsError(outcome or f"The SIM portal gave no outcome: {response.text.strip()[:200]}")
+        return f"accepted by the SIM portal{f' (ref {reference[:12]})' if reference else ''}"
+    if settings.sms_success_contains and settings.sms_success_contains not in response.text:
+        raise SmsError(f"The SMS provider did not confirm it: {response.text.strip()[:200]}")
     return response.text.strip()[:200] or f"sent ({response.status_code})"
 
 
@@ -105,8 +176,9 @@ async def _drain_once(client: httpx.AsyncClient) -> int:
 
         for message in messages:
             try:
-                reference = await send_one(client, message.to_number, message.body)
-                message.status, message.detail = "sent", reference
+                detail = await send_one(client, message.to_number, message.body,
+                                        reference=message.id.hex)
+                message.status, message.detail = "sent", detail
                 logger.info("sent %s to %s", message.command_name, message.to_number)
             except SmsError as exc:
                 message.status, message.detail = "failed", str(exc)[:500]

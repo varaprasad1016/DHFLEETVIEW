@@ -31,11 +31,16 @@ class Settings(BaseSettings):
     # Sending through the SIM provider's portal instead. Blank sms_url = off, and
     # the queue waits for something to collect it. See services/sms_sender.py.
     sms_url: str = ""
+    sms_provider: str = "caburn"   # "caburn" speaks their XML API; "template" is anyone else
     sms_method: str = "POST"
+    sms_username: str = ""
+    sms_password: str = ""
+    # Only used by the "template" provider, for a portal that is not Caburn's.
     sms_auth_header: str = "Authorization"
     sms_auth_value: str = ""
     sms_content_type: str = "application/json"
     sms_body_template: str = '{"to": "{to}", "message": "{text}"}'
+    sms_success_contains: str = ""  # a send that answers 200 but did not send
     # Photos of DVR labels, and where CNMS keeps its own database details.
     dvr_label_dir: str = "D:/DHFleetViewData/tacho/labels"
     cnms_database_ini: str = "D:/CMSServer/Database.ini"
