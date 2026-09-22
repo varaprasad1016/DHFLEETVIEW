@@ -63,14 +63,23 @@ const useStyles = makeStyles()((theme) => ({
   root: { height: '100%', display: 'flex', flexDirection: 'column' },
   content: {
     flexGrow: 1,
-    overflow: 'auto',
+    overflowY: 'auto',
+    overflowX: 'hidden',
+    minWidth: 0,
     padding: theme.spacing(2),
     display: 'flex',
     flexDirection: 'column',
     gap: theme.spacing(2),
   },
-  card: { padding: theme.spacing(2) },
-  head: { display: 'flex', alignItems: 'center', gap: theme.spacing(1), flexWrap: 'wrap' },
+  card: { padding: theme.spacing(2), minWidth: 0, overflow: 'hidden' },
+  head: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(1),
+    flexWrap: 'wrap',
+    marginBottom: theme.spacing(1),
+    [theme.breakpoints.down('sm')]: { '& > *': { flex: '1 1 100%' } },
+  },
   spacer: { flexGrow: 1 },
   figure: { fontVariantNumeric: 'tabular-nums' },
   form: { display: 'flex', flexDirection: 'column', gap: theme.spacing(2), minWidth: 0 },
@@ -87,7 +96,7 @@ const InvoicingPage = () => {
   const theme = useTheme();
   // Mostly used at a desk, but must still work on a phone: the columns that
   // can be worked out from the others are dropped, and the rest scrolls.
-  const phone = useMediaQuery(theme.breakpoints.down('sm'));
+  const phone = useMediaQuery(theme.breakpoints.down('md'));
 
   const [overview, setOverview] = useState(null);
   const [invoices, setInvoices] = useState([]);

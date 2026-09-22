@@ -58,14 +58,23 @@ const useStyles = makeStyles()((theme) => ({
   root: { height: '100%', display: 'flex', flexDirection: 'column' },
   content: {
     flexGrow: 1,
-    overflow: 'auto',
+    overflowY: 'auto',
+    overflowX: 'hidden',
+    minWidth: 0,
     padding: theme.spacing(2),
     display: 'flex',
     flexDirection: 'column',
     gap: theme.spacing(2),
   },
-  card: { padding: theme.spacing(2) },
-  head: { display: 'flex', alignItems: 'center', gap: theme.spacing(1), flexWrap: 'wrap' },
+  card: { padding: theme.spacing(2), minWidth: 0, overflow: 'hidden' },
+  head: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(1),
+    flexWrap: 'wrap',
+    marginBottom: theme.spacing(1),
+    [theme.breakpoints.down('sm')]: { '& > *': { flex: '1 1 100%' } },
+  },
   spacer: { flexGrow: 1 },
   figure: { fontVariantNumeric: 'tabular-nums' },
   code: { fontFamily: 'monospace', fontSize: '0.78rem' },
@@ -79,7 +88,7 @@ const SimsPage = () => {
   const theme = useTheme();
   // Admin screens are mostly used at a desk, but must still work on a phone:
   // the widest columns are dropped and what is left scrolls sideways.
-  const phone = useMediaQuery(theme.breakpoints.down('sm'));
+  const phone = useMediaQuery(theme.breakpoints.down('md'));
 
   const [sims, setSims] = useState([]);
   const [withoutSim, setWithoutSim] = useState([]);

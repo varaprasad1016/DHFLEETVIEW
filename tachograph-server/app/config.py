@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     sms_content_type: str = "application/json"
     sms_body_template: str = '{"to": "{to}", "message": "{text}"}'
     sms_success_contains: str = ""  # a send that answers 200 but did not send
+    # Caburn post camera replies and delivery receipts to us; they include this
+    # passphrase so the endpoint can tell their posts from anyone else's.
+    sms_post_passphrase: str = ""
 
     # --- Invoicing ---
     company_name: str = "D&H Group Ltd"

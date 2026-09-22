@@ -37,10 +37,12 @@ from app.models.driver_records import DriverCpcCourse, DriverRecord
 from app.models.bridge import BridgeCredential, BridgeNode
 from app.models.dvr import DvrCommand, DvrMessage
 from app.models.billing import BillingAccount, Invoice, InvoiceLine
+from app.models.sms_inbound import SmsInbound
 
 __all__ = [
     "Base",
     "BillingAccount",
+    "SmsInbound",
     "Invoice",
     "InvoiceLine",
     "BridgeCredential",
