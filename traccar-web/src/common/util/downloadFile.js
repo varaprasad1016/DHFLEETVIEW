@@ -24,7 +24,24 @@ export default async (url, filename) => {
     );
   }
 
-  const blob = await response.blob();
+  // The blob must carry its type explicitly. Android names a saved file from
+  // the type, not from the download attribute, so a blob it considers generic
+  // lands as a .bin however it was named here.
+  const declared = (response.headers.get('Content-Type') || '').split(';')[0].trim();
+  const byExtension = {
+    pdf: 'application/pdf',
+    csv: 'text/csv',
+    json: 'application/json',
+    mp4: 'video/mp4',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    ddd: 'application/octet-stream',
+  };
+  const guessed = byExtension[filename.split('.').pop()?.toLowerCase()];
+  const type = declared && declared !== 'application/octet-stream' ? declared : guessed || declared;
+
+  const blob = new Blob([await response.arrayBuffer()], type ? { type } : undefined);
   const href = window.URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = href;

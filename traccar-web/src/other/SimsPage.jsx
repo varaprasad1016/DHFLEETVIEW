@@ -58,15 +58,16 @@ const useStyles = makeStyles()((theme) => ({
   root: { height: '100%', display: 'flex', flexDirection: 'column' },
   content: {
     flexGrow: 1,
-    overflowY: 'auto',
-    overflowX: 'hidden',
-    minWidth: 0,
+    overflow: 'auto',
+    // A flex child will not shrink below its content without this, and then
+    // the scroll never starts - the page just runs off the bottom.
+    minHeight: 0,
     padding: theme.spacing(2),
     display: 'flex',
     flexDirection: 'column',
     gap: theme.spacing(2),
   },
-  card: { padding: theme.spacing(2), minWidth: 0, overflow: 'hidden' },
+  card: { padding: theme.spacing(2), minWidth: 0 },
   head: {
     display: 'flex',
     alignItems: 'center',
