@@ -25,6 +25,8 @@ import { makeStyles } from 'tss-react/mui';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import ReceiptIcon from '@mui/icons-material/ReceiptLong';
+import DownloadIcon from '@mui/icons-material/Download';
+import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import BackIcon from '../common/components/BackIcon';
 
 const API = '/tacho/api/billing';
@@ -88,6 +90,7 @@ const InvoicingPage = () => {
   const [busy, setBusy] = useState('');
   const [editing, setEditing] = useState(null);
   const [preview, setPreview] = useState(null);
+  const [viewing, setViewing] = useState(null);
   const [month, setMonth] = useState(() => dayjs().format('YYYY-MM'));
 
   const load = async () => {
@@ -356,11 +359,16 @@ const InvoicingPage = () => {
                     <Button
                       size="small"
                       startIcon={<ReceiptIcon />}
-                      href={`${API}/invoices/${invoice.id}/pdf`}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                      onClick={() => setViewing(invoice)}
                     >
-                      PDF
+                      View
+                    </Button>
+                    <Button
+                      size="small"
+                      startIcon={<DownloadIcon />}
+                      href={`${API}/invoices/${invoice.id}/pdf?download=1`}
+                    >
+                      Download
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -441,6 +449,48 @@ const InvoicingPage = () => {
           <Button variant="contained" onClick={saveAccount} disabled={busy === 'save'}>
             Save
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(viewing)}
+        onClose={() => setViewing(null)}
+        maxWidth="md"
+        fullWidth
+        slotProps={{ paper: { sx: { height: '92vh' } } }}
+      >
+        <DialogTitle>
+          {viewing?.number}
+          <Typography variant="body2" color="text.secondary">
+            {`${viewing?.account} — ${viewing?.period}`}
+          </Typography>
+        </DialogTitle>
+        <DialogContent dividers sx={{ p: 0 }}>
+          {viewing && (
+            <iframe
+              title={`Invoice ${viewing.number}`}
+              src={`${API}/invoices/${viewing.id}/pdf`}
+              style={{ width: '100%', height: '100%', border: 0, display: 'block' }}
+            />
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            startIcon={<OpenInNewIcon />}
+            href={viewing ? `${API}/invoices/${viewing.id}/pdf` : undefined}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Open in a tab
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<DownloadIcon />}
+            href={viewing ? `${API}/invoices/${viewing.id}/pdf?download=1` : undefined}
+          >
+            Download
+          </Button>
+          <Button onClick={() => setViewing(null)}>Close</Button>
         </DialogActions>
       </Dialog>
 

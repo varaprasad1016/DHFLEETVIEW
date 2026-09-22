@@ -182,9 +182,14 @@ async def list_invoices(limit: int = Query(100, ge=1, le=500),
 
 
 @router.get("/invoices/{invoice_id}/pdf")
-async def invoice_pdf_file(invoice_id: str, principal: Principal = Depends(require_manager),
+async def invoice_pdf_file(invoice_id: str, download: bool = False,
+                           principal: Principal = Depends(require_manager),
                            session: AsyncSession = Depends(get_session)):
-    """The invoice exactly as the customer received it."""
+    """The invoice exactly as the customer received it.
+
+    Shown in the browser by default so it can be checked at a glance;
+    `?download=1` saves it instead, for sending on or filing.
+    """
     _require_super(principal)
     invoice = await session.get(Invoice, invoice_id)
     if invoice is None:
@@ -197,8 +202,9 @@ async def invoice_pdf_file(invoice_id: str, principal: Principal = Depends(requi
             BillingAccount.user_id == invoice.user_id))).scalar_one_or_none()
     pdf = invoice_pdf.render(invoice, lines, customer_name=invoice.account_name,
                              customer_email=account.send_to if account else None)
+    disposition = "attachment" if download else "inline"
     return Response(pdf, media_type="application/pdf", headers={
-        "Content-Disposition": f'inline; filename="{invoice.number}.pdf"'})
+        "Content-Disposition": f'{disposition}; filename="{invoice.number}.pdf"'})
 
 
 @router.post("/run")
@@ -211,8 +217,13 @@ async def run_month(body: dict = Body(default={}),
     year = int(body.get("year") or today.year)
     month = int(body.get("month") or today.month)
 
-    accounts = (await session.execute(
-        select(BillingAccount).where(BillingAccount.active.is_(True)))).scalars().all()
+    # A run covers every active account unless one is named. Naming one keeps a
+    # run - or a test - from raising invoices against customers it never meant
+    # to touch.
+    query = select(BillingAccount).where(BillingAccount.active.is_(True))
+    if body.get("user_id"):
+        query = query.where(BillingAccount.user_id == int(body["user_id"]))
+    accounts = (await session.execute(query)).scalars().all()
     last = (await session.execute(
         select(Invoice.number).where(Invoice.number.like(f"{settings.invoice_number_prefix}-{year}-%"))
         .order_by(Invoice.number.desc()).limit(1))).scalars().first()
