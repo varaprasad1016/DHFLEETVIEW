@@ -28,6 +28,14 @@ class Settings(BaseSettings):
     # --- DVR setup by SMS (a spare Android phone polls the queue and sends) ---
     dvr_sms_key: str = ""          # the phone signs in with this; blank = the queue is closed
     dvr_sms_from: str = ""         # the sending phone's own number, shown in the office UI
+    # Sending through the SIM provider's portal instead. Blank sms_url = off, and
+    # the queue waits for something to collect it. See services/sms_sender.py.
+    sms_url: str = ""
+    sms_method: str = "POST"
+    sms_auth_header: str = "Authorization"
+    sms_auth_value: str = ""
+    sms_content_type: str = "application/json"
+    sms_body_template: str = '{"to": "{to}", "message": "{text}"}'
     # Photos of DVR labels, and where CNMS keeps its own database details.
     dvr_label_dir: str = "D:/DHFleetViewData/tacho/labels"
     cnms_database_ini: str = "D:/CMSServer/Database.ini"
