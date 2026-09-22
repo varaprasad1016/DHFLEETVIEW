@@ -46,16 +46,29 @@ class Settings(BaseSettings):
     company_name: str = "D&H Group Ltd"
     company_address: str = ("6 Renaissance Apartments, 20 Heritage Road, "
                             "Rainham, Essex, RM13 8QQ")
-    company_vat_number: str = ""     # required on the face of a VAT invoice
-    company_number: str = ""
+    # Placeholders until the real ones arrive. invoicing.not_ready() refuses to
+    # email anything while these are still in place, so a placeholder cannot
+    # reach a customer.
+    company_vat_number: str = "GB 000 0000 00"
+    company_number: str = "00000000"
     invoice_logo_path: str = "D:/DHFleetViewData/tacho/branding/logo.png"
     invoice_payment_terms: str = "Payment due within 30 days of the invoice date."
     invoice_number_prefix: str = "DH"
     invoice_vat_rate: float = 0.20
     # Standard monthly rates per vehicle, unless an account sets its own.
-    rate_tracking: float = 0.0
-    rate_camera: float = 0.0
-    rate_tachograph: float = 0.0
+    # Placeholder figures so the module can be built and previewed; nothing is
+    # emailed while they are untouched.
+    rate_tracking: float = 12.00
+    rate_camera: float = 30.00
+    rate_tachograph: float = 6.00
+    # Sending the invoices. No mail server anywhere yet, so this is off.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = "invoices@dhfleetview.co.uk"
+    smtp_from_name: str = "D&H Group Ltd"
+    smtp_starttls: bool = True
     # Photos of DVR labels, and where CNMS keeps its own database details.
     dvr_label_dir: str = "D:/DHFleetViewData/tacho/labels"
     cnms_database_ini: str = "D:/CMSServer/Database.ini"

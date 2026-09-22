@@ -31,6 +31,7 @@ from app.api.tacho_live import ingest_router as tacho_live_ingest_router, router
 from app.api.driver_accounts import accounts_router as driver_accounts_router, auth_router as driver_auth_router
 from app.api.bridge import public_router as bridge_public_router, router as bridge_router
 from app.api.dvr import router as dvr_router
+from app.api.billing import router as billing_router
 from app.services import sms_sender
 from app.services.auth import allowed_origins
 from app.services.bridge_server import bridge
@@ -76,6 +77,7 @@ app.include_router(driver_accounts_router)
 app.include_router(modules_router)
 app.include_router(bridge_router)
 app.include_router(dvr_router)
+app.include_router(billing_router)
 app.include_router(bridge_public_router)
 app.include_router(admin_router)
 app.include_router(maintenance_router)
