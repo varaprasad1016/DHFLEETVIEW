@@ -13,6 +13,7 @@ POST   /api/sims/import           take a SIM list exported from the portal
 POST   /api/sims/{iccid}/assign   put a SIM in a vehicle, or take it out
 POST   /api/sims/status           ask the network about them, live
 POST   /api/sims/{iccid}/enable   turn a SIM on or off
+POST   /api/sims/{iccid}/limit    raise the level a SIM is cut off at
 """
 
 from __future__ import annotations
@@ -39,6 +40,26 @@ router = APIRouter(prefix="/api/sims", tags=["sims"])
 # Asked of the network at once. Their API is not rate limited, but a fleet's
 # worth of sockets at the same moment helps nobody.
 AT_ONCE = 6
+
+
+# At this much of its cut-off a SIM is worth acting on: the month still has
+# time to run, and a camera that hits the limit simply goes dark.
+NEAR_CUTOFF = 0.75
+
+
+def _headroom(card: SimCard | None) -> dict:
+    """What the last import said about a SIM's data, and how close it is."""
+    if card is None:
+        return {}
+    used, limit = card.data_mb, card.limit_mb
+    share = (used / limit) if used is not None and limit else None
+    return {
+        "used_mb": used, "warning_mb": card.warning_mb, "limit_mb": limit,
+        "share_used": round(share, 3) if share is not None else None,
+        "near_cutoff": bool(share is not None and share >= NEAR_CUTOFF),
+        "over_warning": bool(used is not None and card.warning_mb and used >= card.warning_mb),
+        "group": card.group,
+    }
 
 
 def _require_super(principal: Principal) -> None:
@@ -96,9 +117,12 @@ async def list_sims(principal: Principal = Depends(require_manager),
     fitted = {sim["iccid"] for sim in sims if sim["iccid"]}
     held = (await session.execute(
         select(SimCard).order_by(SimCard.msisdn, SimCard.iccid))).scalars().all()
+    by_iccid = {card.iccid: card for card in held}
+    by_number = {card.msisdn: card for card in held if card.msisdn}
+    for sim in sims:
+        sim.update(_headroom(by_iccid.get(sim["iccid"]) or by_number.get(sim["msisdn"])))
     spare = [{"iccid": card.iccid, "msisdn": card.msisdn, "status": card.status,
-              "group": card.group, "network": card.network, "imei": card.imei,
-              "data_mb": card.data_mb}
+              "network": card.network, "imei": card.imei, **_headroom(card)}
              for card in held if card.iccid not in fitted and not card.device_id]
 
     return {
@@ -109,7 +133,61 @@ async def list_sims(principal: Principal = Depends(require_manager),
                            key=lambda device: (device["name"] or "").upper()),
         "without_sim": sorted(device.get("name") for device in devices if not _sims_of(device)),
         "portal_ready": caburn.configured(),
+        "near_cutoff": sorted(
+            ({"iccid": card.iccid, "msisdn": card.msisdn, "vehicle": card.vehicle,
+              **_headroom(card)}
+             for card in held if _headroom(card).get("near_cutoff")),
+            key=lambda sim: -(sim.get("share_used") or 0)),
+        "imported_at": max((card.imported_at.isoformat() for card in held
+                            if card.imported_at), default=None),
     }
+
+
+@router.post("/{iccid}/limit")
+async def raise_limit(iccid: str, body: dict = Body(default={}),
+                      principal: Principal = Depends(require_manager),
+                      session: AsyncSession = Depends(get_session)):
+    """Raise the data level at which this SIM is cut off.
+
+    Reaching the limit disables the SIM's traffic, so a camera on a busy month
+    simply stops. Raising it is what topping up means for these SIMs - their
+    own credit top-up call is for Manx Telecom SIMs only, and ours are EE.
+
+    With no level given, it goes to the next one up from where it is.
+    """
+    _require_super(principal)
+    card = (await session.execute(
+        select(SimCard).where(SimCard.iccid == iccid))).scalar_one_or_none()
+    if card is None:
+        raise HTTPException(status_code=404, detail="That SIM is not in the imported list.")
+
+    wanted = body.get("limit_mb")
+    limit = float(wanted) if wanted else caburn.next_step_above(card.limit_mb or 0)
+    if card.limit_mb and limit <= card.limit_mb:
+        raise HTTPException(
+            status_code=400,
+            detail=f"That SIM is already cut off at {card.limit_mb:g} MB. "
+                   "A new level has to be higher.")
+
+    # Keep the warning proportionate to the new cut-off rather than leaving it
+    # where it was, or it fires immediately and means nothing.
+    warning = body.get("warning_mb")
+    warning = float(warning) if warning else caburn.step_at_least(limit * 0.5)
+
+    try:
+        async with httpx.AsyncClient() as client:
+            applied = await caburn.set_usage_levels(client, iccid=iccid,
+                                                    warning=warning, limit=limit)
+    except caburn.CaburnError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    card.limit_mb = applied.get("limit", limit)
+    card.warning_mb = applied.get("warning", warning)
+    await session.commit()
+
+    logger.info("%s raised SIM %s to a %s MB cut-off", principal.email, iccid, card.limit_mb)
+    return {"iccid": iccid, "vehicle": card.vehicle, "limit_mb": card.limit_mb,
+            "warning_mb": card.warning_mb, "used_mb": card.data_mb}
 
 
 @router.post("/import")

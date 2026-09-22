@@ -34,6 +34,9 @@ HEADINGS = {
     # it is how a SIM in stock can be told apart from one already in a camera.
     "imei": ("imei",),
     "data_mb": ("databalance", "datausage", "datamb", "mtddata"),
+    # The level the provider warns at, and the one where it cuts the SIM off.
+    "warning_mb": ("warninglevel", "warningthreshold"),
+    "limit_mb": ("creditlimit", "usagelimit", "cutoff", "limit"),
 }
 ICCID = re.compile(r"^89\d{16,18}$")
 UK_MOBILE = re.compile(r"^(?:44|0)7\d{9}$")
@@ -128,7 +131,7 @@ def _from_rows(rows: list[list[str]]) -> dict:
         logger.info("a SIM export arrived with no headings it recognised")
 
     sims, skipped = [], []
-    for number, row in enumerate(body, start=2 if columns else 1):
+    for row_number, row in enumerate(body, start=2 if columns else 1):
         if not any(cell.strip() for cell in row):
             continue
 
@@ -142,7 +145,7 @@ def _from_rows(rows: list[list[str]]) -> dict:
             # to finding something ICCID-shaped anywhere in the row.
             iccid = next((_digits(c) for c in row if ICCID.match(_digits(c))), "")
         if not iccid:
-            skipped.append({"row": number, "why": "no ICCID in this row",
+            skipped.append({"row": row_number, "why": "no ICCID in this row",
                             "content": ",".join(row)[:120]})
             continue
 
@@ -151,10 +154,11 @@ def _from_rows(rows: list[list[str]]) -> dict:
             msisdn = next((_tidy_number(c) for c in row
                            if UK_MOBILE.match(_digits(c))), None)
 
-        try:
-            data_mb = float(cell("data_mb")) if cell("data_mb") else None
-        except ValueError:
-            data_mb = None
+        def as_number(field: str) -> float | None:
+            try:
+                return float(cell(field)) if cell(field) else None
+            except ValueError:
+                return None
 
         sims.append({
             "iccid": iccid,
@@ -164,7 +168,9 @@ def _from_rows(rows: list[list[str]]) -> dict:
             "group": (cell("group") or "").strip() or None,
             "network": cell("network") or None,
             "imei": _digits(cell("imei")) or None,
-            "data_mb": data_mb,
+            "data_mb": as_number("data_mb"),
+            "warning_mb": as_number("warning_mb"),
+            "limit_mb": as_number("limit_mb"),
         })
 
     return {"sims": sims, "skipped": skipped,

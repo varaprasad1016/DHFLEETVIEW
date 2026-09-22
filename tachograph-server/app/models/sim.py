@@ -36,6 +36,10 @@ class SimCard(Base):
     # The unit the SIM is actually in, as the network sees it.
     imei: Mapped[str | None] = mapped_column(String(32), index=True)
     data_mb: Mapped[float | None] = mapped_column(Float)
+    # The level at which the provider warns, and the level at which it cuts
+    # the SIM off entirely - which is how a camera goes dark mid-month.
+    warning_mb: Mapped[float | None] = mapped_column(Float)
+    limit_mb: Mapped[float | None] = mapped_column(Float)
     # Where it is fitted, once someone assigns it.
     device_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
     vehicle: Mapped[str | None] = mapped_column(String(64))

@@ -143,6 +143,61 @@ async def msisdn_of(client: httpx.AsyncClient, iccid: str) -> str | None:
     return read(await call(client, "query-msisdn", iccid), "msisdn")
 
 
+# The only data levels their API accepts, in MB. Anything else is refused as
+# "Invalid Content", so a level is always rounded onto this ladder.
+USAGE_STEPS = (1, 1.5, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 20, 25, 30, 40, 50, 60, 70, 80,
+               100, 120, 150, 200, 250, 300, 400, 500, 600, 700, 800, 1024, 1536, 2048,
+               2560, 3072, 4096, 5120, 6144, 7168, 8192, 10240, 15360, 20480, 30720,
+               40960, 51200, 61440, 71680, 81920, 102400, 153600, 204800, 256000,
+               409600, 512000, 819200, 1048576, 2097152, 5242880)
+
+
+def step_at_least(value: float) -> float:
+    """The smallest level their API accepts that is not below this."""
+    return next((step for step in USAGE_STEPS if step >= value), USAGE_STEPS[-1])
+
+
+def next_step_above(value: float) -> float:
+    """The next level up from where a SIM is now."""
+    return next((step for step in USAGE_STEPS if step > value), USAGE_STEPS[-1])
+
+
+def tidy_level(value: float) -> float:
+    """A level as their API wants it: whole MB, except the 1.5 MB step."""
+    step = step_at_least(float(value))
+    return step if step == 1.5 else int(step)
+
+
+async def set_usage_levels(client: httpx.AsyncClient, *, iccid: str,
+                           warning: float | None = None,
+                           limit: float | None = None) -> dict:
+    """Set the data levels at which a SIM warns, and at which it is cut off.
+
+    Reaching the limit disables the SIM's traffic - which is how a camera goes
+    dark mid-month - so raising it is what "topping up" means for these SIMs.
+    Levels are in MB and must land on their ladder of allowed values, so both
+    are rounded up onto it rather than refused.
+
+    Only works for SIMs in a live group, and never for pre-paid ones; their API
+    answers "Invalid ICCID" otherwise.
+    """
+    if warning is None and limit is None:
+        raise CaburnError("Nothing to set: give a warning level, a limit, or both.")
+    fields = {}
+    if warning is not None:
+        fields["warning"] = str(tidy_level(warning))
+    if limit is not None:
+        fields["limit"] = str(tidy_level(limit))
+    # Their rule: a limit below the warning silently drags both down to the
+    # warning, so it is worth not sending that by accident.
+    if warning is not None and limit is not None and float(fields["limit"]) < float(fields["warning"]):
+        raise CaburnError("The cut-off cannot be lower than the warning level.")
+
+    await call(client, "set-usage-levels", iccid, **fields)
+    logger.info("set SIM %s usage levels to %s", iccid, fields)
+    return {k: float(v) for k, v in fields.items()}
+
+
 async def set_status(client: httpx.AsyncClient, *, active: bool, iccid: str | None = None,
                      msisdn: str | None = None) -> str:
     """Turn a SIM on or off.

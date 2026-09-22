@@ -79,10 +79,15 @@ const DvrCommandsPage = () => {
   // Take the devices map itself rather than Object.values(...): that builds a
   // new array on every store update, and vehicles report constantly.
   const deviceItems = useSelector((state) => state.devices.items);
+  const numberOf = (device) =>
+    device?.attributes?.cmsv9Mobile || device?.phone || device?.attributes?.trackerMobile || '';
+
+  // Anything with a camera, and anything else we hold a number for - a vehicle
+  // with only a tracker still has commands worth sending to it.
   const cameraDevices = useMemo(
     () =>
       Object.values(deviceItems)
-        .filter((d) => d.attributes?.cmsv9DeviceId)
+        .filter((d) => d.attributes?.cmsv9DeviceId || numberOf(d))
         .sort((a, b) => a.name.localeCompare(b.name)),
     [deviceItems],
   );
@@ -145,7 +150,7 @@ const DvrCommandsPage = () => {
       return; // arrived with a vehicle in the link; its details are still loading
     }
     numberFilledForRef.current = deviceId;
-    setNumber(device?.attributes?.cmsv9Mobile || device?.phone || '');
+    setNumber(numberOf(device));
   }, [deviceId, cameraDevices]);
 
   const act = async (key, action) => {
@@ -262,6 +267,13 @@ const DvrCommandsPage = () => {
               value={number}
               onChange={(e) => setNumber(e.target.value)}
               sx={{ minWidth: 200 }}
+              placeholder="07123456789"
+              error={Boolean(number) && !/^07\d{9}$/.test(number)}
+              helperText={
+                deviceId && !number
+                  ? 'No number stored for that vehicle — type it, or assign its SIM'
+                  : ' '
+              }
             />
             <Button
               variant="contained"

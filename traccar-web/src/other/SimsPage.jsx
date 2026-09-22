@@ -28,6 +28,7 @@ import {
 } from '@mui/material';
 import { makeStyles } from 'tss-react/mui';
 import { useNavigate } from 'react-router-dom';
+import dayjs from 'dayjs';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import UploadIcon from '@mui/icons-material/UploadFile';
 import BackIcon from '../common/components/BackIcon';
@@ -105,6 +106,9 @@ const SimsPage = () => {
   const [spare, setSpare] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [assigning, setAssigning] = useState(null);
+  const [nearCutoff, setNearCutoff] = useState([]);
+  const [importedAt, setImportedAt] = useState(null);
+  const [raising, setRaising] = useState(null);
   const fileInputRef = useRef(null);
 
   const keyOf = (sim) => `${sim.fitted || 'camera'}:${sim.iccid || sim.msisdn}`;
@@ -116,6 +120,8 @@ const SimsPage = () => {
       setSpare(listing.spare || []);
       setVehicles(listing.vehicles || []);
       setWithoutSim(listing.without_sim || []);
+      setNearCutoff(listing.near_cutoff || []);
+      setImportedAt(listing.imported_at || null);
       setPortalReady(Boolean(listing.portal_ready));
       setError('');
     } catch (e) {
@@ -169,6 +175,35 @@ const SimsPage = () => {
     } catch (e) {
       setError(e.message);
     }
+  };
+
+  const raiseCutoff = async (sim) => {
+    setRaising(sim.iccid);
+    try {
+      const answer = await request(`/${sim.iccid}/limit`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      setNotice(
+        `${answer.vehicle || answer.iccid} — cut-off raised to ${answer.limit_mb} MB` +
+          `, warning at ${answer.warning_mb} MB.`,
+      );
+      setError('');
+      await load();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setRaising(null);
+    }
+  };
+
+  const usedOf = (sim) => {
+    if (sim.used_mb == null) {
+      return '—';
+    }
+    const limit = sim.limit_mb ? ` of ${sim.limit_mb} MB` : ' MB';
+    const share = sim.share_used == null ? '' : ` (${Math.round(sim.share_used * 100)}%)`;
+    return `${sim.used_mb.toFixed(0)}${limit}${share}`;
   };
 
   const checkAll = async () => {
@@ -270,6 +305,40 @@ const SimsPage = () => {
           </Alert>
         )}
 
+        {nearCutoff.length > 0 && (
+          <Paper variant="outlined" className={classes.card}>
+            <Typography variant="subtitle1" gutterBottom>
+              {`${nearCutoff.length} SIM${nearCutoff.length === 1 ? '' : 's'} heading for cut-off`}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" gutterBottom>
+              At its limit the provider disables the SIM&apos;s traffic and the camera goes dark.
+              Raising the cut-off moves it to the next level up and sets the warning halfway.
+            </Typography>
+            <Box sx={{ overflowX: 'auto' }}>
+              <Table size="small">
+                <TableBody>
+                  {nearCutoff.map((sim) => (
+                    <TableRow key={sim.iccid}>
+                      <TableCell>{sim.vehicle || sim.msisdn}</TableCell>
+                      <TableCell className={classes.figure}>{usedOf(sim)}</TableCell>
+                      <TableCell align="right">
+                        <Button
+                          size="small"
+                          variant="contained"
+                          disabled={raising === sim.iccid}
+                          onClick={() => raiseCutoff(sim)}
+                        >
+                          {raising === sim.iccid ? 'Raising…' : 'Raise cut-off'}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Box>
+          </Paper>
+        )}
+
         <Paper variant="outlined" className={classes.card}>
           <div className={classes.head}>
             <Typography variant="subtitle1">{`${sims.length} SIM${sims.length === 1 ? '' : 's'}`}</Typography>
@@ -305,7 +374,7 @@ const SimsPage = () => {
                   <TableCell>Mobile number</TableCell>
                   {!phone && <TableCell>ICCID</TableCell>}
                   <TableCell>Status</TableCell>
-                  <TableCell>This month</TableCell>
+                  <TableCell>Data this month</TableCell>
                   <TableCell align="right">&nbsp;</TableCell>
                 </TableRow>
               </TableHead>
@@ -333,7 +402,12 @@ const SimsPage = () => {
                         </TableCell>
                       )}
                       <TableCell>{statusChip(sim)}</TableCell>
-                      <TableCell className={classes.figure}>{usageOf(sim)}</TableCell>
+                      <TableCell className={classes.figure}>
+                        {sim.used_mb == null ? usageOf(sim) : usedOf(sim)}
+                        {sim.near_cutoff && (
+                          <Chip size="small" color="warning" label="near cut-off" sx={{ ml: 1 }} />
+                        )}
+                      </TableCell>
                       <TableCell align="right">
                         {sim.iccid && found?.status && (
                           <Button
@@ -366,7 +440,8 @@ const SimsPage = () => {
           </Box>
           <Typography variant="caption" color="text.secondary">
             Statuses are asked of the network when you press Check all, not on opening the page — a
-            fleet takes a few seconds to ask about.
+            fleet takes a few seconds to ask about. Data usage is from the last import
+            {importedAt ? ` on ${dayjs(importedAt).format('D MMM HH:mm')}` : ''}.
           </Typography>
         </Paper>
 
