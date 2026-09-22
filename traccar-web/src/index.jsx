@@ -16,9 +16,11 @@ import { savePersistedState } from './common/util/usePersistedState';
 
 preloadImages();
 
-// Opening the app shows the dashboard, whichever view it was left on. This has
-// to happen before the first render, or the old view appears for a moment
-// first. Returning to a backgrounded app is handled in useOpenOnDashboard.
+// Starting the app fresh shows the dashboard, whichever view it was left on.
+// This runs on a real page load and nothing else, so an app that was only
+// switched away from comes back exactly as it was left - on the page and the
+// view the user was using. Set before the first render, or the old view would
+// appear for a moment first.
 savePersistedState('fleetView', 'dashboard');
 
 const root = createRoot(document.getElementById('root'));

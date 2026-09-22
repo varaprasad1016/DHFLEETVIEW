@@ -36,9 +36,13 @@ from app.models.maintenance import MaintenanceRecord, MaintenanceSchedule
 from app.models.driver_records import DriverCpcCourse, DriverRecord
 from app.models.bridge import BridgeCredential, BridgeNode
 from app.models.dvr import DvrCommand, DvrMessage
+from app.models.billing import BillingAccount, Invoice, InvoiceLine
 
 __all__ = [
     "Base",
+    "BillingAccount",
+    "Invoice",
+    "InvoiceLine",
     "BridgeCredential",
     "DvrCommand",
     "DvrMessage",

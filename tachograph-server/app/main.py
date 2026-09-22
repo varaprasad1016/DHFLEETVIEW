@@ -3,6 +3,7 @@ wired in once the persistence + services layers land (Phase 4)."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -30,6 +31,9 @@ from app.api.tacho_live import ingest_router as tacho_live_ingest_router, router
 from app.api.driver_accounts import accounts_router as driver_accounts_router, auth_router as driver_auth_router
 from app.api.bridge import public_router as bridge_public_router, router as bridge_router
 from app.api.dvr import router as dvr_router
+from app.api.billing import router as billing_router
+from app.api.sims import router as sims_router
+from app.services import sms_sender
 from app.services.auth import allowed_origins
 from app.services.bridge_server import bridge
 
@@ -43,7 +47,12 @@ async def lifespan(app: FastAPI):
             await bridge.start()
         except Exception:  # noqa: BLE001 - the API must still come up
             logging.getLogger("tacho.bridge").exception("Tacho Bridge endpoint failed to start")
+
+    # Camera setup commands go out through the SIM provider when one is set up.
+    sender = asyncio.create_task(sms_sender.run()) if settings.sms_url else None
     yield
+    if sender:
+        sender.cancel()
     await bridge.stop()
 
 
@@ -69,6 +78,8 @@ app.include_router(driver_accounts_router)
 app.include_router(modules_router)
 app.include_router(bridge_router)
 app.include_router(dvr_router)
+app.include_router(billing_router)
+app.include_router(sims_router)
 app.include_router(bridge_public_router)
 app.include_router(admin_router)
 app.include_router(maintenance_router)

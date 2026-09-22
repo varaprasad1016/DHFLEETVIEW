@@ -28,6 +28,47 @@ class Settings(BaseSettings):
     # --- DVR setup by SMS (a spare Android phone polls the queue and sends) ---
     dvr_sms_key: str = ""          # the phone signs in with this; blank = the queue is closed
     dvr_sms_from: str = ""         # the sending phone's own number, shown in the office UI
+    # Sending through the SIM provider's portal instead. Blank sms_url = off, and
+    # the queue waits for something to collect it. See services/sms_sender.py.
+    sms_url: str = ""
+    sms_provider: str = "caburn"   # "caburn" speaks their XML API; "template" is anyone else
+    sms_method: str = "POST"
+    sms_username: str = ""
+    sms_password: str = ""
+    # Only used by the "template" provider, for a portal that is not Caburn's.
+    sms_auth_header: str = "Authorization"
+    sms_auth_value: str = ""
+    sms_content_type: str = "application/json"
+    sms_body_template: str = '{"to": "{to}", "message": "{text}"}'
+    sms_success_contains: str = ""  # a send that answers 200 but did not send
+
+    # --- Invoicing ---
+    company_name: str = "D&H Group Ltd"
+    company_address: str = ("6 Renaissance Apartments, 20 Heritage Road, "
+                            "Rainham, Essex, RM13 8QQ")
+    # Placeholders until the real ones arrive. invoicing.not_ready() refuses to
+    # email anything while these are still in place, so a placeholder cannot
+    # reach a customer.
+    company_vat_number: str = "GB 000 0000 00"
+    company_number: str = "00000000"
+    invoice_logo_path: str = "D:/DHFleetViewData/tacho/branding/logo.png"
+    invoice_payment_terms: str = "Payment due within 30 days of the invoice date."
+    invoice_number_prefix: str = "DH"
+    invoice_vat_rate: float = 0.20
+    # Standard monthly rates per vehicle, unless an account sets its own.
+    # Placeholder figures so the module can be built and previewed; nothing is
+    # emailed while they are untouched.
+    rate_tracking: float = 12.00
+    rate_camera: float = 30.00
+    rate_tachograph: float = 6.00
+    # Sending the invoices. No mail server anywhere yet, so this is off.
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from: str = "invoices@dhfleetview.co.uk"
+    smtp_from_name: str = "D&H Group Ltd"
+    smtp_starttls: bool = True
     # Photos of DVR labels, and where CNMS keeps its own database details.
     dvr_label_dir: str = "D:/DHFleetViewData/tacho/labels"
     cnms_database_ini: str = "D:/CMSServer/Database.ini"

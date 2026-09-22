@@ -147,6 +147,9 @@ const AddVehiclePage = () => {
           sim_no: label.sim_no,
           mobile_no: label.mobile_no,
           serial: label.serial,
+          iccid: label.iccid,
+          tracker_mobile_no: label.tracker_mobile_no || null,
+          tracker_iccid: label.tracker_iccid || null,
           photo_id: label.photo_id,
           account_user_id: label.account_user_id || null,
           cnms_company: label.cnms_company || null,
@@ -235,7 +238,6 @@ const AddVehiclePage = () => {
                   <Chip size="small" color="success" label={`ID ${label.device_id}`} />
                 )}
                 {label.sim_no && <Chip size="small" label={`SIM ${label.sim_no}`} />}
-                {label.mobile_no && <Chip size="small" label={`Mobile ${label.mobile_no}`} />}
                 {label.serial && (
                   <Chip size="small" variant="outlined" label={`SN ${label.serial}`} />
                 )}
@@ -267,6 +269,38 @@ const AddVehiclePage = () => {
                   }
                 />
               )}
+              <TextField
+                size="small"
+                label="Mobile number (camera)"
+                value={label.mobile_no || ''}
+                onChange={(e) =>
+                  update(label.key, 'mobile_no', e.target.value.replace(/[^\d+]/g, ''))
+                }
+                disabled={label.state === 'created'}
+                placeholder="07123456789"
+                error={Boolean(label.mobile_no) && !/^07\d{9}$/.test(label.mobile_no)}
+                helperText={
+                  label.mobile_no && !/^07\d{9}$/.test(label.mobile_no)
+                    ? 'A UK mobile number: 11 digits starting 07'
+                    : label.mobile_no
+                      ? 'Read from the label — the setup commands are texted to this'
+                      : 'Not found on the label — type the Mobile No. printed on it'
+                }
+              />
+              <TextField
+                size="small"
+                label="Mobile number (tracker)"
+                value={label.tracker_mobile_no || ''}
+                onChange={(e) =>
+                  update(label.key, 'tracker_mobile_no', e.target.value.replace(/[^\d+]/g, ''))
+                }
+                disabled={label.state === 'created'}
+                placeholder="07123456789"
+                error={
+                  Boolean(label.tracker_mobile_no) && !/^07\d{9}$/.test(label.tracker_mobile_no)
+                }
+                helperText="Only if a separate tracker is fitted as well — it has its own SIM"
+              />
               <TextField
                 size="small"
                 label="Registration (handwritten on the label)"

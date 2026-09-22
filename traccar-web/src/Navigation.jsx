@@ -29,6 +29,8 @@ const JourneysPage = lazy(() => import('./other/JourneysPage'));
 const VehiclePage = lazy(() => import('./other/VehiclePage'));
 const DvrCommandsPage = lazy(() => import('./other/DvrCommandsPage'));
 const AddVehiclePage = lazy(() => import('./other/AddVehiclePage'));
+const InvoicingPage = lazy(() => import('./other/InvoicingPage'));
+const SimsPage = lazy(() => import('./other/SimsPage'));
 const TripReportPage = lazy(() => import('./reports/TripReportPage'));
 const StopReportPage = lazy(() => import('./reports/StopReportPage'));
 const SummaryReportPage = lazy(() => import('./reports/SummaryReportPage'));
@@ -143,6 +145,8 @@ const Navigation = () => {
           <Route path="vehicle" element={<VehiclePage />} />
           <Route path="dvr-commands" element={<DvrCommandsPage />} />
           <Route path="add-vehicle" element={<AddVehiclePage />} />
+          <Route path="invoicing" element={<InvoicingPage />} />
+          <Route path="sims" element={<SimsPage />} />
           <Route path="geofences" element={<GeofencesPage />} />
           <Route path="emulator" element={<EmulatorPage />} />
           <Route path="stream" element={<StreamPage />} />

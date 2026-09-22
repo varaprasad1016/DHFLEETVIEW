@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import urllib.error
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -153,10 +154,21 @@ async def create_vehicle(body: dict = Body(...), principal: Principal = Depends(
     sim_no = str(body.get("sim_no") or "").strip()
     mobile_no = str(body.get("mobile_no") or "").strip().replace(" ", "")
     serial = str(body.get("serial") or "").strip()
+    # A registration may carry a separate tracker as well as the camera, each
+    # with its own SIM, so each has its own number.
+    tracker_mobile = str(body.get("tracker_mobile_no") or "").strip().replace(" ", "")
+    tracker_iccid = str(body.get("tracker_iccid") or "").strip()
     account_id = body.get("account_user_id")
 
     if not registration or not device_id:
         raise HTTPException(status_code=400, detail="A registration and a device ID are needed.")
+    # The setup commands are texted to this number, so a wrong shape here means
+    # a camera that never comes online and no obvious reason why.
+    for what, number in (("camera", mobile_no), ("tracker", tracker_mobile)):
+        if number and not re.fullmatch(r"07\d{9}", number):
+            raise HTTPException(status_code=400,
+                                detail=f"{number} is not a UK mobile number for the {what}. It "
+                                       "should be 11 digits starting 07, as printed on the label.")
 
     existing = await auth.traccar_get(principal, "/api/devices") or []
     if any((d.get("attributes") or {}).get("cmsv9DeviceId") == device_id for d in existing):
@@ -172,6 +184,11 @@ async def create_vehicle(body: dict = Body(...), principal: Principal = Depends(
             "cmsv9Name": registration,
             "cmsv9Mobile": mobile_no,
             "cmsv9Sim": sim_no,
+            # The SIM's ICCID identifies it to the SIM portal, and unlike the
+            # number it never changes.
+            "cmsv9Iccid": str(body.get("iccid") or "").strip(),
+            "trackerMobile": tracker_mobile,
+            "trackerIccid": tracker_iccid,
             "cmsv9Serial": serial,
             "labelPhoto": body.get("photo_id"),
         }.items() if v},

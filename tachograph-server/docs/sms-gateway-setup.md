@@ -3,26 +3,40 @@
 The platform queues the setup commands; something then has to collect them and
 send them as text messages. The queue does not care what that something is.
 
-**The chosen route: the Caburn SIM portal API.** The SIMs in these cameras come
-from Caburn, whose portal can send texts over an API, so there is no handset to
-keep charged and nothing to go wrong in a drawer. This is not built yet - it
-needs the portal's API documentation and a key. When those arrive, the work is
-one service that drains the same queue these endpoints already expose:
+**The chosen route: the Caburn Insight portal API.** The SIMs in these cameras
+come from Caburn (CSL Group), whose Insight portal can send texts to its own
+SIMs, so there is no handset to keep charged. The sending side is built: the
+server drains the queue itself and posts each message to the provider. All that
+is left is to tell it where to post, which is done in C:\tachograph-server\.env:
 
-    claim:   GET  /api/dvr/outbox?limit=5      -> the messages waiting
-    report:  POST /api/dvr/outbox/<id>         -> {"sent": true} or false
+    SMS_URL=              the provider's send-message endpoint
+    SMS_METHOD=POST       whatever the endpoint expects
+    SMS_AUTH_HEADER=      the header the key goes in, e.g. Authorization
+    SMS_AUTH_VALUE=       the key itself, e.g. "Bearer abc123"
+    SMS_CONTENT_TYPE=application/json
+    SMS_BODY_TEMPLATE={"to": "{to}", "message": "{text}"}
 
-A message nobody reports on is offered again after five minutes, so a failed
-send is never silently lost.
+{to} and {text} are filled in per message; the rest is copied from the
+provider's documentation. A form-style provider takes a template like
+`to={to}&text={text}` with SMS_CONTENT_TYPE set to
+application/x-www-form-urlencoded. Restart the tacho-api task after editing.
 
-Until something is connected, queued commands simply wait, and the Camera setup
-commands screen says so rather than letting a full queue look like a sent one.
+Nothing sends while SMS_URL is empty, which is how the server ships: the queue
+simply waits. Once it is set, the server checks the queue every twenty seconds,
+sends up to five at a time, and records against each message whatever reference
+the provider gives back - or, on a refusal, the provider's own words, so
+"SIM not active" reaches the office screen intact. A message claimed but never
+finished is retried after five minutes.
+
+**Before switching it on, clear out any test messages.** Everything queued goes
+out the moment a provider is configured, including anything addressed to a
+number typed in by mistake.
 
 ## The fallback: a spare Android phone
 
-Kept here because it needs no third party and can be stood up in ten minutes if
-a camera is needed urgently. A spare handset with the DH Group SIM
-() polls the queue and sends each message itself.
+Kept here because it needs no third party. A spare handset polls the same queue
+and sends each message itself; the endpoints below are what it uses, and they
+are unchanged by the above.
 
 ## What the phone needs to know
 
