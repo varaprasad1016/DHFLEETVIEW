@@ -39,22 +39,37 @@ def _require_super(principal: Principal) -> None:
         raise HTTPException(status_code=403, detail="Only a super administrator can see SIMs.")
 
 
-def _sim_of(device: dict) -> dict | None:
-    """What we hold about the SIM in one vehicle, or nothing if it has none."""
+# A vehicle can carry two units, each with its own SIM: the camera and a
+# separate tracker. They are listed as two SIMs against the one registration,
+# because that is what they are - one can be dead while the other is fine.
+UNITS = (
+    {"fitted": "camera", "iccid": "cmsv9Iccid", "mobile": "cmsv9Mobile", "sim_no": "cmsv9Sim"},
+    {"fitted": "tracker", "iccid": "trackerIccid", "mobile": "trackerMobile", "sim_no": "trackerSim"},
+)
+
+
+def _sims_of(device: dict) -> list[dict]:
+    """Every SIM in one vehicle. Empty if we hold nothing about any of them."""
     attributes = device.get("attributes") or {}
-    iccid = str(attributes.get("cmsv9Iccid") or "").strip()
-    number = str(attributes.get("cmsv9Mobile") or device.get("phone") or "").strip()
-    sim_no = str(attributes.get("cmsv9Sim") or "").strip()
-    if not (iccid or number):
-        return None
-    return {
-        "iccid": iccid or None,
-        "msisdn": number or None,
-        "sim_no": sim_no or None,
-        "vehicle": device.get("name"),
-        "device_id": device.get("id"),
-        "camera_id": attributes.get("cmsv9DeviceId"),
-    }
+    sims = []
+    for unit in UNITS:
+        iccid = str(attributes.get(unit["iccid"]) or "").strip()
+        number = str(attributes.get(unit["mobile"]) or "").strip()
+        if unit["fitted"] == "camera" and not number:
+            # The camera's SIM is what a device's phone number has always meant.
+            number = str(device.get("phone") or "").strip()
+        if not (iccid or number):
+            continue
+        sims.append({
+            "iccid": iccid or None,
+            "msisdn": number or None,
+            "sim_no": str(attributes.get(unit["sim_no"]) or "").strip() or None,
+            "fitted": unit["fitted"],
+            "vehicle": device.get("name"),
+            "device_id": device.get("id"),
+            "camera_id": attributes.get("cmsv9DeviceId"),
+        })
+    return sims
 
 
 @router.get("")
@@ -67,11 +82,11 @@ async def list_sims(principal: Principal = Depends(require_manager)):
     """
     _require_super(principal)
     devices = await auth.traccar_get(principal, "/api/devices") or []
-    sims = [sim for sim in (_sim_of(device) for device in devices) if sim]
-    sims.sort(key=lambda s: (s["vehicle"] or "").upper())
+    sims = [sim for device in devices for sim in _sims_of(device)]
+    sims.sort(key=lambda s: ((s["vehicle"] or "").upper(), s["fitted"]))
     return {
         "sims": sims,
-        "without_sim": sorted(device.get("name") for device in devices if not _sim_of(device)),
+        "without_sim": sorted(device.get("name") for device in devices if not _sims_of(device)),
         "portal_ready": caburn.configured(),
     }
 
@@ -79,7 +94,7 @@ async def list_sims(principal: Principal = Depends(require_manager)):
 async def _ask(client: httpx.AsyncClient, sim: dict, limit: asyncio.Semaphore) -> dict:
     """What the network says about one SIM."""
     answer = {"iccid": sim.get("iccid"), "msisdn": sim.get("msisdn"),
-              "vehicle": sim.get("vehicle")}
+              "vehicle": sim.get("vehicle"), "fitted": sim.get("fitted")}
     async with limit:
         try:
             answer["status"] = await caburn.status(client, iccid=sim.get("iccid"),
@@ -114,7 +129,7 @@ async def live_status(body: dict = Body(default={}),
     wanted = body.get("sims")
     if not wanted:
         devices = await auth.traccar_get(principal, "/api/devices") or []
-        wanted = [sim for sim in (_sim_of(device) for device in devices) if sim]
+        wanted = [sim for device in devices for sim in _sims_of(device)]
 
     limit = asyncio.Semaphore(AT_ONCE)
     async with httpx.AsyncClient() as client:

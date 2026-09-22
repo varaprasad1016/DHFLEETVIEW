@@ -20,6 +20,8 @@ import {
   TextField,
   Toolbar,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import { makeStyles } from 'tss-react/mui';
 import { useNavigate } from 'react-router-dom';
@@ -71,7 +73,7 @@ const useStyles = makeStyles()((theme) => ({
   head: { display: 'flex', alignItems: 'center', gap: theme.spacing(1), flexWrap: 'wrap' },
   spacer: { flexGrow: 1 },
   figure: { fontVariantNumeric: 'tabular-nums' },
-  form: { display: 'flex', flexDirection: 'column', gap: theme.spacing(2), minWidth: 320 },
+  form: { display: 'flex', flexDirection: 'column', gap: theme.spacing(2), minWidth: 0 },
   rates: { display: 'flex', gap: theme.spacing(1), flexWrap: 'wrap' },
 }));
 
@@ -82,6 +84,10 @@ const statusColour = { sent: 'success', failed: 'error', draft: 'default' };
 const InvoicingPage = () => {
   const { classes } = useStyles();
   const navigate = useNavigate();
+  const theme = useTheme();
+  // Mostly used at a desk, but must still work on a phone: the columns that
+  // can be worked out from the others are dropped, and the rest scrolls.
+  const phone = useMediaQuery(theme.breakpoints.down('sm'));
 
   const [overview, setOverview] = useState(null);
   const [invoices, setInvoices] = useState([]);
@@ -228,64 +234,70 @@ const InvoicingPage = () => {
               {busy === 'run' ? 'Raising…' : 'Raise invoices'}
             </Button>
           </div>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Customer</TableCell>
-                <TableCell>Billed from</TableCell>
-                <TableCell>Invoices go to</TableCell>
-                <TableCell>Rates</TableCell>
-                <TableCell align="right">&nbsp;</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {(overview?.accounts || []).map((account) => (
-                <TableRow key={account.user_id}>
-                  <TableCell>
-                    {account.name}
-                    {!account.active && <Chip size="small" label="paused" sx={{ ml: 1 }} />}
-                  </TableCell>
-                  <TableCell>{dayjs(account.started_on).format('D MMM YYYY')}</TableCell>
-                  <TableCell>
-                    {account.send_to || '—'}
-                    {account.invoicing_email && (
-                      <Chip size="small" variant="outlined" label="invoicing" sx={{ ml: 1 }} />
-                    )}
-                  </TableCell>
-                  <TableCell className={classes.figure}>
-                    {['tracking', 'camera', 'tachograph']
-                      .map((item) =>
-                        account.rates[item] == null
-                          ? money(overview.standard_rates[item])
-                          : `${money(account.rates[item])}*`,
-                      )
-                      .join(' / ')}
-                  </TableCell>
-                  <TableCell align="right">
-                    <Button
-                      size="small"
-                      onClick={() => showPreview(account)}
-                      disabled={busy === `preview-${account.user_id}`}
-                    >
-                      Preview
-                    </Button>
-                    <Button size="small" onClick={() => setEditing({ ...account })}>
-                      Edit
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {!overview?.accounts?.length && (
+          <Box sx={{ overflowX: 'auto' }}>
+            <Table size="small">
+              <TableHead>
                 <TableRow>
-                  <TableCell colSpan={5}>
-                    <Typography variant="body2" color="text.secondary">
-                      No customers are being billed yet. Pick one below to start.
-                    </Typography>
-                  </TableCell>
+                  <TableCell>Customer</TableCell>
+                  <TableCell>Billed from</TableCell>
+                  {!phone && <TableCell>Invoices go to</TableCell>}
+                  {!phone && <TableCell>Rates</TableCell>}
+                  <TableCell align="right">&nbsp;</TableCell>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
+              </TableHead>
+              <TableBody>
+                {(overview?.accounts || []).map((account) => (
+                  <TableRow key={account.user_id}>
+                    <TableCell>
+                      {account.name}
+                      {!account.active && <Chip size="small" label="paused" sx={{ ml: 1 }} />}
+                    </TableCell>
+                    <TableCell>{dayjs(account.started_on).format('D MMM YYYY')}</TableCell>
+                    {!phone && (
+                      <TableCell>
+                        {account.send_to || '—'}
+                        {account.invoicing_email && (
+                          <Chip size="small" variant="outlined" label="invoicing" sx={{ ml: 1 }} />
+                        )}
+                      </TableCell>
+                    )}
+                    {!phone && (
+                      <TableCell className={classes.figure}>
+                        {['tracking', 'camera', 'tachograph']
+                          .map((item) =>
+                            account.rates[item] == null
+                              ? money(overview.standard_rates[item])
+                              : `${money(account.rates[item])}*`,
+                          )
+                          .join(' / ')}
+                      </TableCell>
+                    )}
+                    <TableCell align="right">
+                      <Button
+                        size="small"
+                        onClick={() => showPreview(account)}
+                        disabled={busy === `preview-${account.user_id}`}
+                      >
+                        Preview
+                      </Button>
+                      <Button size="small" onClick={() => setEditing({ ...account })}>
+                        Edit
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {!overview?.accounts?.length && (
+                  <TableRow>
+                    <TableCell colSpan={phone ? 3 : 5}>
+                      <Typography variant="body2" color="text.secondary">
+                        No customers are being billed yet. Pick one below to start.
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </Box>
           <Typography variant="caption" color="text.secondary">
             Rates are tracking / camera / tachograph per vehicle per month. An asterisk marks a rate
             agreed with that customer; the rest are the standard rates.
@@ -316,78 +328,84 @@ const InvoicingPage = () => {
           <Typography variant="subtitle1" gutterBottom>
             Invoices issued
           </Typography>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Number</TableCell>
-                <TableCell>Customer</TableCell>
-                <TableCell>Period</TableCell>
-                <TableCell align="right">Net</TableCell>
-                <TableCell align="right">VAT</TableCell>
-                <TableCell align="right">Total</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell align="right">&nbsp;</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {invoices.map((invoice) => (
-                <TableRow key={invoice.id}>
-                  <TableCell>{invoice.number}</TableCell>
-                  <TableCell>{invoice.account}</TableCell>
-                  <TableCell>{invoice.period}</TableCell>
-                  <TableCell align="right" className={classes.figure}>
-                    {money(invoice.net)}
-                  </TableCell>
-                  <TableCell align="right" className={classes.figure}>
-                    {money(invoice.vat)}
-                  </TableCell>
-                  <TableCell align="right" className={classes.figure}>
-                    {money(invoice.total)}
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      size="small"
-                      color={statusColour[invoice.status] || 'default'}
-                      label={
-                        invoice.status === 'sent' && invoice.sent_at
-                          ? `sent ${dayjs(invoice.sent_at).format('D MMM')}`
-                          : invoice.status
-                      }
-                    />
-                  </TableCell>
-                  <TableCell align="right">
-                    <Button
-                      size="small"
-                      startIcon={<ReceiptIcon />}
-                      onClick={() => setViewing(invoice)}
-                    >
-                      View
-                    </Button>
-                    <Button
-                      size="small"
-                      startIcon={<DownloadIcon />}
-                      href={`${API}/invoices/${invoice.id}/pdf?download=1`}
-                    >
-                      Download
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {!invoices.length && (
+          <Box sx={{ overflowX: 'auto' }}>
+            <Table size="small">
+              <TableHead>
                 <TableRow>
-                  <TableCell colSpan={8}>
-                    <Typography variant="body2" color="text.secondary">
-                      No invoices yet.
-                    </Typography>
-                  </TableCell>
+                  <TableCell>Number</TableCell>
+                  <TableCell>Customer</TableCell>
+                  <TableCell>Period</TableCell>
+                  {!phone && <TableCell align="right">Net</TableCell>}
+                  {!phone && <TableCell align="right">VAT</TableCell>}
+                  <TableCell align="right">Total</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell align="right">&nbsp;</TableCell>
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
+              </TableHead>
+              <TableBody>
+                {invoices.map((invoice) => (
+                  <TableRow key={invoice.id}>
+                    <TableCell>{invoice.number}</TableCell>
+                    <TableCell>{invoice.account}</TableCell>
+                    <TableCell>{invoice.period}</TableCell>
+                    {!phone && (
+                      <TableCell align="right" className={classes.figure}>
+                        {money(invoice.net)}
+                      </TableCell>
+                    )}
+                    {!phone && (
+                      <TableCell align="right" className={classes.figure}>
+                        {money(invoice.vat)}
+                      </TableCell>
+                    )}
+                    <TableCell align="right" className={classes.figure}>
+                      {money(invoice.total)}
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        size="small"
+                        color={statusColour[invoice.status] || 'default'}
+                        label={
+                          invoice.status === 'sent' && invoice.sent_at
+                            ? `sent ${dayjs(invoice.sent_at).format('D MMM')}`
+                            : invoice.status
+                        }
+                      />
+                    </TableCell>
+                    <TableCell align="right">
+                      <Button
+                        size="small"
+                        startIcon={<ReceiptIcon />}
+                        onClick={() => setViewing(invoice)}
+                      >
+                        View
+                      </Button>
+                      <Button
+                        size="small"
+                        startIcon={<DownloadIcon />}
+                        href={`${API}/invoices/${invoice.id}/pdf?download=1`}
+                      >
+                        Download
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {!invoices.length && (
+                  <TableRow>
+                    <TableCell colSpan={phone ? 6 : 8}>
+                      <Typography variant="body2" color="text.secondary">
+                        No invoices yet.
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </Box>
         </Paper>
       </div>
 
-      <Dialog open={Boolean(editing)} onClose={() => setEditing(null)}>
+      <Dialog open={Boolean(editing)} onClose={() => setEditing(null)} fullScreen={phone}>
         <DialogTitle>
           {editing?.isNew ? `Start billing ${editing?.name}` : editing?.name}
         </DialogTitle>
@@ -457,6 +475,7 @@ const InvoicingPage = () => {
         onClose={() => setViewing(null)}
         maxWidth="md"
         fullWidth
+        fullScreen={phone}
         slotProps={{ paper: { sx: { height: '92vh' } } }}
       >
         <DialogTitle>
@@ -494,7 +513,13 @@ const InvoicingPage = () => {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={Boolean(preview)} onClose={() => setPreview(null)} maxWidth="sm" fullWidth>
+      <Dialog
+        open={Boolean(preview)}
+        onClose={() => setPreview(null)}
+        maxWidth="sm"
+        fullWidth
+        fullScreen={phone}
+      >
         <DialogTitle>
           {preview?.account}
           <Typography variant="body2" color="text.secondary">
@@ -502,43 +527,45 @@ const InvoicingPage = () => {
           </Typography>
         </DialogTitle>
         <DialogContent>
-          <Table size="small">
-            <TableBody>
-              {(preview?.lines || []).map((line) => (
-                <TableRow key={`${line.vehicle}-${line.item}`}>
-                  <TableCell>{line.description}</TableCell>
+          <Box sx={{ overflowX: 'auto' }}>
+            <Table size="small">
+              <TableBody>
+                {(preview?.lines || []).map((line) => (
+                  <TableRow key={`${line.vehicle}-${line.item}`}>
+                    <TableCell>{line.description}</TableCell>
+                    <TableCell align="right" className={classes.figure}>
+                      {money(line.amount)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {!preview?.lines?.length && (
+                  <TableRow>
+                    <TableCell>Nothing chargeable this period.</TableCell>
+                  </TableRow>
+                )}
+                <TableRow>
+                  <TableCell align="right">Net</TableCell>
                   <TableCell align="right" className={classes.figure}>
-                    {money(line.amount)}
+                    {money(preview?.net)}
                   </TableCell>
                 </TableRow>
-              ))}
-              {!preview?.lines?.length && (
                 <TableRow>
-                  <TableCell>Nothing chargeable this period.</TableCell>
+                  <TableCell align="right">VAT</TableCell>
+                  <TableCell align="right" className={classes.figure}>
+                    {money(preview?.vat)}
+                  </TableCell>
                 </TableRow>
-              )}
-              <TableRow>
-                <TableCell align="right">Net</TableCell>
-                <TableCell align="right" className={classes.figure}>
-                  {money(preview?.net)}
-                </TableCell>
-              </TableRow>
-              <TableRow>
-                <TableCell align="right">VAT</TableCell>
-                <TableCell align="right" className={classes.figure}>
-                  {money(preview?.vat)}
-                </TableCell>
-              </TableRow>
-              <TableRow>
-                <TableCell align="right">
-                  <b>Total</b>
-                </TableCell>
-                <TableCell align="right" className={classes.figure}>
-                  <b>{money(preview?.total)}</b>
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
+                <TableRow>
+                  <TableCell align="right">
+                    <b>Total</b>
+                  </TableCell>
+                  <TableCell align="right" className={classes.figure}>
+                    <b>{money(preview?.total)}</b>
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setPreview(null)}>Close</Button>

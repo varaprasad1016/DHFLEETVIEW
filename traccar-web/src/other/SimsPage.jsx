@@ -21,6 +21,8 @@ import {
   Toolbar,
   Tooltip,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import { makeStyles } from 'tss-react/mui';
 import { useNavigate } from 'react-router-dom';
@@ -74,6 +76,10 @@ const useStyles = makeStyles()((theme) => ({
 const SimsPage = () => {
   const { classes } = useStyles();
   const navigate = useNavigate();
+  const theme = useTheme();
+  // Admin screens are mostly used at a desk, but must still work on a phone:
+  // the widest columns are dropped and what is left scrolls sideways.
+  const phone = useMediaQuery(theme.breakpoints.down('sm'));
 
   const [sims, setSims] = useState([]);
   const [withoutSim, setWithoutSim] = useState([]);
@@ -84,7 +90,7 @@ const SimsPage = () => {
   const [notice, setNotice] = useState('');
   const [confirming, setConfirming] = useState(null);
 
-  const keyOf = (sim) => sim.iccid || sim.msisdn;
+  const keyOf = (sim) => `${sim.fitted || 'camera'}:${sim.iccid || sim.msisdn}`;
 
   const load = async () => {
     try {
@@ -109,7 +115,7 @@ const SimsPage = () => {
       const answer = await request('/status', { method: 'POST', body: JSON.stringify({}) });
       const byKey = {};
       (answer.sims || []).forEach((sim) => {
-        byKey[sim.iccid || sim.msisdn] = sim;
+        byKey[`${sim.fitted || 'camera'}:${sim.iccid || sim.msisdn}`] = sim;
       });
       setLive(byKey);
       setError('');
@@ -214,60 +220,74 @@ const SimsPage = () => {
               {checking ? 'Asking the network…' : 'Check all'}
             </Button>
           </div>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Vehicle</TableCell>
-                <TableCell>Mobile number</TableCell>
-                <TableCell>ICCID</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell>This month</TableCell>
-                <TableCell align="right">&nbsp;</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {sims.map((sim) => {
-                const found = live[keyOf(sim)];
-                return (
-                  <TableRow key={keyOf(sim)}>
-                    <TableCell>{sim.vehicle}</TableCell>
-                    <TableCell className={classes.code}>{sim.msisdn || '—'}</TableCell>
-                    <TableCell className={classes.code}>
-                      {sim.iccid || (
-                        <Tooltip title="Not recorded — add it when the label is next photographed">
-                          <span>—</span>
-                        </Tooltip>
-                      )}
-                    </TableCell>
-                    <TableCell>{statusChip(sim)}</TableCell>
-                    <TableCell className={classes.figure}>{usageOf(sim)}</TableCell>
-                    <TableCell align="right">
-                      {sim.iccid && found?.status && (
-                        <Button
+          <Box sx={{ overflowX: 'auto' }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Vehicle</TableCell>
+                  <TableCell>Fitted to</TableCell>
+                  <TableCell>Mobile number</TableCell>
+                  {!phone && <TableCell>ICCID</TableCell>}
+                  <TableCell>Status</TableCell>
+                  <TableCell>This month</TableCell>
+                  <TableCell align="right">&nbsp;</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {sims.map((sim) => {
+                  const found = live[keyOf(sim)];
+                  return (
+                    <TableRow key={keyOf(sim)}>
+                      <TableCell>{sim.vehicle}</TableCell>
+                      <TableCell>
+                        <Chip
                           size="small"
-                          color={found.status === 'Active' ? 'warning' : 'primary'}
-                          disabled={found.status === 'Closed'}
-                          onClick={() => setConfirming({ sim, active: found.status !== 'Active' })}
-                        >
-                          {found.status === 'Active' ? 'Deactivate' : 'Activate'}
-                        </Button>
+                          variant="outlined"
+                          label={sim.fitted === 'tracker' ? 'Tracker' : 'Camera'}
+                        />
+                      </TableCell>
+                      <TableCell className={classes.code}>{sim.msisdn || '—'}</TableCell>
+                      {!phone && (
+                        <TableCell className={classes.code}>
+                          {sim.iccid || (
+                            <Tooltip title="Not recorded — add it when the label is next photographed">
+                              <span>—</span>
+                            </Tooltip>
+                          )}
+                        </TableCell>
                       )}
+                      <TableCell>{statusChip(sim)}</TableCell>
+                      <TableCell className={classes.figure}>{usageOf(sim)}</TableCell>
+                      <TableCell align="right">
+                        {sim.iccid && found?.status && (
+                          <Button
+                            size="small"
+                            color={found.status === 'Active' ? 'warning' : 'primary'}
+                            disabled={found.status === 'Closed'}
+                            onClick={() =>
+                              setConfirming({ sim, active: found.status !== 'Active' })
+                            }
+                          >
+                            {found.status === 'Active' ? 'Deactivate' : 'Activate'}
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+                {!sims.length && (
+                  <TableRow>
+                    <TableCell colSpan={phone ? 6 : 7}>
+                      <Typography variant="body2" color="text.secondary">
+                        No SIMs recorded yet. They are picked up from vehicles added from a label
+                        photo.
+                      </Typography>
                     </TableCell>
                   </TableRow>
-                );
-              })}
-              {!sims.length && (
-                <TableRow>
-                  <TableCell colSpan={6}>
-                    <Typography variant="body2" color="text.secondary">
-                      No SIMs recorded yet. They are picked up from vehicles added from a label
-                      photo.
-                    </Typography>
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
+                )}
+              </TableBody>
+            </Table>
+          </Box>
           <Typography variant="caption" color="text.secondary">
             Statuses are asked of the network when you press Check all, not on opening the page — a
             fleet takes a few seconds to ask about.
@@ -292,7 +312,7 @@ const SimsPage = () => {
         )}
       </div>
 
-      <Dialog open={Boolean(confirming)} onClose={() => setConfirming(null)}>
+      <Dialog open={Boolean(confirming)} onClose={() => setConfirming(null)} fullScreen={phone}>
         <DialogTitle>
           {confirming?.active ? 'Activate this SIM?' : 'Deactivate this SIM?'}
         </DialogTitle>
