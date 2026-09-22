@@ -41,6 +41,21 @@ class Settings(BaseSettings):
     sms_content_type: str = "application/json"
     sms_body_template: str = '{"to": "{to}", "message": "{text}"}'
     sms_success_contains: str = ""  # a send that answers 200 but did not send
+
+    # --- Invoicing ---
+    company_name: str = "D&H Group Ltd"
+    company_address: str = ("6 Renaissance Apartments, 20 Heritage Road, "
+                            "Rainham, Essex, RM13 8QQ")
+    company_vat_number: str = ""     # required on the face of a VAT invoice
+    company_number: str = ""
+    invoice_logo_path: str = "D:/DHFleetViewData/tacho/branding/logo.png"
+    invoice_payment_terms: str = "Payment due within 30 days of the invoice date."
+    invoice_number_prefix: str = "DH"
+    invoice_vat_rate: float = 0.20
+    # Standard monthly rates per vehicle, unless an account sets its own.
+    rate_tracking: float = 0.0
+    rate_camera: float = 0.0
+    rate_tachograph: float = 0.0
     # Photos of DVR labels, and where CNMS keeps its own database details.
     dvr_label_dir: str = "D:/DHFleetViewData/tacho/labels"
     cnms_database_ini: str = "D:/CMSServer/Database.ini"
