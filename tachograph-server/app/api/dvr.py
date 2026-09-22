@@ -172,6 +172,9 @@ async def create_vehicle(body: dict = Body(...), principal: Principal = Depends(
             "cmsv9Name": registration,
             "cmsv9Mobile": mobile_no,
             "cmsv9Sim": sim_no,
+            # The SIM's ICCID identifies it to the SIM portal, and unlike the
+            # number it never changes.
+            "cmsv9Iccid": str(body.get("iccid") or "").strip(),
             "cmsv9Serial": serial,
             "labelPhoto": body.get("photo_id"),
         }.items() if v},

@@ -147,6 +147,7 @@ const AddVehiclePage = () => {
           sim_no: label.sim_no,
           mobile_no: label.mobile_no,
           serial: label.serial,
+          iccid: label.iccid,
           photo_id: label.photo_id,
           account_user_id: label.account_user_id || null,
           cnms_company: label.cnms_company || null,

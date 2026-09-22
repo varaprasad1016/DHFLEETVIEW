@@ -18,6 +18,7 @@ import CalculateIcon from '@mui/icons-material/Calculate';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import SmsIcon from '@mui/icons-material/Sms';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
+import SimCardIcon from '@mui/icons-material/SimCard';
 import { useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useTranslation } from '../../common/components/LocalizationProvider';
@@ -159,6 +160,12 @@ const SettingsMenu = () => {
                   link="/invoicing"
                   icon={<ReceiptLongIcon />}
                   selected={location.pathname === '/invoicing'}
+                />
+                <MenuItem
+                  title="SIM management"
+                  link="/sims"
+                  icon={<SimCardIcon />}
+                  selected={location.pathname === '/sims'}
                 />
                 <MenuItem
                   title="Camera setup commands"
