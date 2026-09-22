@@ -24,6 +24,7 @@ winrt-Windows.Graphics.Imaging==3.2.*; sys_platform == 'win32'
 winrt-Windows.Storage.Streams==3.2.*; sys_platform == 'win32'
 winrt-Windows.Foundation==3.2.*; sys_platform == 'win32'
 winrt-Windows.Foundation.Collections==3.2.*; sys_platform == 'win32'
+openpyxl==3.1.*           # the SIM list exported from the provider portal
 pymysql==1.*              # CNMS keeps its device list in MySQL, with no usable API
 
 # --- dev / test ---

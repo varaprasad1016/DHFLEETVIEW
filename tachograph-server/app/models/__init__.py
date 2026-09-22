@@ -38,11 +38,13 @@ from app.models.bridge import BridgeCredential, BridgeNode
 from app.models.dvr import DvrCommand, DvrMessage
 from app.models.billing import BillingAccount, Invoice, InvoiceLine
 from app.models.sms_inbound import SmsInbound
+from app.models.sim import SimCard
 
 __all__ = [
     "Base",
     "BillingAccount",
     "SmsInbound",
+    "SimCard",
     "Invoice",
     "InvoiceLine",
     "BridgeCredential",

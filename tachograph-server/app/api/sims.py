@@ -8,7 +8,9 @@ vehicle it belongs to.
 Super administrator only - these are our SIMs across every customer, and
 deactivating one takes that vehicle's camera off the air.
 
-GET    /api/sims                  every SIM we know of, with its vehicle
+GET    /api/sims                  every SIM we know of, fitted or in stock
+POST   /api/sims/import           take a SIM list exported from the portal
+POST   /api/sims/{iccid}/assign   put a SIM in a vehicle, or take it out
 POST   /api/sims/status           ask the network about them, live
 POST   /api/sims/{iccid}/enable   turn a SIM on or off
 """
@@ -17,12 +19,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 
 import httpx
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_manager
-from app.services import auth, caburn, modules
+from app.database import get_session
+from app.models.sim import SimCard
+from app.services import auth, caburn, modules, sim_import
 from app.services.auth import Principal
 
 logger = logging.getLogger("tacho.sims")
@@ -73,7 +80,8 @@ def _sims_of(device: dict) -> list[dict]:
 
 
 @router.get("")
-async def list_sims(principal: Principal = Depends(require_manager)):
+async def list_sims(principal: Principal = Depends(require_manager),
+                    session: AsyncSession = Depends(get_session)):
     """Every SIM we know of, from the vehicles it is fitted to.
 
     Deliberately does not call the network: the list has to appear at once, and
@@ -84,11 +92,129 @@ async def list_sims(principal: Principal = Depends(require_manager)):
     devices = await auth.traccar_get(principal, "/api/devices") or []
     sims = [sim for device in devices for sim in _sims_of(device)]
     sims.sort(key=lambda s: ((s["vehicle"] or "").upper(), s["fitted"]))
+    # Stock: SIMs imported from the portal that are not in a vehicle yet.
+    fitted = {sim["iccid"] for sim in sims if sim["iccid"]}
+    held = (await session.execute(
+        select(SimCard).order_by(SimCard.msisdn, SimCard.iccid))).scalars().all()
+    spare = [{"iccid": card.iccid, "msisdn": card.msisdn, "status": card.status,
+              "group": card.group, "network": card.network, "imei": card.imei,
+              "data_mb": card.data_mb}
+             for card in held if card.iccid not in fitted and not card.device_id]
+
     return {
         "sims": sims,
+        "spare": spare,
+        "vehicles": sorted(({"id": device.get("id"), "name": device.get("name")}
+                            for device in devices),
+                           key=lambda device: (device["name"] or "").upper()),
         "without_sim": sorted(device.get("name") for device in devices if not _sims_of(device)),
         "portal_ready": caburn.configured(),
     }
+
+
+@router.post("/import")
+async def import_sims(file: UploadFile = File(...),
+                      principal: Principal = Depends(require_manager),
+                      session: AsyncSession = Depends(get_session)):
+    """Take a SIM list exported from the portal.
+
+    Their API answers about one SIM at a time and cannot list an account's
+    SIMs, so the stock is imported. A SIM already known is updated rather than
+    duplicated, and one already in a vehicle stays where it is.
+    """
+    _require_super(principal)
+    data = await file.read()
+    if len(data) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="That file is too large. 5 MB is the limit.")
+
+    try:
+        read = sim_import.read(data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not read["sims"]:
+        raise HTTPException(
+            status_code=400,
+            detail="No SIMs could be read from that file. It needs a column of ICCIDs - "
+                   "the long numbers starting 89.")
+
+    known = {card.iccid: card for card in (await session.execute(
+        select(SimCard).where(SimCard.iccid.in_([sim["iccid"] for sim in read["sims"]]))
+    )).scalars().all()}
+
+    added, updated = 0, 0
+    for found in read["sims"]:
+        card = known.get(found["iccid"])
+        if card is None:
+            session.add(SimCard(**found))
+            added += 1
+            continue
+        for field, value in found.items():
+            if field != "iccid" and value not in (None, ""):
+                setattr(card, field, value)
+        updated += 1
+    await session.commit()
+
+    logger.info("%s imported %s SIMs (%s new)", principal.email, len(read["sims"]), added)
+    return {"added": added, "updated": updated, "columns": read["columns"],
+            "skipped": read["skipped"][:20], "skipped_total": len(read["skipped"])}
+
+
+@router.post("/{iccid}/assign")
+async def assign(iccid: str, body: dict = Body(...),
+                 principal: Principal = Depends(require_manager),
+                 session: AsyncSession = Depends(get_session)):
+    """Put a SIM in a vehicle as its camera's or its tracker's, or take it out.
+
+    The SIM's details are written onto the vehicle, which is where the rest of
+    the platform looks for them, and recorded here so the stock list knows the
+    SIM is no longer spare.
+    """
+    _require_super(principal)
+    device_id = body.get("device_id")
+    fitted = str(body.get("fitted") or "camera").lower()
+    if fitted not in ("camera", "tracker"):
+        raise HTTPException(status_code=400, detail="A SIM goes in a camera or a tracker.")
+
+    card = (await session.execute(
+        select(SimCard).where(SimCard.iccid == iccid))).scalar_one_or_none()
+    if card is None:
+        raise HTTPException(status_code=404, detail="That SIM is not in the imported list.")
+
+    if device_id in (None, ""):
+        # Taking it out of a vehicle. The SIM stays in stock.
+        card.device_id = card.vehicle = card.fitted = None
+        card.assigned_at = card.assigned_by = None
+        await session.commit()
+        return {"iccid": iccid, "vehicle": None}
+
+    device = await auth.traccar_get(principal, f"/api/devices/{int(device_id)}")
+    if device is None:
+        raise HTTPException(status_code=404, detail="There is no such vehicle.")
+
+    unit = next(u for u in UNITS if u["fitted"] == fitted)
+    attributes = dict(device.get("attributes") or {})
+    attributes[unit["iccid"]] = iccid
+    if card.msisdn:
+        attributes[unit["mobile"]] = card.msisdn
+    device["attributes"] = attributes
+    if fitted == "camera" and card.msisdn:
+        device["phone"] = card.msisdn
+
+    try:
+        await auth.traccar_send(principal, "PUT", f"/api/devices/{int(device_id)}", device)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400,
+                            detail=f"The vehicle could not be updated: {exc}") from exc
+
+    card.device_id = int(device_id)
+    card.vehicle = device.get("name")
+    card.fitted = fitted
+    card.assigned_at = datetime.now(timezone.utc)
+    card.assigned_by = principal.email
+    await session.commit()
+
+    logger.info("%s put SIM %s in %s as its %s", principal.email, iccid, card.vehicle, fitted)
+    return {"iccid": iccid, "vehicle": card.vehicle, "fitted": fitted}
 
 
 async def _ask(client: httpx.AsyncClient, sim: dict, limit: asyncio.Semaphore) -> dict:

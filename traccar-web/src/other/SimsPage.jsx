@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   AppBar,
@@ -12,12 +12,14 @@ import {
   DialogContentText,
   DialogTitle,
   IconButton,
+  MenuItem,
   Paper,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableRow,
+  TextField,
   Toolbar,
   Tooltip,
   Typography,
@@ -27,6 +29,7 @@ import {
 import { makeStyles } from 'tss-react/mui';
 import { useNavigate } from 'react-router-dom';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import UploadIcon from '@mui/icons-material/UploadFile';
 import BackIcon from '../common/components/BackIcon';
 
 const API = '/tacho/api/sims';
@@ -99,6 +102,10 @@ const SimsPage = () => {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [confirming, setConfirming] = useState(null);
+  const [spare, setSpare] = useState([]);
+  const [vehicles, setVehicles] = useState([]);
+  const [assigning, setAssigning] = useState(null);
+  const fileInputRef = useRef(null);
 
   const keyOf = (sim) => `${sim.fitted || 'camera'}:${sim.iccid || sim.msisdn}`;
 
@@ -106,6 +113,8 @@ const SimsPage = () => {
     try {
       const listing = await request('');
       setSims(listing.sims || []);
+      setSpare(listing.spare || []);
+      setVehicles(listing.vehicles || []);
       setWithoutSim(listing.without_sim || []);
       setPortalReady(Boolean(listing.portal_ready));
       setError('');
@@ -117,6 +126,50 @@ const SimsPage = () => {
   useEffect(() => {
     load();
   }, []);
+
+  const importList = async (file) => {
+    if (!file) {
+      return;
+    }
+    setNotice('');
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const response = await fetch(`${API}/import`, {
+        method: 'POST',
+        credentials: 'include',
+        body: form,
+      });
+      const answer = await response.json();
+      if (!response.ok) {
+        throw new Error(answer?.detail || `Import failed (${response.status})`);
+      }
+      setNotice(
+        `${answer.added} new SIM${answer.added === 1 ? '' : 's'} imported` +
+          `, ${answer.updated} updated` +
+          (answer.skipped_total ? `, ${answer.skipped_total} row(s) not understood.` : '.'),
+      );
+      setError('');
+      await load();
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const assignSim = async (iccid, deviceId, fitted) => {
+    try {
+      await request(`/${iccid}/assign`, {
+        method: 'POST',
+        body: JSON.stringify({ device_id: deviceId, fitted }),
+      });
+      setAssigning(null);
+      setNotice(deviceId ? 'SIM assigned.' : 'SIM taken out of the vehicle.');
+      setError('');
+      await load();
+    } catch (e) {
+      setError(e.message);
+    }
+  };
 
   const checkAll = async () => {
     setChecking(true);
@@ -221,6 +274,19 @@ const SimsPage = () => {
           <div className={classes.head}>
             <Typography variant="subtitle1">{`${sims.length} SIM${sims.length === 1 ? '' : 's'}`}</Typography>
             <div className={classes.spacer} />
+            <Button startIcon={<UploadIcon />} onClick={() => fileInputRef.current?.click()}>
+              Import SIM list
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.csv,text/csv"
+              hidden
+              onChange={(e) => {
+                importList(e.target.files?.[0]);
+                e.target.value = '';
+              }}
+            />
             <Button
               variant="contained"
               startIcon={checking ? <CircularProgress size={16} /> : <RefreshIcon />}
@@ -304,6 +370,59 @@ const SimsPage = () => {
           </Typography>
         </Paper>
 
+        {spare.length > 0 && (
+          <Paper variant="outlined" className={classes.card}>
+            <Typography variant="subtitle1" gutterBottom>
+              {`${spare.length} SIM${spare.length === 1 ? '' : 's'} not in a vehicle`}
+            </Typography>
+            <Box sx={{ overflowX: 'auto' }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Mobile number</TableCell>
+                    {!phone && <TableCell>ICCID</TableCell>}
+                    <TableCell>Status</TableCell>
+                    {!phone && <TableCell>Used</TableCell>}
+                    <TableCell align="right">&nbsp;</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {spare.map((sim) => (
+                    <TableRow key={sim.iccid}>
+                      <TableCell className={classes.code}>{sim.msisdn || '—'}</TableCell>
+                      {!phone && <TableCell className={classes.code}>{sim.iccid}</TableCell>}
+                      <TableCell>
+                        <Chip
+                          size="small"
+                          color={sim.status === 'Active' ? 'success' : 'default'}
+                          label={sim.status || 'unknown'}
+                        />
+                      </TableCell>
+                      {!phone && (
+                        <TableCell className={classes.figure}>
+                          {sim.data_mb == null ? '—' : `${sim.data_mb.toFixed(1)} MB`}
+                        </TableCell>
+                      )}
+                      <TableCell align="right">
+                        <Button
+                          size="small"
+                          onClick={() => setAssigning({ sim, deviceId: '', fitted: 'camera' })}
+                        >
+                          Assign
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Box>
+            <Typography variant="caption" color="text.secondary">
+              Imported from the provider&apos;s SIM list. Assigning one writes its number and ICCID
+              onto the vehicle.
+            </Typography>
+          </Paper>
+        )}
+
         {withoutSim.length > 0 && (
           <Paper variant="outlined" className={classes.card}>
             <Typography variant="subtitle1" gutterBottom>
@@ -321,6 +440,59 @@ const SimsPage = () => {
           </Paper>
         )}
       </div>
+
+      <Dialog
+        open={Boolean(assigning)}
+        onClose={() => setAssigning(null)}
+        fullScreen={phone}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>
+          Assign SIM
+          <Typography variant="body2" color="text.secondary">
+            {assigning?.sim?.msisdn || assigning?.sim?.iccid}
+          </Typography>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+            <TextField
+              select
+              size="small"
+              label="Vehicle"
+              value={assigning?.deviceId ?? ''}
+              onChange={(e) => setAssigning({ ...assigning, deviceId: e.target.value })}
+            >
+              {vehicles.map((vehicle) => (
+                <MenuItem key={vehicle.id} value={vehicle.id}>
+                  {vehicle.name}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              size="small"
+              label="Fitted to"
+              value={assigning?.fitted ?? 'camera'}
+              onChange={(e) => setAssigning({ ...assigning, fitted: e.target.value })}
+              helperText="Which unit on that vehicle this SIM is in"
+            >
+              <MenuItem value="camera">Camera</MenuItem>
+              <MenuItem value="tracker">Tracker</MenuItem>
+            </TextField>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAssigning(null)}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={!assigning?.deviceId}
+            onClick={() => assignSim(assigning.sim.iccid, assigning.deviceId, assigning.fitted)}
+          >
+            Assign
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={Boolean(confirming)} onClose={() => setConfirming(null)} fullScreen={phone}>
         <DialogTitle>
