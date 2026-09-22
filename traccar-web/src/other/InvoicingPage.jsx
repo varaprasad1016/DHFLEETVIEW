@@ -30,6 +30,7 @@ import ReceiptIcon from '@mui/icons-material/ReceiptLong';
 import DownloadIcon from '@mui/icons-material/Download';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import BackIcon from '../common/components/BackIcon';
+import downloadFile from '../common/util/downloadFile';
 
 const API = '/tacho/api/billing';
 
@@ -106,6 +107,7 @@ const InvoicingPage = () => {
   const [editing, setEditing] = useState(null);
   const [preview, setPreview] = useState(null);
   const [viewing, setViewing] = useState(null);
+  const [drawn, setDrawn] = useState(null);
   const [month, setMonth] = useState(() => dayjs().format('YYYY-MM'));
 
   const load = async () => {
@@ -385,14 +387,27 @@ const InvoicingPage = () => {
                       <Button
                         size="small"
                         startIcon={<ReceiptIcon />}
-                        onClick={() => setViewing(invoice)}
+                        onClick={() => {
+                          setViewing(invoice);
+                          setDrawn(null);
+                          act(`view-${invoice.id}`, async () =>
+                            setDrawn(await request(`/invoices/${invoice.id}`)),
+                          );
+                        }}
                       >
                         View
                       </Button>
                       <Button
                         size="small"
                         startIcon={<DownloadIcon />}
-                        href={`${API}/invoices/${invoice.id}/pdf?download=1`}
+                        onClick={() =>
+                          act(`pdf-${invoice.id}`, () =>
+                            downloadFile(
+                              `${API}/invoices/${invoice.id}/pdf?download=1`,
+                              `${invoice.number}.pdf`,
+                            ),
+                          )
+                        }
                       >
                         Download
                       </Button>
@@ -493,28 +508,111 @@ const InvoicingPage = () => {
             {`${viewing?.account} — ${viewing?.period}`}
           </Typography>
         </DialogTitle>
-        <DialogContent dividers sx={{ p: 0 }}>
-          {viewing && (
-            <iframe
-              title={`Invoice ${viewing.number}`}
-              src={`${API}/invoices/${viewing.id}/pdf`}
-              style={{ width: '100%', height: '100%', border: 0, display: 'block' }}
-            />
+        <DialogContent dividers>
+          {/* Drawn here rather than embedded as a PDF: a phone cannot display
+              one inside a page, and showed an empty box instead. */}
+          {!drawn && <Typography variant="body2">Loading the invoice…</Typography>}
+          {drawn && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                <Box>
+                  <Typography variant="overline" color="text.secondary">
+                    From
+                  </Typography>
+                  <Typography variant="body2">{drawn.company?.name}</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {drawn.company?.address}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {`VAT no. ${drawn.company?.vat_number}`}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="overline" color="text.secondary">
+                    Billed to
+                  </Typography>
+                  <Typography variant="body2">{drawn.account}</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {drawn.customer_email || '—'}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="overline" color="text.secondary">
+                    Issued
+                  </Typography>
+                  <Typography variant="body2">
+                    {dayjs(drawn.issued_on).format('D MMMM YYYY')}
+                  </Typography>
+                </Box>
+              </Box>
+              <Table size="small">
+                <TableBody>
+                  {drawn.lines.map((line) => (
+                    <TableRow key={line.description}>
+                      <TableCell>{line.description}</TableCell>
+                      <TableCell align="right" className={classes.figure}>
+                        {money(line.amount)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {!drawn.lines.length && (
+                    <TableRow>
+                      <TableCell>No chargeable vehicles this period</TableCell>
+                      <TableCell align="right">{money(0)}</TableCell>
+                    </TableRow>
+                  )}
+                  <TableRow>
+                    <TableCell align="right">Subtotal</TableCell>
+                    <TableCell align="right" className={classes.figure}>
+                      {money(drawn.net)}
+                    </TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell align="right">VAT</TableCell>
+                    <TableCell align="right" className={classes.figure}>
+                      {money(drawn.vat)}
+                    </TableCell>
+                  </TableRow>
+                  <TableRow>
+                    <TableCell align="right">
+                      <b>Total due</b>
+                    </TableCell>
+                    <TableCell align="right" className={classes.figure}>
+                      <b>{money(drawn.total)}</b>
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+              <Typography variant="caption" color="text.secondary">
+                {drawn.company?.terms}
+              </Typography>
+            </Box>
           )}
         </DialogContent>
         <DialogActions>
-          <Button
-            startIcon={<OpenInNewIcon />}
-            href={viewing ? `${API}/invoices/${viewing.id}/pdf` : undefined}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Open in a tab
-          </Button>
+          {/* Only offered on a desktop browser: opening a PDF in a new tab is
+              exactly what the app cannot do. */}
+          {!phone && (
+            <Button
+              startIcon={<OpenInNewIcon />}
+              href={viewing ? `${API}/invoices/${viewing.id}/pdf` : undefined}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open in a tab
+            </Button>
+          )}
           <Button
             variant="contained"
             startIcon={<DownloadIcon />}
-            href={viewing ? `${API}/invoices/${viewing.id}/pdf?download=1` : undefined}
+            onClick={() =>
+              act('pdf-view', () =>
+                downloadFile(
+                  `${API}/invoices/${viewing.id}/pdf?download=1`,
+                  `${viewing.number}.pdf`,
+                ),
+              )
+            }
           >
             Download
           </Button>

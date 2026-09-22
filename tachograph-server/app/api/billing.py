@@ -181,6 +181,37 @@ async def list_invoices(limit: int = Query(100, ge=1, le=500),
     return {"invoices": [_invoice_json(i) for i in rows]}
 
 
+@router.get("/invoices/{invoice_id}")
+async def one_invoice(invoice_id: str, principal: Principal = Depends(require_manager),
+                      session: AsyncSession = Depends(get_session)):
+    """One invoice and its lines, for showing on screen.
+
+    The PDF is the thing the customer receives, but a phone cannot display one
+    inside a page, so the screen draws the invoice from this instead.
+    """
+    _require_super(principal)
+    invoice = await session.get(Invoice, invoice_id)
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="No such invoice.")
+    lines = (await session.execute(
+        select(InvoiceLine).where(InvoiceLine.invoice_id == invoice.id)
+        .order_by(InvoiceLine.position))).scalars().all()
+    account = (await session.execute(
+        select(BillingAccount).where(
+            BillingAccount.user_id == invoice.user_id))).scalar_one_or_none()
+    return {
+        **_invoice_json(invoice),
+        "customer_email": account.send_to if account else None,
+        "company": {"name": settings.company_name, "address": settings.company_address,
+                    "vat_number": settings.company_vat_number,
+                    "number": settings.company_number,
+                    "terms": settings.invoice_payment_terms},
+        "lines": [{"description": line.description, "rate": float(line.rate),
+                   "days": line.days, "days_in_month": line.days_in_month,
+                   "amount": float(line.amount)} for line in lines],
+    }
+
+
 @router.get("/invoices/{invoice_id}/pdf")
 async def invoice_pdf_file(invoice_id: str, download: bool = False,
                            principal: Principal = Depends(require_manager),
