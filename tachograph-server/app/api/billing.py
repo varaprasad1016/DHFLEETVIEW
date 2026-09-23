@@ -14,8 +14,11 @@ POST   /api/billing/run                 raise the drafts for a month
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
@@ -33,6 +36,18 @@ from app.services.auth import Principal
 logger = logging.getLogger("tacho.invoices")
 
 router = APIRouter(prefix="/api/billing", tags=["billing"])
+# Downloads go through here. The phone's own download handler fetches the file
+# itself, with no session cookie of ours, so these links carry their own proof.
+public_router = APIRouter(prefix="/invoices", tags=["billing"])
+
+LINK_MINUTES = 15
+
+
+def _signature(invoice_id: str, expires: int) -> str:
+    """Proof that we issued this link, and when it stops working."""
+    message = f"{invoice_id}:{expires}".encode()
+    digest = hmac.new(settings.jwt_secret.encode(), message, hashlib.sha256).digest()
+    return base64.urlsafe_b64encode(digest).decode().rstrip("=")
 
 
 def _require_super(principal: Principal) -> None:
@@ -216,6 +231,51 @@ async def one_invoice(invoice_id: str, principal: Principal = Depends(require_ma
                       "days": line.days, "days_in_month": line.days_in_month,
                       "amount": float(line.amount)} for line in lines],
     }
+
+
+@router.get("/invoices/{invoice_id}/link")
+async def download_link(invoice_id: str, principal: Principal = Depends(require_manager),
+                        session: AsyncSession = Depends(get_session)):
+    """A link the phone itself can fetch, good for a few minutes.
+
+    Saving a file from inside the app cannot go through our own session: the
+    handler that does the saving makes its own request and carries none of our
+    cookies. So the link proves itself instead, and expires quickly.
+    """
+    _require_super(principal)
+    invoice = await session.get(Invoice, invoice_id)
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="No such invoice.")
+    expires = int((datetime.now(timezone.utc) + timedelta(minutes=LINK_MINUTES)).timestamp())
+    return {"url": f"/tacho/invoices/{invoice.id}/{expires}/"
+                   f"{_signature(str(invoice.id), expires)}/{invoice.number}.pdf",
+            "expires_in_minutes": LINK_MINUTES}
+
+
+@public_router.get("/{invoice_id}/{expires}/{signature}/{filename}")
+async def signed_pdf(invoice_id: str, expires: int, signature: str, filename: str,
+                     session: AsyncSession = Depends(get_session)):
+    """One invoice, to whoever holds a link we issued and has not sat on it."""
+    if not hmac.compare_digest(signature, _signature(invoice_id, expires)):
+        raise HTTPException(status_code=403, detail="That link is not valid.")
+    if datetime.now(timezone.utc).timestamp() > expires:
+        raise HTTPException(status_code=403, detail="That link has expired. Open it again.")
+
+    invoice = await session.get(Invoice, invoice_id)
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="No such invoice.")
+    lines = (await session.execute(
+        select(InvoiceLine).where(InvoiceLine.invoice_id == invoice.id)
+        .order_by(InvoiceLine.position))).scalars().all()
+    account = (await session.execute(
+        select(BillingAccount).where(
+            BillingAccount.user_id == invoice.user_id))).scalar_one_or_none()
+    pdf = invoice_pdf.render(invoice, lines, customer_name=invoice.account_name,
+                             customer_email=account.send_to if account else None)
+    # Named in the path as well as the header: a phone's download handler reads
+    # whichever it likes, and both say .pdf.
+    return Response(pdf, media_type="application/pdf", headers={
+        "Content-Disposition": f'attachment; filename="{invoice.number}.pdf"'})
 
 
 @router.get("/invoices/{invoice_id}/pdf")

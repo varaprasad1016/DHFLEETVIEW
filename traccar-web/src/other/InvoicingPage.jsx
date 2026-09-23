@@ -30,7 +30,6 @@ import ReceiptIcon from '@mui/icons-material/ReceiptLong';
 import DownloadIcon from '@mui/icons-material/Download';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import BackIcon from '../common/components/BackIcon';
-import downloadFile from '../common/util/downloadFile';
 
 const API = '/tacho/api/billing';
 
@@ -149,6 +148,12 @@ const InvoicingPage = () => {
       setEditing(null);
       setNotice('Account saved.');
       await load();
+    });
+
+  const savePdf = (invoice) =>
+    act(`pdf-${invoice.id}`, async () => {
+      const { url } = await request(`/invoices/${invoice.id}/link`);
+      window.location.href = url;
     });
 
   const showPreview = (account) =>
@@ -401,14 +406,7 @@ const InvoicingPage = () => {
                       <Button
                         size="small"
                         startIcon={<DownloadIcon />}
-                        onClick={() =>
-                          act(`pdf-${invoice.id}`, () =>
-                            downloadFile(
-                              `${API}/invoices/${invoice.id}/pdf?download=1`,
-                              `${invoice.number}.pdf`,
-                            ),
-                          )
-                        }
+                        onClick={() => savePdf(invoice)}
                       >
                         Download
                       </Button>
@@ -603,18 +601,7 @@ const InvoicingPage = () => {
               Open in a tab
             </Button>
           )}
-          <Button
-            variant="contained"
-            startIcon={<DownloadIcon />}
-            onClick={() =>
-              act('pdf-view', () =>
-                downloadFile(
-                  `${API}/invoices/${viewing.id}/pdf?download=1`,
-                  `${viewing.number}.pdf`,
-                ),
-              )
-            }
-          >
+          <Button variant="contained" startIcon={<DownloadIcon />} onClick={() => savePdf(viewing)}>
             Download
           </Button>
           <Button onClick={() => setViewing(null)}>Close</Button>
