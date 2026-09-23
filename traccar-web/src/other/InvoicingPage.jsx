@@ -19,6 +19,7 @@ import {
   TableRow,
   TextField,
   Toolbar,
+  Tooltip,
   Typography,
   useMediaQuery,
   useTheme,
@@ -28,6 +29,7 @@ import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import ReceiptIcon from '@mui/icons-material/ReceiptLong';
 import DownloadIcon from '@mui/icons-material/Download';
+import SendIcon from '@mui/icons-material/Send';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import BackIcon from '../common/components/BackIcon';
 
@@ -147,6 +149,16 @@ const InvoicingPage = () => {
       await request(`/accounts/${userId}`, { method: 'PUT', body: JSON.stringify(rest) });
       setEditing(null);
       setNotice('Account saved.');
+      await load();
+    });
+
+  const sendInvoice = (invoice) =>
+    act(`send-${invoice.id}`, async () => {
+      const answer = await request(`/invoices/${invoice.id}/send`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      setNotice(`${answer.number} emailed to ${answer.sent_to}.`);
       await load();
     });
 
@@ -379,15 +391,17 @@ const InvoicingPage = () => {
                       {money(invoice.total)}
                     </TableCell>
                     <TableCell>
-                      <Chip
-                        size="small"
-                        color={statusColour[invoice.status] || 'default'}
-                        label={
-                          invoice.status === 'sent' && invoice.sent_at
-                            ? `sent ${dayjs(invoice.sent_at).format('D MMM')}`
-                            : invoice.status
-                        }
-                      />
+                      <Tooltip title={invoice.detail || ''}>
+                        <Chip
+                          size="small"
+                          color={statusColour[invoice.status] || 'default'}
+                          label={
+                            invoice.status === 'sent' && invoice.sent_at
+                              ? `sent ${dayjs(invoice.sent_at).format('D MMM')}`
+                              : invoice.status
+                          }
+                        />
+                      </Tooltip>
                     </TableCell>
                     <TableCell align="right">
                       <Button
@@ -410,6 +424,16 @@ const InvoicingPage = () => {
                       >
                         Download
                       </Button>
+                      {invoice.status !== 'sent' && (
+                        <Button
+                          size="small"
+                          startIcon={<SendIcon />}
+                          disabled={busy === `send-${invoice.id}`}
+                          onClick={() => sendInvoice(invoice)}
+                        >
+                          {busy === `send-${invoice.id}` ? 'Sending…' : 'Send'}
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

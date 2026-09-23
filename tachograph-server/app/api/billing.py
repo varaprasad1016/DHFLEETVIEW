@@ -30,7 +30,7 @@ from app.api.deps import require_manager
 from app.config import settings
 from app.database import get_session
 from app.models.billing import BillingAccount, Invoice, InvoiceLine
-from app.services import auth, invoice_pdf, invoicing, modules
+from app.services import auth, invoice_pdf, invoicing, mailer, modules
 from app.services.auth import Principal
 
 logger = logging.getLogger("tacho.invoices")
@@ -231,6 +231,76 @@ async def one_invoice(invoice_id: str, principal: Principal = Depends(require_ma
                       "days": line.days, "days_in_month": line.days_in_month,
                       "amount": float(line.amount)} for line in lines],
     }
+
+
+def _email_body(invoice: Invoice, account: BillingAccount | None) -> str:
+    """What the customer reads. The invoice itself is attached."""
+    period = invoice_pdf.invoice_period(invoice)
+    return (
+        f"Dear {invoice.account_name},\n\n"
+        f"Please find attached invoice {invoice.number} for {period}, "
+        f"for {invoice_pdf.money(invoice.total)} including VAT.\n\n"
+        f"{settings.invoice_payment_terms}\n\n"
+        f"If anything on it needs explaining, reply to this email and we will go "
+        f"through it with you.\n\n"
+        f"{settings.company_name}\n"
+    )
+
+
+@router.post("/invoices/{invoice_id}/send")
+async def send_invoice(invoice_id: str, body: dict = Body(default={}),
+                       principal: Principal = Depends(require_manager),
+                       session: AsyncSession = Depends(get_session)):
+    """Email one invoice to the customer, with the PDF attached.
+
+    Refuses while anything is still a placeholder: a wrong figure or a
+    placeholder VAT number reaching a customer is not something that can be
+    taken back.
+    """
+    _require_super(principal)
+    missing = invoicing.not_ready()
+    if missing and not body.get("anyway"):
+        raise HTTPException(status_code=400,
+                            detail="Not ready to send: " + "; ".join(missing))
+
+    invoice = await session.get(Invoice, invoice_id)
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="No such invoice.")
+
+    account = (await session.execute(
+        select(BillingAccount).where(
+            BillingAccount.user_id == invoice.user_id))).scalar_one_or_none()
+    to = (body.get("to") or invoice.sent_to or (account.send_to if account else None) or "").strip()
+    if not mailer.valid(to):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{to or 'No address'} is not an email address. Set an invoicing "
+                   "email on the account, or give one here.")
+
+    lines = (await session.execute(
+        select(InvoiceLine).where(InvoiceLine.invoice_id == invoice.id)
+        .order_by(InvoiceLine.position))).scalars().all()
+    pdf = invoice_pdf.render(invoice, lines, customer_name=invoice.account_name,
+                             customer_email=to)
+
+    try:
+        await mailer.send(
+            to, f"Invoice {invoice.number} from {settings.company_name}",
+            _email_body(invoice, account),
+            [(f"{invoice.number}.pdf", pdf, "pdf")])
+    except mailer.MailError as exc:
+        invoice.status, invoice.detail = "failed", str(exc)[:500]
+        await session.commit()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    invoice.status, invoice.sent_to = "sent", to
+    invoice.sent_at = datetime.now(timezone.utc)
+    invoice.detail = None
+    await session.commit()
+
+    logger.info("%s emailed %s to %s", principal.email, invoice.number, to)
+    return {"number": invoice.number, "sent_to": to,
+            "sent_at": invoice.sent_at.isoformat()}
 
 
 @router.get("/invoices/{invoice_id}/link")

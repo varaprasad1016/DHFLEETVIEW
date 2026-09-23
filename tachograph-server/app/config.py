@@ -72,6 +72,11 @@ class Settings(BaseSettings):
     smtp_from: str = "invoices@dhfleetview.co.uk"
     smtp_from_name: str = "D&H Group Ltd"
     smtp_starttls: bool = True
+    smtp_reply_to: str = ""
+    # Invoices go out by themselves on the 1st once this is set. It stays off
+    # until the rates, VAT number and mail server are real - see
+    # invoicing.not_ready(), which is checked before anything is sent.
+    invoice_auto_send: bool = False
     # Photos of DVR labels, and where CNMS keeps its own database details.
     dvr_label_dir: str = "D:/DHFleetViewData/tacho/labels"
     cnms_database_ini: str = "D:/CMSServer/Database.ini"
