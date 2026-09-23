@@ -111,6 +111,8 @@ const InvoicingPage = () => {
   const [viewing, setViewing] = useState(null);
   const [drawn, setDrawn] = useState(null);
   const [month, setMonth] = useState(() => dayjs().format('YYYY-MM'));
+  const [mail, setMail] = useState(null);
+  const [testTo, setTestTo] = useState('');
 
   const load = async () => {
     try {
@@ -119,6 +121,12 @@ const InvoicingPage = () => {
         request('/invoices?limit=200'),
       ]);
       setOverview(summary);
+      try {
+        const response = await fetch('/tacho/api/mail/settings', { credentials: 'include' });
+        setMail(response.ok ? await response.json() : null);
+      } catch {
+        setMail(null);
+      }
       setInvoices(listing.invoices || []);
       setError('');
     } catch (e) {
@@ -150,6 +158,21 @@ const InvoicingPage = () => {
       setEditing(null);
       setNotice('Account saved.');
       await load();
+    });
+
+  const sendTest = () =>
+    act('test', async () => {
+      const response = await fetch('/tacho/api/mail/test', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: testTo }),
+      });
+      const answer = await response.json();
+      if (!response.ok) {
+        throw new Error(answer?.detail || 'The test message could not be sent.');
+      }
+      setNotice(`Test message sent to ${answer.sent_to} from ${answer.sent_from}.`);
     });
 
   const sendInvoice = (invoice) =>
@@ -246,6 +269,36 @@ const InvoicingPage = () => {
             </ul>
           </Alert>
         )}
+
+        <Paper variant="outlined" className={classes.card}>
+          <Typography variant="subtitle1" gutterBottom>
+            Sending
+          </Typography>
+          {mail?.ready ? (
+            <Typography variant="body2" color="text.secondary" gutterBottom>
+              {`Everything the platform emails goes out as ${mail.from_name ? `${mail.from_name} <${mail.from}>` : mail.from}, through ${mail.host}.`}
+              {mail.reply_to ? ` Replies go to ${mail.reply_to}.` : ''}
+            </Typography>
+          ) : (
+            <Typography variant="body2" color="text.secondary" gutterBottom>
+              No mail server is set up yet, so nothing can be emailed. Set SMTP_HOST, SMTP_USERNAME,
+              SMTP_PASSWORD and SMTP_FROM in the server&apos;s .env and restart the tacho-api task.
+            </Typography>
+          )}
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+            <TextField
+              size="small"
+              label="Send a test to"
+              value={testTo}
+              onChange={(e) => setTestTo(e.target.value)}
+              placeholder="you@example.com"
+              sx={{ minWidth: 240 }}
+            />
+            <Button onClick={sendTest} disabled={!mail?.ready || busy === 'test'}>
+              {busy === 'test' ? 'Sending…' : 'Send test'}
+            </Button>
+          </Box>
+        </Paper>
 
         <Paper variant="outlined" className={classes.card}>
           <div className={classes.head}>

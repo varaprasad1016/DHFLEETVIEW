@@ -32,6 +32,7 @@ from app.api.driver_accounts import accounts_router as driver_accounts_router, a
 from app.api.bridge import public_router as bridge_public_router, router as bridge_router
 from app.api.dvr import router as dvr_router
 from app.api.billing import public_router as billing_public_router, router as billing_router
+from app.api.mail import router as mail_router
 from app.api.sims import router as sims_router
 from app.api.sms_inbound import public_router as sms_public_router, router as sms_router
 from app.services import sms_sender
@@ -81,6 +82,7 @@ app.include_router(bridge_router)
 app.include_router(dvr_router)
 app.include_router(billing_router)
 app.include_router(billing_public_router)
+app.include_router(mail_router)
 app.include_router(sims_router)
 app.include_router(sms_router)
 app.include_router(sms_public_router)
