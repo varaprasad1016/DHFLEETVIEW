@@ -45,6 +45,47 @@ def money(amount: Decimal) -> str:
     return f"£{Decimal(amount):,.2f}"
 
 
+# What a charge is called on the paper, rather than what it is called in code.
+SERVICE_NAMES = {"tracking": "Vehicle tracking", "camera": "Camera system",
+                 "tachograph": "Tachograph compliance"}
+
+
+def group(lines) -> list[dict]:
+    """Charges by service rather than by vehicle.
+
+    A customer with forty vehicles does not want forty lines; they want to see
+    what each service costs and how many they are paying for. Vehicles charged
+    for part of the month cannot be merged with whole-month ones - the amounts
+    differ - so those become their own line, which is also the honest place to
+    explain the odd figure.
+    """
+    buckets: dict[tuple, dict] = {}
+    for line in lines:
+        part_month = line.days < line.days_in_month
+        key = (line.item, line.rate, line.days if part_month else 0)
+        bucket = buckets.setdefault(key, {
+            "item": line.item, "rate": Decimal(line.rate), "quantity": 0,
+            "amount": Decimal("0.00"), "days": line.days,
+            "days_in_month": line.days_in_month, "part_month": part_month,
+        })
+        bucket["quantity"] += 1
+        bucket["amount"] += Decimal(line.amount)
+
+    ordered = sorted(buckets.values(),
+                     key=lambda b: (list(SERVICE_NAMES).index(b["item"])
+                                    if b["item"] in SERVICE_NAMES else 99,
+                                    b["part_month"], -float(b["rate"])))
+    for bucket in ordered:
+        name = SERVICE_NAMES.get(bucket["item"], bucket["item"].title())
+        vehicles = f"{bucket['quantity']} vehicle{'' if bucket['quantity'] == 1 else 's'}"
+        if bucket["part_month"]:
+            bucket["description"] = (f"{name} — {vehicles}, "
+                                     f"{bucket['days']} of {bucket['days_in_month']} days")
+        else:
+            bucket["description"] = f"{name} — {vehicles}"
+    return ordered
+
+
 def _logo():
     """The company mark, at a sensible width, or nothing if it is not there."""
     path = Path(settings.invoice_logo_path)
@@ -128,10 +169,10 @@ def render(invoice, lines, *, customer_name: str, customer_email: str | None = N
     rows = [[Paragraph("<b>Description</b>", SMALL),
              Paragraph("<b>Rate</b>", ParagraphStyle("h", parent=SMALL, alignment=2)),
              Paragraph("<b>Amount</b>", ParagraphStyle("h", parent=SMALL, alignment=2))]]
-    for line in lines:
-        rows.append([Paragraph(line.description, BODY),
-                     Paragraph(f"{money(line.rate)}/mo", RIGHT),
-                     Paragraph(money(line.amount), RIGHT)])
+    for charge in group(lines):
+        rows.append([Paragraph(charge["description"], BODY),
+                     Paragraph(f"{money(charge['rate'])}/mo", RIGHT),
+                     Paragraph(money(charge["amount"]), RIGHT)])
     if len(rows) == 1:
         rows.append([Paragraph("No chargeable vehicles this period", SMALL),
                      Paragraph("", RIGHT), Paragraph(money(Decimal("0.00")), RIGHT)])

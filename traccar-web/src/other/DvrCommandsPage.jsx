@@ -31,6 +31,20 @@ import BackIcon from '../common/components/BackIcon';
 
 const API = '/tacho/api/dvr';
 
+// A reply comes back to the SIM provider, not to us, and is posted on to
+// /tacho/sms/inbound. It is read from there rather than from the command queue.
+const INBOUND = '/tacho/api/sms/inbound';
+
+// Numbers arrive from the network in international form; ours are stored as
+// 07..., so both are reduced to the same thing before matching.
+const sameNumber = (a, b) => {
+  const plain = (value) => {
+    const digits = String(value || '').replace(/\D/g, '');
+    return digits.startsWith('44') ? `0${digits.slice(2)}` : digits;
+  };
+  return Boolean(a) && plain(a) === plain(b);
+};
+
 const request = async (path, init = {}) => {
   const response = await fetch(`${API}${path}`, {
     credentials: 'include',
@@ -101,6 +115,7 @@ const DvrCommandsPage = () => {
   );
   const [number, setNumber] = useState('');
   const [messages, setMessages] = useState([]);
+  const [replies, setReplies] = useState([]);
   const [stalled, setStalled] = useState(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -112,6 +127,7 @@ const DvrCommandsPage = () => {
         request('/commands'),
         request('/messages?limit=50'),
       ]);
+      await loadReplies();
       setCommands(saved.commands || []);
       setGatewayNumber(saved.gateway_number || '');
       setSelected(Object.fromEntries((saved.commands || []).map((c) => [c.id, true])));
@@ -130,6 +146,7 @@ const DvrCommandsPage = () => {
         const history = await request('/messages?limit=50');
         setMessages(history.messages || []);
         setStalled(history.nothing_is_collecting ? history.waiting_since : null);
+        await loadReplies();
       } catch {
         // leave the last view in place
       }
@@ -152,6 +169,21 @@ const DvrCommandsPage = () => {
     numberFilledForRef.current = deviceId;
     setNumber(numberOf(device));
   }, [deviceId, cameraDevices]);
+
+  const loadReplies = async () => {
+    try {
+      const response = await fetch(`${INBOUND}?limit=50`, { credentials: 'include' });
+      if (response.ok) {
+        const answer = await response.json();
+        setReplies((answer.inbound || []).filter((item) => item.kind === 'reply'));
+      }
+    } catch {
+      // the replies are extra; the page is still useful without them
+    }
+  };
+
+  const vehicleFor = (msisdn) =>
+    cameraDevices.find((device) => sameNumber(numberOf(device), msisdn))?.name;
 
   const act = async (key, action) => {
     setBusy(key);
@@ -340,6 +372,41 @@ const DvrCommandsPage = () => {
               </IconButton>
             </div>
           ))}
+        </Paper>
+
+        <Paper variant="outlined" className={classes.card}>
+          <Typography variant="subtitle1" gutterBottom>
+            Replies from the cameras
+          </Typography>
+          {replies.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              Nothing yet. A camera answers to the SIM provider rather than to a phone, and they
+              pass it on to us — so replies appear here once that is switched on for the account.
+            </Typography>
+          ) : (
+            <TableContainer>
+              <Table size="small">
+                <TableBody>
+                  {replies
+                    .filter((reply) => !deviceId || sameNumber(reply.msisdn, number))
+                    .map((reply) => (
+                      <TableRow key={reply.id}>
+                        <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                          {dayjs(reply.happened_at || reply.received_at).format('D MMM HH:mm')}
+                        </TableCell>
+                        <TableCell>{vehicleFor(reply.msisdn) || reply.msisdn}</TableCell>
+                        <TableCell className={classes.mono}>{reply.body}</TableCell>
+                      </TableRow>
+                    ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+          {deviceId && replies.length > 0 && (
+            <Typography variant="caption" color="text.secondary">
+              Showing replies from the chosen vehicle only.
+            </Typography>
+          )}
         </Paper>
 
         <Paper variant="outlined" className={classes.card}>
