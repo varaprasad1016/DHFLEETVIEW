@@ -14,7 +14,7 @@ from __future__ import annotations
 import io
 import logging
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 from reportlab.lib import colors
@@ -27,6 +27,8 @@ from reportlab.platypus import (Image, Paragraph, SimpleDocTemplate, Spacer, Tab
 from app.config import settings
 
 logger = logging.getLogger("tacho.invoices")
+
+PENNY = Decimal("0.01")
 
 INK = colors.HexColor("#1a1f27")
 MUTED = colors.HexColor("#5d6874")
@@ -77,12 +79,14 @@ def group(lines) -> list[dict]:
                                     b["part_month"], -float(b["rate"])))
     for bucket in ordered:
         name = SERVICE_NAMES.get(bucket["item"], bucket["item"].title())
-        vehicles = f"{bucket['quantity']} vehicle{'' if bucket['quantity'] == 1 else 's'}"
-        if bucket["part_month"]:
-            bucket["description"] = (f"{name} — {vehicles}, "
-                                     f"{bucket['days']} of {bucket['days_in_month']} days")
-        else:
-            bucket["description"] = f"{name} — {vehicles}"
+        # Every vehicle in a bucket was charged the same, so the amount divides
+        # exactly: the line reads as quantity times unit price and adds up.
+        bucket["unit"] = (bucket["amount"] / bucket["quantity"]).quantize(
+            PENNY, rounding=ROUND_HALF_UP)
+        bucket["description"] = (
+            f"{name} — {bucket['days']} of {bucket['days_in_month']} days "
+            f"at {money(bucket['rate'])}/month"
+            if bucket["part_month"] else f"{name} — {money(bucket['rate'])}/month")
     return ordered
 
 
@@ -166,18 +170,22 @@ def render(invoice, lines, *, customer_name: str, customer_email: str | None = N
     story += [parties, Spacer(1, 16)]
 
     # The charges.
+    heading = ParagraphStyle("h", parent=SMALL, alignment=2)
     rows = [[Paragraph("<b>Description</b>", SMALL),
-             Paragraph("<b>Rate</b>", ParagraphStyle("h", parent=SMALL, alignment=2)),
-             Paragraph("<b>Amount</b>", ParagraphStyle("h", parent=SMALL, alignment=2))]]
+             Paragraph("<b>Vehicles</b>", heading),
+             Paragraph("<b>Each</b>", heading),
+             Paragraph("<b>Amount</b>", heading)]]
     for charge in group(lines):
         rows.append([Paragraph(charge["description"], BODY),
-                     Paragraph(f"{money(charge['rate'])}/mo", RIGHT),
+                     Paragraph(str(charge["quantity"]), RIGHT),
+                     Paragraph(money(charge["unit"]), RIGHT),
                      Paragraph(money(charge["amount"]), RIGHT)])
     if len(rows) == 1:
         rows.append([Paragraph("No chargeable vehicles this period", SMALL),
-                     Paragraph("", RIGHT), Paragraph(money(Decimal("0.00")), RIGHT)])
+                     Paragraph("", RIGHT), Paragraph("", RIGHT),
+                     Paragraph(money(Decimal("0.00")), RIGHT)])
 
-    charges = Table(rows, colWidths=[110 * mm, 32 * mm, 32 * mm], repeatRows=1)
+    charges = Table(rows, colWidths=[92 * mm, 22 * mm, 30 * mm, 30 * mm], repeatRows=1)
     charges.setStyle(TableStyle([
         ("LINEBELOW", (0, 0), (-1, 0), 0.8, INK),
         ("LINEBELOW", (0, 1), (-1, -2), 0.4, RULE),

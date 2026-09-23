@@ -209,7 +209,8 @@ async def one_invoice(invoice_id: str, principal: Principal = Depends(require_ma
         # Grouped by service, exactly as the customer's PDF reads. The
         # per-vehicle workings are kept below for anyone checking a figure.
         "lines": [{"description": charge["description"], "rate": float(charge["rate"]),
-                   "quantity": charge["quantity"], "amount": float(charge["amount"])}
+                   "quantity": charge["quantity"], "unit": float(charge["unit"]),
+                   "amount": float(charge["amount"])}
                   for charge in invoice_pdf.group(lines)],
         "vehicles": [{"description": line.description, "rate": float(line.rate),
                       "days": line.days, "days_in_month": line.days_in_month,
