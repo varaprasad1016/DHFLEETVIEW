@@ -56,6 +56,44 @@
   .tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;text-transform:uppercase;}
   .compliant{background:var(--ok-soft);color:var(--ok);} .due_soon{background:var(--warn-soft);color:var(--warn);}
   .overdue{background:var(--bad-soft);color:var(--bad);} .no_data{background:var(--card2);color:var(--mut);}
+  /* Driver calendar: the depot's fortnight on one grid. */
+  .cal-wrap{overflow-x:auto;}
+  .cal{border-collapse:separate;border-spacing:2px;width:100%;}
+  .cal th,.cal td{font-size:12px;}
+  .cal th.cal-name{position:sticky;left:0;background:var(--card);z-index:2;text-align:left;
+    min-width:170px;padding:4px 8px 4px 2px;vertical-align:middle;}
+  .cal-driver{display:block;font-weight:700;color:var(--fg);}
+  .cal th.cal-name .note{font-size:11px;font-weight:400;}
+  .cal th.cal-h{padding:2px;font-weight:600;color:var(--mut);line-height:1.15;min-width:38px;}
+  .cal th.cal-h span{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.04em;}
+  .cal th.cal-h b{display:block;font-size:13px;color:var(--fg);}
+  .cal th.cal-h.cal-wknd{opacity:.65;}
+  .cal th.cal-h.cal-today b{color:var(--acc);}
+  .cal-cell{position:relative;height:38px;border-radius:6px;text-align:center;vertical-align:middle;
+    border:1px solid var(--line);cursor:default;}
+  .cal-v{font-weight:700;font-size:11.5px;}
+  .cal-worked{background:var(--ok-soft);color:var(--ok);}
+  .cal-rested{background:var(--card2);color:var(--mut);}
+  /* A day with no record is drawn as a hole, not a quiet blank: it is the
+     thing the office has to chase. */
+  .cal-no_data{background:repeating-linear-gradient(45deg,transparent,transparent 4px,var(--line) 4px,var(--line) 5px);
+    color:var(--mut);border-style:dashed;}
+  .cal-future{background:none;border-style:dotted;opacity:.45;}
+  .cal-inf{outline:2px solid var(--warn);outline-offset:-2px;}
+  .cal-inf.cal-very_serious{outline-color:var(--bad);}
+  .cal-inf.cal-minor{outline-color:var(--acc);}
+  .cal-dot{position:absolute;top:-4px;right:-4px;min-width:14px;height:14px;border-radius:999px;
+    background:var(--bad);color:#fff;font-size:9px;font-style:normal;font-weight:700;line-height:14px;padding:0 3px;}
+  .cal td.cal-tot,.cal th.cal-tot{min-width:78px;padding:2px 6px;text-align:right;font-weight:700;color:var(--fg);}
+  .cal th.cal-tot{font-size:10px;font-weight:600;color:var(--mut);text-transform:uppercase;line-height:1.15;}
+  .cal td.cal-tot .note{display:block;font-size:10px;font-weight:400;}
+  .cal-warn{color:var(--warn);} .cal-bad{color:var(--bad);}
+  .cal-summary{display:flex;flex-wrap:wrap;gap:8px 18px;margin-bottom:10px;font-size:13px;color:var(--mut);}
+  .cal-summary b{color:var(--fg);font-size:15px;}
+  .cal-key{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:10px;font-size:11.5px;color:var(--mut);align-items:center;}
+  .cal-key span{display:flex;align-items:center;gap:5px;}
+  .cal-key i{display:inline-block;width:16px;height:16px;border-radius:4px;}
+  @media(max-width:700px){ .cal th.cal-name{min-width:120px;} }
   .sev{font-size:11px;font-weight:700;text-transform:uppercase;}
   .sev.serious{color:var(--warn);} .sev.very_serious{color:var(--bad);} .sev.minor{color:var(--acc);}
   .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px;}
@@ -100,7 +138,8 @@
   <div id="app" class="hidden">
     <div class="kpis" id="kpis"></div>
     <div class="tabs">
-      <button data-t="compliance" class="on">Download status</button>
+      <button data-t="calendar" class="on">Calendar</button>
+      <button data-t="compliance">Download status</button>
       <button data-t="infringements">Infringements</button>
       <button data-t="timeline">Timeline</button>
       <button data-t="report">Weekly report</button>
@@ -118,7 +157,7 @@
   const pagePrefix=pagePath==='\/hours'?'':pagePath.slice(0,pagePath.lastIndexOf('/'));
   const apiUrl=(path)=>`${pagePrefix}${path}`;
   const api=(path,options)=>fetch(apiUrl(path),options);
-  let tab='compliance';
+  let tab='calendar';
   const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
   const hrs=m=>m==null?'':Math.floor(m/60)+'h'+String(m%60).padStart(2,'0');
   const dt=s=>s?new Date(s).toLocaleString('en-GB',{timeZone:'Europe/London'}):'';
@@ -143,6 +182,111 @@
       <div class="kpi"><b>${s.open_infringements}</b><span>Open infringements</span></div>
       <div class="kpi"><b style="color:${(s.drivers_overdue+s.vehicles_overdue)?'var(--warn)':'var(--ok)'}">${s.drivers_overdue+s.vehicles_overdue}</b><span>Downloads overdue</span></div>
       <div class="kpi"><b>${s.archived_files}</b><span>Archived files</span></div>`;
+  }
+
+  // --- Calendar: the whole depot, a row per driver, a cell per day ----------
+  let calWeeks=2, calEnd='';
+  const DAYNAMES=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const calDay=iso=>{const [y,m,d]=iso.split('-').map(Number);return new Date(Date.UTC(y,m-1,d));};
+
+  function calCell(c,today){
+    // The empty cell is the one that matters: a day with no record is either a
+    // card not handed in or a driver who was not there, and the office has to
+    // know which. So it is drawn as a gap, not as a quiet blank.
+    const future=c.date>today;
+    let cls='cal-cell cal-'+c.state+(future?' cal-future':'');
+    if(c.infringements)cls+=' cal-inf cal-'+(c.worst||'serious');
+    const bits=[];
+    if(c.state==='worked'){
+      bits.push(`${hrs(c.working)}`);
+      if(c.start)bits.push(`${c.start}–${c.end||''}`);
+      if(c.shift!=null)bits.push(`shift ${hrs(c.shift)}`);
+      if(c.night)bits.push('night work');
+    } else if(c.state==='rested'){ bits.push('Rest — card shows no work'); }
+    else if(future){ bits.push('Not yet'); }
+    else { bits.push('No record — card not downloaded, or not at work'); }
+    if(c.infringements)bits.push(`${c.infringements} infringement${c.infringements===1?'':'s'}`);
+    const label=c.state==='worked'?hrs(c.working):(c.state==='rested'?'R':(future?'':'?'));
+    const mark=c.infringements?`<i class="cal-dot">${c.infringements}</i>`:'';
+    return `<td class="${cls}" title="${esc(calDay(c.date).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'short',timeZone:'UTC'}))} — ${esc(bits.join(' · '))}">
+      <span class="cal-v">${label}</span>${mark}</td>`;
+  }
+
+  async function renderCalendar(){
+    const q=new URLSearchParams({weeks:String(calWeeks)});
+    if(calEnd)q.set('end',calEnd);
+    const {response,data}=await jsonResponse(await api('/api/tacho/calendar?'+q,{cache:'no-store'}));
+    if(!response.ok){ $('view').innerHTML=`<div class="card"><div class="empty">${esc(errorText(data,'Could not build the calendar.'))}</div></div>`; return; }
+
+    const dates=(data.drivers[0]?.cells||[]).map(c=>c.date);
+    const controls=`<div class="row report-controls" style="margin-bottom:10px">
+      <div><label>Show</label><select id="cw">
+        ${[1,2,4,6].map(w=>`<option value="${w}"${w===calWeeks?' selected':''}>${w} week${w===1?'':'s'}</option>`).join('')}
+      </select></div>
+      <div><label>Week ending</label><input type="date" id="ce" value="${esc(calEnd||data.to)}"></div>
+      <div style="align-self:flex-end"><button class="btn small" id="cgo">Show</button>
+      <button class="btn small" id="cnow">This week</button></div>
+      <div class="note" style="align-self:center">Hover a cell for the day's detail. A <b>?</b> is a day with
+        no record at all — the one to chase.</div>
+    </div>`;
+
+    if(!data.drivers.length){
+      $('view').innerHTML=`<div class="card">${controls}<div class="empty">No driver-card data in this period.</div></div>`;
+      wireCalendar(); return;
+    }
+
+    const t=data.totals;
+    const summary=`<div class="cal-summary">
+      <span><b>${t.drivers}</b> driver${t.drivers===1?'':'s'}</span>
+      <span class="${t.without_a_record?'cal-warn':''}"><b>${t.without_a_record}</b> with a missing record</span>
+      <span class="${t.infringements?'cal-bad':''}"><b>${t.infringements}</b> infringement${t.infringements===1?'':'s'}</span>
+      <span><b>${t.worked_days}</b> day${t.worked_days===1?'':'s'} worked</span>
+    </div>`;
+
+    let head='<tr><th class="cal-name">Driver</th>';
+    dates.forEach(d=>{
+      const day=calDay(d), dow=DAYNAMES[(day.getUTCDay()+6)%7];
+      const weekend=day.getUTCDay()===0||day.getUTCDay()===6;
+      head+=`<th class="cal-h${weekend?' cal-wknd':''}${d===data.today?' cal-today':''}">
+        <span>${dow}</span><b>${day.getUTCDate()}</b></th>`;
+    });
+    head+='<th class="cal-tot">Left this<br>week</th><th class="cal-tot">Last<br>download</th></tr>';
+
+    let body='';
+    data.drivers.forEach(dr=>{
+      // What the driver may still work: the hard weekly limit, unless holding
+      // the rolling average is tighter - which is the figure a planner cannot
+      // work out in their head.
+      const tight=dr.average_headroom!=null&&dr.average_headroom<dr.available_this_week;
+      const left=tight?dr.average_headroom:dr.available_this_week;
+      const leftText=left<0?`${hrs(-left)} over`:hrs(left);
+      body+=`<tr><th class="cal-name">
+          <span class="cal-driver">${esc(dr.name)}</span>
+          <span class="note">${dr.worked_days} worked${dr.days_without_a_record?` · <b class="cal-warn">${dr.days_without_a_record} missing</b>`:''}${dr.average!=null?` · avg ${hrs(dr.average)}`:''}</span>
+        </th>`;
+      dr.cells.forEach(c=>{ body+=calCell(c,data.today); });
+      body+=`<td class="cal-tot ${left<0?'cal-bad':(tight?'cal-warn':'')}" title="${esc(tight?`Limited by ${dr.limited_by}`:'Limited by the 60-hour week')}">
+          ${leftText}<span class="note">${tight?'average':'60h week'}</span></td>
+        <td class="cal-tot ${dr.days_since_download==null||dr.days_since_download>28?'cal-warn':''}">
+          ${dr.last_download?dd(dr.last_download):'never'}
+          <span class="note">${dr.days_since_download==null?'':dr.days_since_download+'d ago'}</span></td></tr>`;
+    });
+
+    $('view').innerHTML=`<div class="card">${controls}${summary}
+      <div class="cal-wrap"><table class="cal">${head}${body}</table></div>
+      <div class="cal-key">
+        <span><i class="cal-cell cal-worked"></i> worked</span>
+        <span><i class="cal-cell cal-rested"></i> rest on the card</span>
+        <span><i class="cal-cell cal-no_data"></i> no record</span>
+        <span><i class="cal-cell cal-inf cal-serious"></i> infringement</span>
+      </div></div>`;
+    wireCalendar();
+  }
+
+  function wireCalendar(){
+    $('cgo').onclick=()=>{ calWeeks=+$('cw').value; calEnd=$('ce').value; renderCalendar(); };
+    $('cnow').onclick=()=>{ calEnd=''; renderCalendar(); };
+    $('cw').onchange=()=>{ calWeeks=+$('cw').value; calEnd=$('ce').value; renderCalendar(); };
   }
 
   async function renderCompliance(){
@@ -392,12 +536,35 @@
       <div><label>From</label><input type="date" id="rf" value="${repFrom}"></div>
       <div><label>To</label><input type="date" id="rt" value="${repTo}"></div>
       <div style="align-self:flex-end"><button class="btn small" id="rgo">Show</button>
-      <a class="btn small" id="rpdf" href="${apiUrl('/api/tacho/report.pdf?'+q)}" style="text-decoration:none">Download PDF</a></div>
+      <a class="btn small" id="rpdf" href="${apiUrl('/api/tacho/report.pdf?'+q)}" style="text-decoration:none">Download PDF</a>
+      <button class="btn small" id="rmail" title="Email this report — the same dates shown here — to the address your account is registered with">Email report</button></div>
       <div class="note" style="align-self:center">Leave the dates blank for everything the card holds.
         <a href="report-settings" style="color:var(--acc)">Choose which infringements appear</a></div>
     </div><div id="rbody" class="empty">Loading…</div></div>`;
     $('view').innerHTML=h;
     $('rgo').onclick=()=>{ repFrom=$('rf').value; repTo=$('rt').value; repDriver=$('rd')?.value||repDriver; renderReport(); };
+    // Emails the same report the button above downloads. With no dates set it
+    // sends last week, which is what the Monday job sends.
+    $('rmail').onclick=async()=>{
+      const button=$('rmail'), was=button.textContent;
+      button.disabled=true; button.textContent='Sending…';
+      try{
+        const body={};
+        if($('rf').value)body.start=$('rf').value;
+        if($('rt').value)body.end=$('rt').value;
+        const chosen=$('rd')?.value||repDriver; if(chosen)body.driver_ref=chosen;
+        const {response,data}=await jsonResponse(await api('/api/tacho/report/send',
+          {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}));
+        if(!response.ok){ alert(errorText(data,'The report could not be emailed.')); }
+        else{
+          // Say what actually went, so a one-page email is never a surprise.
+          const span=data.period?` covering ${dd(data.period.start)} to ${dd(data.period.end)}`:'';
+          const wk=data.weeks?` (${data.weeks} week${data.weeks===1?'':'s'})`:'';
+          alert(`Sent to ${data.sent_to}${span}${wk}: ${data.attached} report(s), ${data.infringements} infringement(s).`);
+        }
+      }catch(e){ alert(e.message||'Network error.'); }
+      button.disabled=false; button.textContent=was;
+    };
     if(drivers.length>1 && !repDriver){
       $('rbody').textContent='Select a driver above, then press Show to load the report.';
       $('rbody').className='note report-select-message';
@@ -409,26 +576,29 @@
          if(!response.ok){ $('rbody').textContent=errorText(d,'Could not build the report.'); return; }
     }catch(e){ $('rbody').textContent=e.message||'Network error.'; return; }
     const cols=['Date','Reg','Finish odo','Start odo','Dist','Start duty','Drive start','End duty',
-                'Daily rest','Drive','Work','POA','Break','Shift','WTD','Fort drive','Prev rest'];
+                'Daily rest','Drive','Work','POA','Break','Shift',
+                'Shift duty (inc. POA)','WTD active (excl. POA)','Fort drive','Prev rest'];
     let b=`<div class="timeline-note"><b>${esc(d.driver.name||d.driver.ref||'Driver')}</b>${d.driver.card_number?' · card '+esc(d.driver.card_number):''}</div>`;
     b+=`<div class="note" style="margin-bottom:10px">Card data covers ${dd(d.period.data_from)} to ${dd(d.period.data_to)} · times in ${esc(d.period.timezone)}</div>`;
     d.weeks.forEach(w=>{
       b+=`<h3 class="report-heading" style="margin:16px 0 6px"><span>Week ${dd(w.start)} – ${dd(w.end)}</span><span class="note">Swipe or scroll horizontally to see all columns</span></h3><div class="report-table-wrap"><table class="report-table" data-no-stack style="font-size:12px"><tr>${cols.map(c=>'<th>'+c+'</th>').join('')}</tr>`;
       w.days.forEach(r=>{
         if(r.no_data||r.rest_day){
-          b+=`<tr><td>${dd(r.date)}</td><td colspan="14" class="note">${r.no_data?'No data':'Rest day'}</td>
+          b+=`<tr><td>${dd(r.date)}</td><td colspan="15" class="note">${r.no_data?'No data':'Rest day'}</td>
               <td>${hrs(r.fortnight_drive)}</td><td></td></tr>`; return; }
         b+=`<tr><td>${dd(r.date)}</td><td>${esc(r.registration)}</td>
           <td>${r.odometer_end?r.odometer_end.toLocaleString():''}</td>
           <td>${r.odometer_start?r.odometer_start.toLocaleString():''}</td>
           <td>${r.distance||''}</td><td>${r.start_duty}</td><td>${r.drive_start}</td><td>${r.end_duty}</td>
           <td>${hrs(r.daily_rest)}</td><td>${hrs(r.drive)}</td><td>${hrs(r.work)}</td><td>${hrs(r.poa)}</td>
-          <td>${hrs(r.break)}</td><td>${hrs(r.shift)}</td><td>${hrs(r.wtd)}</td>
+          <td>${hrs(r.break)}</td><td>${hrs(r.shift)}</td>
+          <td>${hrs(r.shift_duty??r.wtd)}</td><td>${hrs(r.wtd_active)}</td>
           <td>${hrs(r.fortnight_drive)}</td><td>${hrs(r.previous_rest)}</td></tr>`; });
       const t=w.totals;
       b+=`<tr style="font-weight:700"><td colspan="4">Week's total</td><td>${t.distance||0}</td><td colspan="3"></td>
         <td>${hrs(t.daily_rest)}</td><td>${hrs(t.drive)}</td><td>${hrs(t.work)}</td><td>${hrs(t.poa)}</td>
-        <td>${hrs(t['break'])}</td><td>${hrs(t.shift)}</td><td>${hrs(t.wtd)}</td><td colspan="2"></td></tr></table></div>`;
+        <td>${hrs(t['break'])}</td><td>${hrs(t.shift)}</td>
+        <td>${hrs(t.shift_duty??t.wtd)}</td><td>${hrs(t.wtd_active)}</td><td colspan="2"></td></tr></table></div>`;
       const sect=(name,items,empty)=>{
         b+=`<div class="note" style="margin:10px 0 4px;font-weight:700">${name}</div>`;
         if(!items.length){ b+=`<div class="note">${empty}</div>`; return; }
@@ -487,7 +657,7 @@
     $('wbody').className=''; $('wbody').innerHTML=b+'</table></div>';
     $('wbody').querySelectorAll('[data-w]').forEach(btn=>btn.onclick=()=>{ const ref=data.drivers[Number(btn.dataset.w)].driver_ref; wtdOpen=wtdOpen===ref?null:ref; renderWtd(); });
   }
-  function render(){ if(tab==='compliance')renderCompliance(); else if(tab==='wtd')renderWtd(); else if(tab==='infringements')renderInfringements(); else if(tab==='timeline')renderTimeline(); else if(tab==='report')renderReport(); else renderFiles(); }
+  function render(){ if(tab==='calendar')renderCalendar(); else if(tab==='compliance')renderCompliance(); else if(tab==='wtd')renderWtd(); else if(tab==='infringements')renderInfringements(); else if(tab==='timeline')renderTimeline(); else if(tab==='report')renderReport(); else renderFiles(); }
   document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
     tab=b.dataset.t; document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); render();
   });

@@ -53,6 +53,10 @@ class TachoFile(Base):
     vehicle_ref: Mapped[str | None] = mapped_column(String(20))  # registration/VRM
     card_number: Mapped[str | None] = mapped_column(String(32))  # driver card files: lets the driver see their own data
     company_name: Mapped[str | None] = mapped_column(String(128))  # VU overview operator/company
+    # The operating company this download names, once it has been cleaned up
+    # and matched. Null on driver cards, which never carry one.
+    operator_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("operators.id", ondelete="SET NULL"), index=True)
     uploaded_by_user_id: Mapped[int | None] = mapped_column(BigInteger)  # DH FleetView user who uploaded it
     card_expiry: Mapped[date | None] = mapped_column(Date)  # driver card files: expiry read from the card
     size_bytes: Mapped[int | None] = mapped_column(Integer)

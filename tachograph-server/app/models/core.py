@@ -61,6 +61,11 @@ class Vehicle(Base):
     registration: Mapped[str] = mapped_column(String(20), nullable=False)
     vin: Mapped[str | None] = mapped_column(String(17))
     tachograph_serial: Mapped[str | None] = mapped_column(String(50))
+    # Which company actually operates this vehicle, read from its own unit.
+    # Separate from company_id above, which is the billing tenant: one customer
+    # login can hold trucks run by several different legal entities.
+    operator_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("operators.id", ondelete="SET NULL"), index=True)
     fmc650_imei: Mapped[str | None] = mapped_column(String(15))
     active: Mapped[bool] = mapped_column(Boolean, server_default=text("true"))
     created_at: Mapped[datetime] = _created()

@@ -119,6 +119,41 @@ async def scope_for(session: AsyncSession, principal: auth.Principal) -> TachoSc
     return scope
 
 
+async def scope_for_user_id(session: AsyncSession, principal: auth.Principal,
+                            user_id: int) -> TachoScope:
+    """One office account's share, worked out by somebody else.
+
+    `scope_for` asks Traccar what the caller can see, which only works when the
+    caller is the account itself. The scheduled weekly report is nobody: it
+    runs on its own and has to build each account's share in turn, so it asks
+    an administrator's identity for the drivers and vehicles linked to that
+    account instead. The result is the same set of files the account would see
+    for itself.
+    """
+    drivers = await auth.traccar_get(principal, f"/api/drivers?userId={int(user_id)}") or []
+    devices = await auth.traccar_get(principal, f"/api/devices?userId={int(user_id)}") or []
+    cards = {k for k in (card_key(d.get("uniqueId")) for d in drivers) if len(k) == 14}
+    regs = set().union(*(device_regs(d) for d in devices)) if devices else set()
+
+    scope = TachoScope(everything=False, drivers=drivers, devices=devices, cards=cards,
+                       regs=regs,
+                       device_uids={str(d.get("uniqueId")) for d in devices if d.get("uniqueId")})
+    rows = (await session.execute(select(
+        TachoFile.id, TachoFile.file_kind, TachoFile.card_number, TachoFile.vehicle_ref,
+        TachoFile.driver_ref, TachoFile.uploaded_by_user_id))).all()
+    for fid, kind, card, vehicle, driver_ref, uploader in rows:
+        mine = (
+            uploader == user_id
+            or (kind == "driver_card" and len(card_key(card)) == 14 and card_key(card) in cards)
+            or (kind == "vehicle_unit" and reg_key(vehicle) in regs)
+        )
+        if mine:
+            scope.file_ids.add(fid)
+            if kind == "driver_card" and driver_ref:
+                scope.driver_refs.add(driver_ref)
+    return scope
+
+
 async def scope_for_card(session: AsyncSession, card: str | None) -> TachoScope:
     """A driver's own driver-card files (driver app)."""
     key = card_key(card)
