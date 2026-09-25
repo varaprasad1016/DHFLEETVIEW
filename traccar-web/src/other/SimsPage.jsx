@@ -109,6 +109,8 @@ const SimsPage = () => {
   const [nearCutoff, setNearCutoff] = useState([]);
   const [importedAt, setImportedAt] = useState(null);
   const [raising, setRaising] = useState(null);
+  const [activation, setActivation] = useState(null);
+  const [activating, setActivating] = useState(false);
   const fileInputRef = useRef(null);
 
   const keyOf = (sim) => `${sim.fitted || 'camera'}:${sim.iccid || sim.msisdn}`;
@@ -123,9 +125,52 @@ const SimsPage = () => {
       setNearCutoff(listing.near_cutoff || []);
       setImportedAt(listing.imported_at || null);
       setPortalReady(Boolean(listing.portal_ready));
+      try {
+        setActivation(await request('/activation'));
+      } catch {
+        setActivation(null);
+      }
       setError('');
     } catch (e) {
       setError(e.message);
+    }
+  };
+
+  // Activating is the one SIM operation with a bill and a dark camera behind
+  // it, so the answer distinguishes SIMs the network now reports as active
+  // from ones where the request was merely accepted.
+  const activateSims = async (iccids, active = true) => {
+    if (!iccids.length) {
+      return;
+    }
+    setActivating(true);
+    setNotice('');
+    try {
+      const answer = await request('/activate', {
+        method: 'POST',
+        body: JSON.stringify({ iccids, active }),
+      });
+      const word = active ? 'activated' : 'de-activated';
+      const parts = [`${answer.done} of ${answer.sims.length} SIM(s) ${word}`];
+      if (answer.not_confirmed) {
+        parts.push(`${answer.not_confirmed} asked for but not confirmed by the network`);
+      }
+      if (answer.failed) {
+        parts.push(`${answer.failed} refused`);
+      }
+      setNotice(parts.join(' · '));
+      if (answer.not_confirmed || answer.failed) {
+        setError(
+          answer.warning || answer.sims.find((s) => s.detail && s.outcome !== 'done')?.detail || '',
+        );
+      } else {
+        setError('');
+      }
+      await load();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setActivating(false);
     }
   };
 
@@ -236,8 +281,17 @@ const SimsPage = () => {
         ...current,
         [keyOf(sim)]: { ...(current[keyOf(sim)] || sim), status: answer.status },
       }));
-      setNotice(`${sim.vehicle} — SIM is now ${answer.status}.`);
-      setError('');
+      if (answer.outcome === 'done') {
+        setNotice(`${sim.vehicle} — SIM is now ${answer.status}.`);
+        setError('');
+      } else {
+        // Accepted is not the same as done, and saying so would be a lie the
+        // driver finds out about when the camera stays dark.
+        setNotice(
+          `${sim.vehicle} — the request was accepted but the network still reports ${answer.status || 'no change'}.`,
+        );
+        setError(answer.warning || answer.detail || '');
+      }
     } catch (e) {
       setError(e.message);
     }
@@ -338,6 +392,98 @@ const SimsPage = () => {
             </Box>
           </Paper>
         )}
+
+        <Paper variant="outlined" className={classes.card}>
+          <div className={classes.head}>
+            <Typography variant="subtitle1">Activation</Typography>
+            <div className={classes.spacer} />
+            {activation?.counts && (
+              <Typography variant="body2" color="text.secondary">
+                {`${activation.counts.active} of ${activation.counts.held} active`}
+              </Typography>
+            )}
+          </div>
+          {activation?.warning && (
+            <Alert severity={activation.test_endpoint ? 'warning' : 'info'} sx={{ mb: 1 }}>
+              {activation.warning}
+            </Alert>
+          )}
+          {!activation?.warning && activation?.ready && (
+            <Typography variant="body2" color="text.secondary" gutterBottom>
+              Activating asks the network and then reads the SIM back, so a SIM only shows as active
+              once the network itself says so.
+            </Typography>
+          )}
+          {activation?.fitted_but_not_active?.length > 0 ? (
+            <>
+              <Alert severity="error" sx={{ mb: 1 }}>
+                {`${activation.fitted_but_not_active.length} SIM(s) are fitted to a vehicle but not active — that camera or tracker is dark.`}
+              </Alert>
+              <Box sx={{ overflowX: 'auto' }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Vehicle</TableCell>
+                      {!phone && <TableCell>Fitted</TableCell>}
+                      <TableCell>ICCID</TableCell>
+                      <TableCell>Status</TableCell>
+                      <TableCell align="right">&nbsp;</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {activation.fitted_but_not_active.map((sim) => (
+                      <TableRow key={sim.iccid}>
+                        <TableCell>{sim.vehicle || '—'}</TableCell>
+                        {!phone && <TableCell>{sim.fitted || '—'}</TableCell>}
+                        <TableCell className={classes.figure}>{sim.iccid}</TableCell>
+                        <TableCell>
+                          <Chip
+                            size="small"
+                            color="warning"
+                            variant="outlined"
+                            label={sim.status || 'unknown'}
+                          />
+                        </TableCell>
+                        <TableCell align="right">
+                          <Button
+                            size="small"
+                            disabled={activating || !activation.configured}
+                            onClick={() => activateSims([sim.iccid], true)}
+                          >
+                            Activate
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Box>
+              <Box sx={{ mt: 1 }}>
+                <Button
+                  variant="contained"
+                  disabled={activating || !activation.configured}
+                  startIcon={activating ? <CircularProgress size={16} /> : null}
+                  onClick={() =>
+                    activateSims(
+                      activation.fitted_but_not_active.map((s) => s.iccid),
+                      true,
+                    )
+                  }
+                >
+                  {activating
+                    ? 'Activating…'
+                    : `Activate all ${activation.fitted_but_not_active.length}`}
+                </Button>
+              </Box>
+            </>
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              {activation
+                ? 'Every SIM fitted to a vehicle is active.'
+                : 'The activation state could not be read.'}
+            </Typography>
+          )}
+        </Paper>
 
         <Paper variant="outlined" className={classes.card}>
           <div className={classes.head}>

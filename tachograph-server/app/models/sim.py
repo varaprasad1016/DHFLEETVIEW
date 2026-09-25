@@ -40,6 +40,13 @@ class SimCard(Base):
     # the SIM off entirely - which is how a camera goes dark mid-month.
     warning_mb: Mapped[float | None] = mapped_column(Float)
     limit_mb: Mapped[float | None] = mapped_column(Float)
+    # What the network itself last answered, and when it was asked. Kept apart
+    # from `status` above, which is only what the exported spreadsheet said.
+    live_status: Mapped[str | None] = mapped_column(String(32))
+    checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # When the SIM was first confirmed active through this platform, and by whom.
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    activated_by: Mapped[str | None] = mapped_column(String(120))
     # Where it is fitted, once someone assigns it.
     device_id: Mapped[int | None] = mapped_column(BigInteger, index=True)
     vehicle: Mapped[str | None] = mapped_column(String(64))

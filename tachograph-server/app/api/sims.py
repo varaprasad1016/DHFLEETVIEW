@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_manager
 from app.database import get_session
 from app.models.sim import SimCard
-from app.services import auth, caburn, modules, sim_import
+from app.services import auth, caburn, modules, sim_activation, sim_import
 from app.services.auth import Principal
 
 logger = logging.getLogger("tacho.sims")
@@ -341,23 +341,82 @@ async def live_status(body: dict = Body(default={}),
     return {"sims": list(answers)}
 
 
+@router.get("/activation")
+async def activation_state(principal: Principal = Depends(require_manager),
+                           session: AsyncSession = Depends(get_session)):
+    """Whether SIMs can be activated from here, and what is waiting to be.
+
+    Read before the buttons are drawn, so somebody is told the portal is in
+    test mode before they press one rather than afterwards.
+    """
+    _require_super(principal)
+    cards = (await session.execute(select(SimCard).order_by(SimCard.iccid))).scalars().all()
+    def live(card):
+        return (card.live_status or card.status or "").lower().startswith("active")
+    return {
+        "ready": caburn.configured() and not sim_activation.endpoint_is_test(),
+        "configured": caburn.configured(),
+        "test_endpoint": sim_activation.endpoint_is_test(),
+        "warning": sim_activation.endpoint_warning(),
+        "counts": {
+            "held": len(cards),
+            "active": sum(1 for c in cards if live(c)),
+            "not_active": sum(1 for c in cards if not live(c)),
+            # A SIM in a vehicle that is not active is the urgent case: the
+            # camera or tracker in that vehicle is dark right now.
+            "fitted_but_not_active": sum(1 for c in cards if c.device_id and not live(c)),
+        },
+        "fitted_but_not_active": [
+            {"iccid": c.iccid, "msisdn": c.msisdn, "vehicle": c.vehicle,
+             "fitted": c.fitted, "status": c.live_status or c.status}
+            for c in cards if c.device_id and not live(c)
+        ],
+    }
+
+
+@router.post("/activate")
+async def activate(body: dict = Body(...),
+                   principal: Principal = Depends(require_manager),
+                   session: AsyncSession = Depends(get_session)):
+    """Turn SIMs on, or off, in one go - and say what actually took.
+
+    Each SIM is asked for and then read back, so the answer distinguishes a SIM
+    the network now reports as active from one where the request was merely
+    accepted. They are not the same thing, and on Caburn's test endpoint they
+    are never the same thing.
+    """
+    _require_super(principal)
+    iccids = body.get("iccids") or ([body["iccid"]] if body.get("iccid") else [])
+    active = bool(body.get("active", True))
+    try:
+        result = await sim_activation.run(session, iccids, active=active,
+                                          who=principal.email)
+    except caburn.CaburnError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    logger.info("%s activated %d SIM(s)", principal.email, result["done"])
+    return result
+
+
 @router.post("/{iccid}/enable")
 async def enable(iccid: str, body: dict = Body(default={}),
-                 principal: Principal = Depends(require_manager)):
-    """Turn a SIM on, or off.
+                 principal: Principal = Depends(require_manager),
+                 session: AsyncSession = Depends(get_session)):
+    """Turn one SIM on, or off.
 
     Off stops all traffic on that SIM, so the camera goes dark until it is
     turned back on. It does not change the tariff, so it does not change what
-    the SIM costs.
+    the SIM costs. Goes through the same verified path as a bulk activation.
     """
     _require_super(principal)
     active = bool(body.get("active", True))
     try:
-        async with httpx.AsyncClient() as client:
-            await caburn.set_status(client, active=active, iccid=iccid)
-            settled = await caburn.status(client, iccid=iccid)
+        result = await sim_activation.run(session, [iccid], active=active,
+                                          who=principal.email)
     except caburn.CaburnError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    logger.info("%s set SIM %s to %s", principal.email, iccid, "active" if active else "de-activated")
-    return {"iccid": iccid, "status": settled}
+    answer = result["sims"][0]
+    if answer["outcome"] == sim_activation.FAILED:
+        raise HTTPException(status_code=400, detail=answer["detail"])
+    return {"iccid": iccid, "status": answer["now"], "outcome": answer["outcome"],
+            "detail": answer["detail"], "warning": result["warning"]}
