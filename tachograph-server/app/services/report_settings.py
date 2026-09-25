@@ -23,6 +23,7 @@ RULES: list[tuple[str, str, str]] = [
     ("daily_rest_24h", "Daily rest not taken within 24 hours", "Rest periods"),
     ("daily_rest_reduction", "More than three reduced daily rests in the week", "Rest periods"),
     ("weekly_rest_period", "Weekly rest not taken within six 24-hour periods", "Rest periods"),
+    ("weekly_rest_compensation", "Reduced weekly rest never paid back", "Rest periods"),
     ("wtd_break", "Over 6h working time without a break", "Working time"),
     ("wtd_daily_break", "Too little break in the working day", "Working time"),
     ("country_start", "No country entered at the start of work", "Records & card use"),

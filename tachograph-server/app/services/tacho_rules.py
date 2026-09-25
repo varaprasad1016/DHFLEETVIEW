@@ -1,9 +1,13 @@
 """EU 561/2006 drivers' hours + Working Time Directive infringement engine.
 
 This is a screening aid, not a legal ruling: it flags the infringements a DVSA
-analysis normally raises, from a normalised activity timeline. Edge cases in the
-regulation (split daily rest, ferry/train derogations, multi-manning, week-rest
-compensation) are simplified and documented per rule.
+analysis normally raises, from a normalised activity timeline.
+
+Split daily rest, multi-manning and weekly-rest compensation are all handled.
+Multi-manning is taken from the card's own slot records; where the reader
+cannot tell which slot was used, a rest that is short for one driver but legal
+for a crew is raised as something to confirm rather than as an infringement.
+Ferry and train derogations remain simplified and are documented per rule.
 
 Input model
 -----------
@@ -43,9 +47,20 @@ DAILY_DRIVE_EXTENSIONS_PER_WEEK = 2
 DAILY_REST_REGULAR = 11 * 60           # 11h regular daily rest
 DAILY_REST_REDUCED = 9 * 60            # 9h reduced daily rest (max 3 / week)
 DAILY_REST_REDUCTIONS_PER_WEEK = 3
+# A regular daily rest may be taken in two pieces instead of one: at least 3
+# hours uninterrupted, then at least 9 hours uninterrupted, 12 hours in all.
+# Both pieces must fall in the 24 hours from the start of the duty period.
+DAILY_REST_SPLIT_FIRST = 3 * 60
+DAILY_REST_SPLIT_SECOND = 9 * 60
+DAILY_REST_SPLIT_TOTAL = 12 * 60
 DAILY_REST_CANDIDATE = 3 * 60          # shortest stop treated as an attempted
                                        # daily rest when none reaches 9h
 DUTY_DAY_MAX = 24 * 60                 # a daily rest must start within 24h
+# Multi-manning: with a second driver aboard the rest is 9 hours taken inside
+# 30, rather than 11 inside 24. Judging a two-up shift by the single-driver
+# rule reports a perfectly legal crew change as an insufficient daily rest.
+MULTI_MANNED_WINDOW = 30 * 60
+MULTI_MANNED_REST = 9 * 60
 WEEKLY_REST_REDUCED = 24 * 60          # >= 24h counts as a weekly rest
 WEEKLY_REST_REGULAR = 45 * 60
 WEEKLY_PERIOD_MAX = 6 * 24 * 60        # six 24h periods between weekly rests
@@ -63,6 +78,11 @@ class Activity:
     type: str
     start: datetime
     end: datetime
+    # True where the card was in the second slot, i.e. the holder was crewing
+    # as co-driver. Multi-manned work is rested differently - 9 hours inside 30
+    # rather than 11 inside 24 - so a rule that cannot see this reports a
+    # perfectly legal two-up shift as an insufficient daily rest.
+    crew: bool = False
 
     @property
     def minutes(self) -> int:
@@ -99,6 +119,36 @@ class CardGap:
         return int((self.end - self.start).total_seconds() // 60)
 
 
+# The short code each rule is cited by on a printed register, alongside our own
+# descriptive name. Grouped the way the regulation is: driving limits, breaks,
+# rest, weekly limits, working time, and record keeping.
+RULE_CODES = {
+    "continuous_driving":     "EU-BRK-01",
+    "daily_driving":          "EU-DRV-01",
+    "daily_driving_extension": "EU-DRV-02",
+    "weekly_driving":         "EU-DRV-03",
+    "fortnightly_driving":    "EU-DRV-04",
+    "daily_rest_short":       "EU-RST-01",
+    "daily_rest_24h":         "EU-RST-02",
+    "daily_rest_reduction":   "EU-RST-03",
+    "weekly_rest_period":     "EU-RST-04",
+    "weekly_rest_compensation": "EU-COMP-01",
+    "wtd_break":              "WTD-BRK-01",
+    "wtd_daily_break":        "WTD-BRK-02",
+    "country_start":          "REC-01",
+    "country_end":            "REC-02",
+    "card_withdrawal":        "REC-03",
+    # Not a breach: a shift that may have been crewed, which somebody has to
+    # confirm before it is judged either way.
+    "multi_manning_unverified": "CREW-01",
+}
+
+
+def code_for(rule: str) -> str:
+    """The register code for a rule, or the rule's own name if it has none."""
+    return RULE_CODES.get(rule, rule.upper().replace("_", "-"))
+
+
 @dataclass
 class Infringement:
     rule: str
@@ -113,7 +163,8 @@ class Infringement:
 
     def to_dict(self, driver: str | None = None) -> dict:
         d = {
-            "rule": self.rule, "title": self.title, "severity": self.severity,
+            "rule": self.rule, "code": code_for(self.rule),
+            "title": self.title, "severity": self.severity,
             "start": self.start.isoformat(), "end": self.end.isoformat(),
             "detail": self.detail, "limit_minutes": self.limit_minutes,
             "actual_minutes": self.actual_minutes,
@@ -160,13 +211,84 @@ class DutyDay:
         That is how an analyser scores it, and it is what decides whether the
         driver has used up their three reductions.
         """
+        # With a second driver aboard the window is 30 hours, not 24.
+        return self.rest_within(self.rest_window)
+
+    def rest_within(self, window: int) -> int | None:
+        """How much of the closing rest lands inside a window of this length.
+
+        Separated out so the same question can be asked of a window the driver
+        may or may not have been entitled to - which is what decides whether an
+        unverified shift could legitimately have been crewed.
+        """
         if self.rest_after is None or self.rest_start is None:
             return None
-        if self.span > DUTY_DAY_MAX:
-            return self.rest_after          # already flagged by the 24h rule
-        window_end = self.start + timedelta(minutes=DUTY_DAY_MAX)
+        if self.span > window:
+            return self.rest_after          # already flagged by the window rule
+        window_end = self.start + timedelta(minutes=window)
         room = int((window_end - self.rest_start).total_seconds() // 60)
         return max(0, min(self.rest_after, room))
+
+    @property
+    def crewed(self) -> bool:
+        """Whether this duty period was worked with a second driver aboard.
+
+        Taken from the card's own slot records, which is the only verified
+        source: anything else is a guess about who else was in the cab.
+        """
+        return any(a.crew for a in self.acts)
+
+    @property
+    def crewing(self) -> str:
+        """single | multi — what the card actually shows."""
+        return "multi" if self.crewed else "single"
+
+    @property
+    def rest_window(self) -> int:
+        """How long the driver has to get their daily rest taken."""
+        return MULTI_MANNED_WINDOW if self.crewed else DUTY_DAY_MAX
+
+    @property
+    def rest_needed(self) -> int:
+        """The shortest daily rest that is not a reduction."""
+        return MULTI_MANNED_REST if self.crewed else DAILY_REST_REGULAR
+
+    @property
+    def split_first(self) -> int | None:
+        """The opening half of a split daily rest, if the driver took one.
+
+        A regular daily rest may be split in two: at least 3 hours
+        uninterrupted, then at least 9 hours, 12 hours in all. The first piece
+        sits inside the duty period rather than closing it, so a rule that only
+        looks at the rest which ended the day cannot see it - and scores a
+        perfectly legal split rest as a reduced one, spending one of the three
+        reductions the driver is allowed between weekly rests.
+
+        The longest single stop is used: the pieces must each be uninterrupted,
+        so two short stops cannot be added together to make three hours.
+        """
+        longest = max((a.minutes for a in self.acts if a.type == "rest"), default=0)
+        return longest if longest >= DAILY_REST_SPLIT_FIRST else None
+
+    @property
+    def rest_kind(self) -> str:
+        """How this day's daily rest scores: regular | split | reduced | short.
+
+        "split" is a regular rest taken in two pieces - it is compliant and,
+        importantly, costs the driver none of their reductions.
+        """
+        rest = self.daily_rest
+        if rest is None:
+            return "none"
+        if rest >= self.rest_needed:
+            return "regular"
+        first = self.split_first
+        if (first is not None and rest >= DAILY_REST_SPLIT_SECOND
+                and first + rest >= DAILY_REST_SPLIT_TOTAL):
+            return "split"
+        if rest >= DAILY_REST_REDUCED:
+            return "reduced"
+        return "short"
 
 
 # --- helpers ----------------------------------------------------------------
@@ -207,11 +329,17 @@ def _prepare(activities: list[Activity]) -> list[Activity]:
     for a in acts:
         if merged and a.start > merged[-1].end:
             if merged[-1].type == "rest":
-                merged[-1] = Activity("rest", merged[-1].start, a.start)
+                merged[-1] = Activity("rest", merged[-1].start, a.start,
+                                      crew=merged[-1].crew)
             else:
                 merged.append(Activity("rest", merged[-1].end, a.start))
-        if merged and merged[-1].type == a.type and a.start <= merged[-1].end:
-            merged[-1] = Activity(a.type, merged[-1].start, max(merged[-1].end, a.end))
+        # Spans only merge when they are the same activity *and* the same
+        # crewing, so a driver who takes over the wheel mid-shift keeps the
+        # boundary that says where two-up working stopped.
+        if (merged and merged[-1].type == a.type and a.start <= merged[-1].end
+                and merged[-1].crew == a.crew):
+            merged[-1] = Activity(a.type, merged[-1].start,
+                                  max(merged[-1].end, a.end), crew=a.crew)
         else:
             merged.append(a)
     return merged
@@ -369,24 +497,28 @@ def check_daily_driving(days: list[DutyDay]) -> list[Infringement]:
     return out
 
 
-def check_daily_rest(days: list[DutyDay]) -> list[Infringement]:
+def check_daily_rest(days: list[DutyDay],
+                     unverified_crew: bool = False) -> list[Infringement]:
     """Daily rest: 11h regular, or 9h reduced at most three times between weekly
     rests, and a daily rest must begin within 24h of the duty period starting."""
     out: list[Infringement] = []
     reductions = 0            # since the last weekly rest
     for day in days:
-        if day.span > DUTY_DAY_MAX:
-            over = day.span - DUTY_DAY_MAX
+        window = day.rest_window
+        if day.span > window:
+            over = day.span - window
+            crew = " (multi-manned)" if day.crewed else ""
             out.append(Infringement(
-                "daily_rest_24h", "Daily rest not taken within 24 hours",
+                "daily_rest_24h",
+                f"Daily rest not taken within {window // 60} hours",
                 _over(over, 3 * 60, 12 * 60), day.start, day.end,
-                f"{_hm(day.span)} of duty from {day.start:%d/%m %H:%M} with no daily rest; "
-                f"one is due within {_hm(DUTY_DAY_MAX)}.",
-                DUTY_DAY_MAX, day.span))
-            # Each whole 24h that passed without a rest is a daily rest the
+                f"{_hm(day.span)} of duty from {day.start:%d/%m %H:%M} with no daily "
+                f"rest{crew}; one is due within {_hm(window)}.",
+                window, day.span))
+            # Each whole window that passed without a rest is a daily rest the
             # driver never took, so it spends the weekly reduction allowance
             # just as a short rest does.
-            reductions += day.span // DUTY_DAY_MAX
+            reductions += day.span // window
 
         if not day.closed_by_rest or day.rest_after is None:
             continue
@@ -398,15 +530,40 @@ def check_daily_rest(days: list[DutyDay]) -> list[Infringement]:
             continue
         also = ("" if rest == day.rest_after
                 else f" (of {_hm(day.rest_after)} rest taken in all)")
+        # A regular rest taken in two pieces is compliant and spends none of
+        # the driver's three reductions, so it is settled before anything else.
+        if day.rest_kind == "split":
+            continue
         if rest < DAILY_REST_REDUCED:
+            # A shift that may have been two-up, with nothing on the card to
+            # settle it, is not called an infringement: 9 hours inside 30 is
+            # legal for a crew, and accusing a driver on a guess is worse than
+            # asking somebody to check.
+            # Judged against the window a crew would have had, not the one a
+            # single driver gets - otherwise a shift that is perfectly legal
+            # two-up is still called an infringement.
+            as_crew = day.rest_within(MULTI_MANNED_WINDOW) or 0
+            if unverified_crew and as_crew >= MULTI_MANNED_REST:
+                out.append(Infringement(
+                    "multi_manning_unverified",
+                    "Potential multi-manning — verification required",
+                    "minor", day.rest_start, day.rest_end,
+                    f"only {_hm(rest)} of daily rest{also} from "
+                    f"{day.start:%d/%m %H:%M} ({_hm(as_crew)} inside the 30 hours a "
+                    f"crew is allowed), which is short for a single driver but "
+                    f"allowed with a second driver aboard. The card does not record "
+                    f"which slot was used, so the crewing needs confirming before "
+                    f"this is treated either way.",
+                    DAILY_REST_REGULAR, rest))
+                continue
             out.append(Infringement(
                 "daily_rest_short", "Daily rest under 9h",
                 _under(rest, 8 * 60, 7 * 60), day.rest_start, day.rest_end,
-                f"only {_hm(rest)} of daily rest{also} in the 24 hours from "
+                f"only {_hm(rest)} of daily rest{also} in the {_hm(day.rest_window)} from "
                 f"{day.start:%d/%m %H:%M}; the minimum is {_hm(DAILY_REST_REDUCED)}.",
                 DAILY_REST_REDUCED, rest))
             reductions += 1
-        elif rest < DAILY_REST_REGULAR:
+        elif rest < day.rest_needed:
             reductions += 1
             if reductions > DAILY_REST_REDUCTIONS_PER_WEEK:
                 out.append(Infringement(
@@ -604,11 +761,44 @@ def check_card_withdrawal(days: list[DutyDay], gaps: list[CardGap],
     return out
 
 
+def check_weekly_compensation(days: list[DutyDay]) -> list[Infringement]:
+    """A reduced weekly rest that was never paid back in time.
+
+    Nothing is raised while the debt is still inside its window: carrying one
+    is ordinary, and flagging it would teach an operator to ignore the warning.
+    Only a window that closed with the debt still open is a breach - and only
+    when the data runs far enough past the deadline to say so.
+    """
+    from app.services import weekly_compensation as comp
+
+    rests = comp.rests_from_days(days)
+    if not rests:
+        return []
+    ends = max(day.end for day in days).date()
+    _ledger, breaches = comp.build(rests, data_ends=ends)
+
+    out: list[Infringement] = []
+    for breach in breaches:
+        debt = breach["debt"]
+        taken = datetime.fromisoformat(debt["taken_at"])
+        short = debt["deficit_minutes"]
+        out.append(Infringement(
+            "weekly_rest_compensation",
+            "Reduced weekly rest never paid back",
+            _under(comp.WEEKLY_REST_REGULAR - short,
+                   comp.WEEKLY_REST_REGULAR - 9 * 60,
+                   comp.WEEKLY_REST_REGULAR - 18 * 60),
+            taken, taken + timedelta(minutes=debt["rest_minutes"]),
+            breach["detail"], comp.WEEKLY_REST_REGULAR, debt["rest_minutes"]))
+    return out
+
+
 ALL_RULES = [
     check_continuous_driving,
     check_daily_driving,
     check_daily_rest,
     check_weekly_rest,
+    check_weekly_compensation,
     check_weekly_driving,
     check_wtd,
 ]
@@ -616,19 +806,24 @@ ALL_RULES = [
 
 def analyse(activities: list[Activity],
             places: list[PlaceEntry] | None = None,
-            card_gaps: list[CardGap] | None = None) -> list[Infringement]:
+            card_gaps: list[CardGap] | None = None,
+            unverified_crew: bool = False) -> list[Infringement]:
     """Run every rule over one driver's timeline, newest first.
 
     `places` and `card_gaps` come from the same card as the activities. They are
     optional: without them the record-keeping rules simply do not run, rather
     than reporting every day as missing its country entry.
+
+    `unverified_crew` says the reader could not tell which card slot was used -
+    so a rest that is short for one driver but legal for a crew is raised as
+    something to confirm rather than as an infringement.
     """
     acts = _prepare(activities)
     days = _duty_days(acts)
     found: list[Infringement] = []
     found += check_continuous_driving(acts)
     found += check_daily_driving(days)
-    found += check_daily_rest(days)
+    found += check_daily_rest(days, unverified_crew)
     found += check_weekly_rest(days)
     found += check_weekly_driving(acts)
     found += check_wtd(days)
