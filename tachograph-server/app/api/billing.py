@@ -61,9 +61,8 @@ def _account_json(account: BillingAccount) -> dict:
         "account_email": account.account_email, "invoicing_email": account.invoicing_email,
         "send_to": account.send_to, "started_on": account.started_on.isoformat(),
         "active": account.active,
-        "rates": {"tracking": _number(account.rate_tracking),
-                  "camera": _number(account.rate_camera),
-                  "tachograph": _number(account.rate_tachograph)},
+        "rates": {"live": _number(account.rate_live),
+                  "tacho": _number(account.rate_tacho)},
         "notes": account.notes,
     }
 
@@ -106,7 +105,10 @@ async def overview(principal: Principal = Depends(require_manager),
         "accounts": [_account_json(a) for a in accounts],
         "candidates": sorted(candidates, key=lambda c: (c["name"] or "").lower()),
         "standard_rates": {k: float(v) for k, v in invoicing.standard_rates().items()},
+        "package_names": dict(invoicing.billing.PACKAGE_NAMES),
         "vat_rate": settings.invoice_vat_rate,
+        "every_months": invoicing.every_months(),
+        "auto_send": settings.invoice_auto_send,
         "company": {"name": settings.company_name, "address": settings.company_address,
                     "vat_number": settings.company_vat_number},
         "not_ready": invoicing.not_ready(),
@@ -148,7 +150,7 @@ async def set_account(user_id: int, body: dict = Body(...),
         account.active = bool(body["active"])
     if "notes" in body:
         account.notes = (body.get("notes") or "").strip() or None
-    for item in ("tracking", "camera", "tachograph"):
+    for item in invoicing.billing.PACKAGES:
         if item in (body.get("rates") or {}):
             value = (body["rates"] or {})[item]
             setattr(account, f"rate_{item}",
@@ -162,7 +164,7 @@ async def set_account(user_id: int, body: dict = Body(...),
 @router.post("/preview")
 async def preview(body: dict = Body(...), principal: Principal = Depends(require_manager),
                   session: AsyncSession = Depends(get_session)):
-    """What an account would be charged for a month. Nothing is issued or sent."""
+    """What an account would be charged for a period. Nothing is issued or sent."""
     _require_super(principal)
     account = (await session.execute(
         select(BillingAccount).where(
@@ -170,9 +172,10 @@ async def preview(body: dict = Body(...), principal: Principal = Depends(require
     if account is None:
         raise HTTPException(status_code=404, detail="That account is not set up for billing.")
 
-    today = date.today()
-    built = await invoicing.build_for(principal, account, int(body.get("year") or today.year),
-                                      int(body.get("month") or today.month), session)
+    months = int(body.get("months") or invoicing.every_months())
+    closed = invoicing.billing.last_closed_period(date.today(), months)
+    built = await invoicing.build_for(principal, account, int(body.get("year") or closed[0]),
+                                      int(body.get("month") or closed[1]), session, months)
     return {
         "account": account.name, "period": built.period,
         "lines": [{"vehicle": line.vehicle, "item": line.item,
@@ -233,20 +236,6 @@ async def one_invoice(invoice_id: str, principal: Principal = Depends(require_ma
     }
 
 
-def _email_body(invoice: Invoice, account: BillingAccount | None) -> str:
-    """What the customer reads. The invoice itself is attached."""
-    period = invoice_pdf.invoice_period(invoice)
-    return (
-        f"Dear {invoice.account_name},\n\n"
-        f"Please find attached invoice {invoice.number} for {period}, "
-        f"for {invoice_pdf.money(invoice.total)} including VAT.\n\n"
-        f"{settings.invoice_payment_terms}\n\n"
-        f"If anything on it needs explaining, reply to this email and we will go "
-        f"through it with you.\n\n"
-        f"{settings.company_name}\n"
-    )
-
-
 @router.post("/invoices/{invoice_id}/send")
 async def send_invoice(invoice_id: str, body: dict = Body(default={}),
                        principal: Principal = Depends(require_manager),
@@ -267,40 +256,45 @@ async def send_invoice(invoice_id: str, body: dict = Body(default={}),
     if invoice is None:
         raise HTTPException(status_code=404, detail="No such invoice.")
 
-    account = (await session.execute(
-        select(BillingAccount).where(
-            BillingAccount.user_id == invoice.user_id))).scalar_one_or_none()
-    to = (body.get("to") or invoice.sent_to or (account.send_to if account else None) or "").strip()
-    if not mailer.valid(to):
-        raise HTTPException(
-            status_code=400,
-            detail=f"{to or 'No address'} is not an email address. Set an invoicing "
-                   "email on the account, or give one here.")
-
-    lines = (await session.execute(
-        select(InvoiceLine).where(InvoiceLine.invoice_id == invoice.id)
-        .order_by(InvoiceLine.position))).scalars().all()
-    pdf = invoice_pdf.render(invoice, lines, customer_name=invoice.account_name,
-                             customer_email=to)
-
     try:
-        await mailer.send(
-            to, f"Invoice {invoice.number} from {settings.company_name}",
-            _email_body(invoice, account),
-            [(f"{invoice.number}.pdf", pdf, "pdf")])
+        to = await invoicing.email_invoice(session, invoice, body.get("to"),
+                                           automatic=False)
     except mailer.MailError as exc:
-        invoice.status, invoice.detail = "failed", str(exc)[:500]
-        await session.commit()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    invoice.status, invoice.sent_to = "sent", to
-    invoice.sent_at = datetime.now(timezone.utc)
-    invoice.detail = None
-    await session.commit()
 
     logger.info("%s emailed %s to %s", principal.email, invoice.number, to)
     return {"number": invoice.number, "sent_to": to,
-            "sent_at": invoice.sent_at.isoformat()}
+            "sent_at": invoice.sent_at.isoformat() if invoice.sent_at else None}
+
+
+@router.post("/send-all")
+async def send_all(body: dict = Body(default={}),
+                   principal: Principal = Depends(require_manager),
+                   session: AsyncSession = Depends(get_session)):
+    """Email every invoice still waiting to go out.
+
+    The same thing the quarterly run does, for when it is being done by hand -
+    after a mail server outage, say, or the first time round.
+    """
+    _require_super(principal)
+    missing = invoicing.not_ready()
+    if missing and not body.get("anyway"):
+        raise HTTPException(status_code=400,
+                            detail="Not ready to send: " + "; ".join(missing))
+
+    query = select(Invoice).where(Invoice.status != "sent").order_by(Invoice.number)
+    if body.get("user_id"):
+        query = query.where(Invoice.user_id == int(body["user_id"]))
+    sent, failed = [], []
+    for invoice in (await session.execute(query)).scalars().all():
+        try:
+            to = await invoicing.email_invoice(session, invoice, automatic=False)
+            sent.append({"number": invoice.number, "account": invoice.account_name, "to": to})
+        except mailer.MailError as exc:
+            failed.append({"number": invoice.number, "account": invoice.account_name,
+                           "why": str(exc)})
+    logger.info("%s sent %d invoice(s) by hand", principal.email, len(sent))
+    return {"sent": sent, "failed": failed}
 
 
 @router.get("/invoices/{invoice_id}/link")
@@ -375,61 +369,21 @@ async def invoice_pdf_file(invoice_id: str, download: bool = False,
 
 
 @router.post("/run")
-async def run_month(body: dict = Body(default={}),
-                    principal: Principal = Depends(require_manager),
-                    session: AsyncSession = Depends(get_session)):
-    """Raise this month's invoices as drafts. Sending is a separate step."""
+async def run_period(body: dict = Body(default={}),
+                     principal: Principal = Depends(require_manager),
+                     session: AsyncSession = Depends(get_session)):
+    """Raise a billing period's invoices as drafts. Sending is a separate step.
+
+    Defaults to the period that has most recently closed, which is what the
+    quarterly run raises by itself. `year`/`month` name a different period by
+    the month it ends in, and naming a `user_id` keeps a run - or a test - from
+    raising invoices against customers it never meant to touch.
+    """
     _require_super(principal)
-    today = date.today()
-    year = int(body.get("year") or today.year)
-    month = int(body.get("month") or today.month)
-
-    # A run covers every active account unless one is named. Naming one keeps a
-    # run - or a test - from raising invoices against customers it never meant
-    # to touch.
-    query = select(BillingAccount).where(BillingAccount.active.is_(True))
-    if body.get("user_id"):
-        query = query.where(BillingAccount.user_id == int(body["user_id"]))
-    accounts = (await session.execute(query)).scalars().all()
-    last = (await session.execute(
-        select(Invoice.number).where(Invoice.number.like(f"{settings.invoice_number_prefix}-{year}-%"))
-        .order_by(Invoice.number.desc()).limit(1))).scalars().first()
-
-    # Any invoice overlapping this month means the account is already billed for
-    # it. Comparing against the 1st alone would miss a first invoice that starts
-    # mid-month, and the customer would be billed twice.
-    month_start, month_end = invoicing.billing.month_range(year, month)
-
-    raised, skipped = [], []
-    for account in accounts:
-        existing = (await session.execute(
-            select(Invoice).where(Invoice.user_id == account.user_id,
-                                  Invoice.period_start <= month_end,
-                                  Invoice.period_end >= month_start))).scalars().first()
-        if existing:
-            skipped.append({"account": account.name, "why": f"already invoiced as {existing.number}"})
-            continue
-
-        built = await invoicing.build_for(principal, account, year, month, session)
-        if not built.lines:
-            skipped.append({"account": account.name, "why": "nothing chargeable this period"})
-            continue
-
-        last = invoicing.next_number(year, last)
-        invoice = Invoice(
-            number=last, user_id=account.user_id, account_name=account.name,
-            period_start=built.period_start, period_end=built.period_end,
-            issued_on=today, net=built.net, vat=built.vat, total=built.total,
-            vat_rate=Decimal(str(settings.invoice_vat_rate)), status="draft",
-            sent_to=account.send_to)
-        for position, line in enumerate(built.lines):
-            invoice.lines.append(InvoiceLine(
-                position=position, vehicle=line.vehicle, item=line.item,
-                description=line.describe(), rate=line.rate, days=line.days,
-                days_in_month=line.days_in_month, amount=line.amount))
-        session.add(invoice)
-        raised.append({"account": account.name, "number": invoice.number,
-                       "total": float(built.total)})
-
-    await session.commit()
-    return {"raised": raised, "skipped": skipped, "not_ready": invoicing.not_ready()}
+    months = int(body.get("months") or invoicing.every_months())
+    closed = invoicing.billing.last_closed_period(date.today(), months)
+    year = int(body.get("year") or closed[0])
+    month = int(body.get("month") or closed[1])
+    return await invoicing.raise_for_period(
+        principal, session, year, month, months,
+        user_id=int(body["user_id"]) if body.get("user_id") else None)

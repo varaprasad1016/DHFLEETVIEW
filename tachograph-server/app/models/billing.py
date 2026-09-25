@@ -40,10 +40,10 @@ class BillingAccount(Base):
     invoicing_email: Mapped[str | None] = mapped_column(String(200))
     # The day billing starts. The first invoice runs from here to month end.
     started_on: Mapped[date] = mapped_column(Date)
-    # Blank rates fall back to the server's standard rates.
-    rate_tracking: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
-    rate_camera: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
-    rate_tachograph: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    # What this account pays for each package, per vehicle per month. Blank
+    # rates fall back to the server's standard ones.
+    rate_live: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    rate_tacho: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

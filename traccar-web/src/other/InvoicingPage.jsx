@@ -110,8 +110,11 @@ const InvoicingPage = () => {
   const [preview, setPreview] = useState(null);
   const [viewing, setViewing] = useState(null);
   const [drawn, setDrawn] = useState(null);
-  const [month, setMonth] = useState(() => dayjs().format('YYYY-MM'));
+  // The month a billing period ends in. Defaults to the period that has most
+  // recently closed, which is the one the quarterly run raises by itself.
+  const [month, setMonth] = useState(() => dayjs().subtract(1, 'month').format('YYYY-MM'));
   const [mail, setMail] = useState(null);
+  const [schedule, setSchedule] = useState(null);
   const [testTo, setTestTo] = useState('');
 
   const load = async () => {
@@ -126,6 +129,12 @@ const InvoicingPage = () => {
         setMail(response.ok ? await response.json() : null);
       } catch {
         setMail(null);
+      }
+      try {
+        const response = await fetch('/tacho/api/mail/schedule', { credentials: 'include' });
+        setSchedule(response.ok ? await response.json() : null);
+      } catch {
+        setSchedule(null);
       }
       setInvoices(listing.invoices || []);
       setError('');
@@ -185,6 +194,50 @@ const InvoicingPage = () => {
       await load();
     });
 
+  const sendEverything = () =>
+    act('send-all', async () => {
+      const answer = await request('/send-all', { method: 'POST', body: JSON.stringify({}) });
+      const sent = answer.sent?.length || 0;
+      const failed = answer.failed?.length || 0;
+      setNotice(
+        `${sent} invoice${sent === 1 ? '' : 's'} emailed${failed ? `, ${failed} failed — see the reasons on each row.` : '.'}`,
+      );
+      await load();
+    });
+
+  // The same job the scheduler runs, started by hand. Used when a run has been
+  // missed or a mail server was down at the time.
+  const runJob = (job) =>
+    act(`job-${job}`, async () => {
+      const response = await fetch(`/tacho/api/mail/schedule/${job}/run`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const answer = await response.json();
+      if (!response.ok) {
+        throw new Error(answer?.detail || 'That job could not be run.');
+      }
+      if (!answer.ran) {
+        setNotice(`Nothing was sent: ${answer.why}`);
+      } else {
+        const sent = answer.sent?.length || 0;
+        const failed = answer.failed?.length || 0;
+        const blocked = answer.not_sent_because?.join('; ');
+        setNotice(
+          [
+            `${sent} email${sent === 1 ? '' : 's'} sent for ${answer.period}`,
+            failed ? `${failed} failed` : '',
+            blocked ? `not sent: ${blocked}` : '',
+          ]
+            .filter(Boolean)
+            .join(' · '),
+        );
+      }
+      await load();
+    });
+
   const savePdf = (invoice) =>
     act(`pdf-${invoice.id}`, async () => {
       const { url } = await request(`/invoices/${invoice.id}/link`);
@@ -213,10 +266,20 @@ const InvoicingPage = () => {
         body: JSON.stringify({ year: Number(year), month: Number(monthNumber) }),
       });
       const raised = result.raised?.length || 0;
+      // A changed signup address is worth saying out loud: it decides where
+      // that customer's invoice goes.
+      const moved = (result.contacts_updated || [])
+        .map((c) => `${c.account} now signs in as ${c.now}`)
+        .join('; ');
       setNotice(
-        raised
-          ? `${raised} invoice${raised === 1 ? '' : 's'} raised as draft${raised === 1 ? '' : 's'}.`
-          : 'Nothing to raise — every active account is already invoiced for that month.',
+        [
+          raised
+            ? `${raised} invoice${raised === 1 ? '' : 's'} raised as draft${raised === 1 ? '' : 's'}.`
+            : 'Nothing to raise — every active account is already invoiced for that period.',
+          moved,
+        ]
+          .filter(Boolean)
+          .join(' '),
       );
       await load();
     });
@@ -228,7 +291,7 @@ const InvoicingPage = () => {
       account_email: candidate.email,
       started_on: dayjs().format('YYYY-MM-DD'),
       invoicing_email: '',
-      rates: { tracking: '', camera: '', tachograph: '' },
+      rates: { live: '', tacho: '' },
       isNew: true,
     });
 
@@ -301,13 +364,99 @@ const InvoicingPage = () => {
         </Paper>
 
         <Paper variant="outlined" className={classes.card}>
+          <Typography variant="subtitle1" gutterBottom>
+            Sent automatically
+          </Typography>
+          {schedule?.service_token?.ready === false && (
+            <Alert severity="warning" sx={{ mb: 1 }}>
+              {schedule.service_token.detail}
+            </Alert>
+          )}
+          <Typography variant="body2" color="text.secondary" gutterBottom>
+            {schedule
+              ? `Times are ${schedule.timezone}. A run that is missed — the server being off, say — happens as soon as it is noticed, rather than being skipped.`
+              : 'The schedule could not be read.'}
+          </Typography>
+          <Box sx={{ overflowX: 'auto' }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>What</TableCell>
+                  {!phone && <TableCell>Covering</TableCell>}
+                  <TableCell>Next</TableCell>
+                  {!phone && <TableCell>Last run</TableCell>}
+                  <TableCell align="right">&nbsp;</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {(schedule?.jobs || []).map((job) => (
+                  <TableRow key={job.job}>
+                    <TableCell>
+                      <Typography variant="body2">{job.label}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {job.enabled
+                          ? `every ${job.job === 'invoices' ? `${schedule.invoice_every_months} months` : 'Monday'}`
+                          : 'switched off'}
+                      </Typography>
+                    </TableCell>
+                    {!phone && (
+                      <TableCell>
+                        <Typography variant="body2">{job.period}</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {`${dayjs(job.covers.start).format('D MMM')} – ${dayjs(job.covers.end).format('D MMM YYYY')}`}
+                        </Typography>
+                      </TableCell>
+                    )}
+                    <TableCell>
+                      <Typography
+                        variant="body2"
+                        color={job.overdue ? 'warning.main' : 'text.primary'}
+                      >
+                        {job.overdue ? 'due now' : dayjs(job.next_at).format('D MMM, HH:mm')}
+                      </Typography>
+                    </TableCell>
+                    {!phone && (
+                      <TableCell>
+                        <Typography variant="body2">
+                          {job.last_run?.last_attempt
+                            ? dayjs(job.last_run.last_attempt).format('D MMM, HH:mm')
+                            : 'never'}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {job.last_run?.summary || ''}
+                        </Typography>
+                      </TableCell>
+                    )}
+                    <TableCell align="right">
+                      <Button
+                        size="small"
+                        startIcon={<SendIcon />}
+                        disabled={busy === `job-${job.job}`}
+                        onClick={() => runJob(job.job)}
+                      >
+                        {busy === `job-${job.job}` ? 'Sending…' : 'Send now'}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+        </Paper>
+
+        <Paper variant="outlined" className={classes.card}>
           <div className={classes.head}>
             <Typography variant="subtitle1">Customers billed</Typography>
             <div className={classes.spacer} />
             <TextField
               size="small"
               type="month"
-              label="Month"
+              label="Period ending"
+              helperText={
+                overview?.every_months > 1
+                  ? `${overview.every_months} months to ${dayjs(`${month}-01`).endOf('month').format('D MMM YYYY')}`
+                  : 'one month'
+              }
               value={month}
               onChange={(e) => setMonth(e.target.value)}
               slotProps={{ inputLabel: { shrink: true } }}
@@ -345,7 +494,7 @@ const InvoicingPage = () => {
                     )}
                     {!phone && (
                       <TableCell className={classes.figure}>
-                        {['tracking', 'camera', 'tachograph']
+                        {['live', 'tacho']
                           .map((item) =>
                             account.rates[item] == null
                               ? money(overview.standard_rates[item])
@@ -381,8 +530,9 @@ const InvoicingPage = () => {
             </Table>
           </Box>
           <Typography variant="caption" color="text.secondary">
-            Rates are tracking / camera / tachograph per vehicle per month. An asterisk marks a rate
-            agreed with that customer; the rest are the standard rates.
+            Rates are live view / tacho tracking + live view, per vehicle per month. A vehicle is on
+            one package, not both. An asterisk marks a rate agreed with that customer; the rest are
+            the standard rates.
           </Typography>
         </Paper>
 
@@ -407,9 +557,18 @@ const InvoicingPage = () => {
         )}
 
         <Paper variant="outlined" className={classes.card}>
-          <Typography variant="subtitle1" gutterBottom>
-            Invoices issued
-          </Typography>
+          <div className={classes.head}>
+            <Typography variant="subtitle1">Invoices issued</Typography>
+            <div className={classes.spacer} />
+            <Button
+              size="small"
+              startIcon={<SendIcon />}
+              disabled={busy === 'send-all' || !invoices.some((i) => i.status !== 'sent')}
+              onClick={sendEverything}
+            >
+              {busy === 'send-all' ? 'Sending…' : 'Send all unsent'}
+            </Button>
+          </div>
           <Box sx={{ overflowX: 'auto' }}>
             <Table size="small">
               <TableHead>
@@ -528,11 +687,11 @@ const InvoicingPage = () => {
               helperText={`Leave blank to use ${editing?.account_email || 'the signup address'}.`}
             />
             <div className={classes.rates}>
-              {['tracking', 'camera', 'tachograph'].map((item) => (
+              {['live', 'tacho'].map((item) => (
                 <TextField
                   key={item}
                   size="small"
-                  label={item}
+                  label={overview?.package_names?.[item] || item}
                   value={editing?.rates?.[item] ?? ''}
                   onChange={(e) =>
                     setEditing({
@@ -540,7 +699,7 @@ const InvoicingPage = () => {
                       rates: { ...editing.rates, [item]: e.target.value },
                     })
                   }
-                  sx={{ width: 110 }}
+                  sx={{ width: 210 }}
                   placeholder={String(overview?.standard_rates?.[item] ?? '')}
                 />
               ))}
