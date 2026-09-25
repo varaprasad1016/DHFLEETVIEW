@@ -150,6 +150,16 @@ def _time(value) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+# Slot values the readers use for the second seat, in every spelling the
+# tachograph-go CLI and the built-in reader produce.
+_CO_DRIVER_SLOTS = {1, "CO_DRIVER_SLOT", "CARD_SLOT_CO_DRIVER", "CARD_SLOT_2"}
+
+
+def _is_co_driver(slot) -> bool:
+    """Whether this activity change was recorded in the second card slot."""
+    return slot in _CO_DRIVER_SLOTS
+
+
 def _activities(block: dict) -> tuple[list[Activity], list[CardGap]]:
     """Daily records to contiguous spans, plus the periods the card was out."""
     records = []
@@ -159,8 +169,10 @@ def _activities(block: dict) -> tuple[list[Activity], list[CardGap]]:
             continue
         changes = []
         for change in record.get("activityChangeInfo") or []:
-            if change.get("slot") not in (None, "DRIVER_SLOT"):
-                continue
+            # The slot says which seat the card was in. Second-slot spells are
+            # the driver crewing as co-driver: they are kept and marked, not
+            # dropped, or a week spent as second man vanishes from the record.
+            crewed = _is_co_driver(change.get("slot"))
             kind = _ACTIVITY.get(change.get("activity"))
             if kind is None:
                 continue
@@ -168,7 +180,7 @@ def _activities(block: dict) -> tuple[list[Activity], list[CardGap]]:
             if 0 <= minute <= 1440:
                 # `inserted` is the card's own view: false means it was not in a
                 # tachograph for that stretch.
-                changes.append((minute, kind, not change.get("inserted", True)))
+                changes.append((minute, kind, not change.get("inserted", True), crewed))
         changes.sort(key=lambda c: c[0])
         if changes:
             records.append((day.replace(hour=0, minute=0, second=0, microsecond=0),
@@ -179,7 +191,7 @@ def _activities(block: dict) -> tuple[list[Activity], list[CardGap]]:
     out_spans: list[tuple[datetime, datetime]] = []
     for index, (day, changes) in enumerate(records):
         newest = index == len(records) - 1
-        for position, (minute, kind, card_out) in enumerate(changes):
+        for position, (minute, kind, card_out, crewed) in enumerate(changes):
             if position + 1 < len(changes):
                 end_minute = changes[position + 1][0]
             elif newest:
@@ -193,7 +205,7 @@ def _activities(block: dict) -> tuple[list[Activity], list[CardGap]]:
                 continue
             start = day + timedelta(minutes=minute)
             end = day + timedelta(minutes=end_minute)
-            acts.append(Activity(kind, start, end))
+            acts.append(Activity(kind, start, end, crew=crewed))
             if card_out:
                 out_spans.append((start, end))
 

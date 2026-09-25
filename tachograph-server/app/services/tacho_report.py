@@ -142,10 +142,16 @@ def _day_row(d: date, lo: _Local, acts: list[Activity], days: list[DutyDay],
                     if v.odometer_end is not None), None)
     distance = sum(v.distance or 0 for v in used) or None
 
-    # The report's WTD column is duty time: everything but the breaks. It is
-    # deliberately not the rules engine's working time, which excludes
-    # availability because the Working Time Regulations do.
-    duty_time = totals["drive"] + totals["work"] + totals["available"]
+    # Two different figures that must never be merged, and are reported side
+    # by side because an operator is asked for both:
+    #
+    #   shift duty   driving + other work + availability. What the driver was
+    #                at work for, which is the column a signed report carries.
+    #   WTD active   driving + other work only. Availability is excluded
+    #                because the Working Time Regulations exclude it, and this
+    #                is the figure the 6-hour break threshold is judged on.
+    shift_duty = totals["drive"] + totals["work"] + totals["available"]
+    wtd_active = totals["drive"] + totals["work"]
     # A duty period the data never shows the end of has no end time, no length
     # and no daily rest; the card was simply downloaded mid-shift.
     closed = ending is not None and ending.closed_by_rest
@@ -167,7 +173,11 @@ def _day_row(d: date, lo: _Local, acts: list[Activity], days: list[DutyDay],
         "poa": totals["available"],
         "break": brk,
         "shift": ending.span if closed else None,
-        "wtd": duty_time,
+        "shift_duty": shift_duty,
+        "wtd_active": wtd_active,
+        # The old name for shift duty, kept so an older page or a stored report
+        # does not lose the column while both names are in circulation.
+        "wtd": shift_duty,
         "previous_rest": starting.rest_before if starting else None,
         "rule": DEFAULT_RULE if on_duty else "",
         # A date the download does not reach is unknown, not a rest day. Saying
@@ -237,7 +247,8 @@ def build_report(parsed: dict, infringements: list[Infringement],
         we = ws + timedelta(days=7)
         week["totals"] = {
             key: sum(r[key] or 0 for r in week["days"])
-            for key in ("distance", "drive", "work", "poa", "break", "wtd")
+            for key in ("distance", "drive", "work", "poa", "break",
+                        "shift_duty", "wtd_active", "wtd")
         }
         week["totals"]["daily_rest"] = sum(r["daily_rest"] or 0 for r in week["days"])
         week["totals"]["shift"] = sum(r["shift"] or 0 for r in week["days"])

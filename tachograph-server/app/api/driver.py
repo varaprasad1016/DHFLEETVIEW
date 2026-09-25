@@ -715,15 +715,40 @@ async def sign_infringement(inf_id: uuid.UUID, body: SignInfringementIn, princip
 @router.get("/tacho/timeline.pdf")
 async def my_tacho_pdf(days: int = Query(28, ge=1, le=90), principal: Principal = Depends(require_driver),
                        session: AsyncSession = Depends(get_session)) -> Response:
+    """The driver's own activity as a timeline.
+
+    The window is the last `days`, but anchored on the card rather than on
+    today. A card downloaded in September can easily hold nothing newer than
+    June, and asking for the last 28 days from now then produces a PDF with
+    nothing on it - which reads as a broken button, not as "your card is out of
+    date". So when the recent window is empty the same length of time is taken
+    from the end of the card instead, and a card with nothing on it at all is
+    said out loud rather than drawn as a blank page.
+    """
     from app.api import tacho as tacho_api
+    from app.services.tacho_scope import scope_for_card
 
     _, refs = await _tacho_refs(session, principal)
     if not refs:
         raise HTTPException(status_code=404, detail="No tachograph card data linked to your ID yet.")
-    from app.services.tacho_scope import scope_for_card
 
     account = (await session.execute(
         select(DriverAccount).where(DriverAccount.id == uuid.UUID(principal.driver_id)))).scalar_one_or_none()
     own = await scope_for_card(session, account.unique_id if account else None)
+
     end = datetime.now(timezone.utc)
-    return await tacho_api.timeline_pdf_response(session, own, refs[0], end - timedelta(days=days), end)
+    start = end - timedelta(days=days)
+    if not await tacho_api.timeline_rows(session, own, refs[0], start, end):
+        latest = (await session.execute(
+            select(func.max(TachoActivity.ended_at))
+            .join(TachoFile, TachoFile.id == TachoActivity.source_file_id)
+            .where(TachoFile.file_kind == "driver_card", own.activities(),
+                   TachoActivity.driver_ref == refs[0]))).scalar_one_or_none()
+        if latest is None:
+            raise HTTPException(
+                status_code=404,
+                detail="There is no activity on your card yet. Hand it in for downloading "
+                       "and it will appear here.")
+        end, start = latest, latest - timedelta(days=days)
+
+    return await tacho_api.timeline_pdf_response(session, own, refs[0], start, end)

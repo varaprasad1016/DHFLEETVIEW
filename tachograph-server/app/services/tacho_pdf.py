@@ -32,13 +32,17 @@ WARN = colors.HexColor("#b45309")
 
 # Widths add up to the printable width of a landscape A4 page less the margins,
 # so nothing has to wrap.
+# Shift duty and WTD active hours are two different figures - the first counts
+# availability, the second does not - so they get a column each and are never
+# merged into one "WTD" column that means whichever the reader assumes.
 COLUMNS = [
-    ("Date", 50), ("Reg", 62), ("Finish<br/>odo", 50), ("Start<br/>odo", 50),
-    ("Dist<br/>(km)", 34), ("Start<br/>duty", 36), ("Drive<br/>start", 36),
-    ("End<br/>duty", 36), ("Daily<br/>rest", 40), ("Total<br/>drive", 40),
-    ("Total<br/>work", 40), ("Total<br/>POA", 40), ("Total<br/>break", 40),
-    ("Total<br/>shift", 42), ("Total<br/>WTD", 40), ("Fort<br/>drive", 42),
-    ("Prev<br/>rest", 40), ("Rule", 44),
+    ("Date", 46), ("Reg", 54), ("Finish<br/>odo", 46), ("Start<br/>odo", 46),
+    ("Dist<br/>(km)", 32), ("Start<br/>duty", 34), ("Drive<br/>start", 34),
+    ("End<br/>duty", 34), ("Daily<br/>rest", 38), ("Total<br/>drive", 38),
+    ("Total<br/>work", 38), ("Total<br/>POA", 38), ("Total<br/>break", 38),
+    ("Total<br/>shift", 40), ("Shift duty<br/>(inc. POA)", 48),
+    ("WTD active<br/>(excl. POA)", 50), ("Fort<br/>drive", 40),
+    ("Prev<br/>rest", 38), ("Rule", 40),
 ]
 FINDING_WIDTHS = [56, 32, 58, 616]
 
@@ -81,7 +85,8 @@ def _day_cells(row: dict) -> list[str]:
         str(row["distance"]) if row["distance"] else "",
         row["start_duty"], row["drive_start"], row["end_duty"],
         hhmm(row["daily_rest"]), hhmm(row["drive"]), hhmm(row["work"]),
-        hhmm(row["poa"]), hhmm(row["break"]), hhmm(row["shift"]), hhmm(row["wtd"]),
+        hhmm(row["poa"]), hhmm(row["break"]), hhmm(row["shift"]),
+        hhmm(row.get("shift_duty", row.get("wtd"))), hhmm(row.get("wtd_active")),
         hhmm(row["fortnight_drive"]), hhmm(row["previous_rest"]), row["rule"],
     ]
 
@@ -90,7 +95,8 @@ def _totals_cells(totals: dict) -> list[str]:
     cells = ["Week's total"] + [""] * (len(COLUMNS) - 1)
     cells[4] = str(totals.get("distance") or 0)
     for index, key in ((8, "daily_rest"), (9, "drive"), (10, "work"), (11, "poa"),
-                       (12, "break"), (13, "shift"), (14, "wtd")):
+                       (12, "break"), (13, "shift"), (14, "shift_duty"),
+                       (15, "wtd_active")):
         cells[index] = hhmm(totals.get(key) or 0)
     return cells
 
@@ -315,6 +321,15 @@ def render_timeline(rows: list[dict], driver_ref: str | None = None,
         c.setFillColor(MUTED)
         c.drawRightString(page_width - 32, page_height - 31, f"Generated {stamp}")
         c.drawString(32, page_height - 47, f"Driver: {driver_ref or '—'}")
+        # Say which days these are. A card downloaded today can hold nothing
+        # newer than months ago, and a driver looking at their own timeline
+        # should not have to work out from the day headings that they are
+        # reading June rather than this week.
+        if days:
+            first, last = min(days), max(days)
+            covers = (first.strftime("%d/%m/%Y") if first == last
+                      else f"{first:%d/%m/%Y} to {last:%d/%m/%Y}")
+            c.drawRightString(page_width - 32, page_height - 47, f"Covering {covers}")
         c.line(32, page_height - 55, page_width - 32, page_height - 55)
 
     header()

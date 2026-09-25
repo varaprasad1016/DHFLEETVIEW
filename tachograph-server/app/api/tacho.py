@@ -8,7 +8,7 @@ import base64
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Response
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,12 +19,17 @@ from app.config import settings
 from app.database import get_session
 from app.models.core import Company, Vehicle
 from app.models.tacho import TachoActivity
+from app.models.operator import Operator
 from app.models.tacho import Infringement, TachoFile
-from app.services import (archive, ddd_go, ddd_parser, infringement_reviews, media_store, modules, report_settings,
+from app.services import (archive, ddd_go, ddd_parser, driver_calendar, driver_reports,
+                          infringement_reviews, mailer,
+                          media_store, modules, operators, report_settings,
                           tacho_compliance, tacho_pdf, tacho_report)
+from app.services import wtd as wtd_service
 from app.models.infringement_review import InfringementReview
 from app.services.tacho_scope import TachoScope, scope_for
 from app.services.tacho_rules import Activity, Infringement as RuleInfringement, analyse
+from app.services.tacho_rules import code_for as tacho_rules_codes
 
 router = APIRouter(prefix="/api/tacho", tags=["tacho"], dependencies=[Depends(require_license), Depends(require_manager), Depends(require_module("tacho"))])
 
@@ -224,6 +229,57 @@ async def company_name(session: AsyncSession = Depends(get_session),
     return {"name": await _latest_company_name(session, scope)}
 
 
+def _reg_key(value: str | None) -> str:
+    return "".join(str(value or "").upper().split())
+
+
+async def _operator_for_report(session: AsyncSession, parsed: dict,
+                               start: date | None, end: date | None) -> dict:
+    """Whose name belongs on this driver's report.
+
+    Worked out from the vehicles the driver actually drove in the period, which
+    is the only honest source: a driver card carries no operator of its own,
+    and taking the most recent upload on the account puts whoever downloaded
+    last on everybody's paperwork.
+
+    Where the vehicles driven belong to more than one operator, no name is
+    chosen. That is a real situation - a driver can work for two firms in a
+    week - and picking one of them would be worse than leaving it blank,
+    because the report would look authoritative and be wrong.
+    """
+    driven: set[str] = set()
+    for spell in parsed.get("vehicles") or []:
+        if not spell.registration:
+            continue
+        day = (spell.first_use or spell.last_use)
+        if day is not None:
+            if start is not None and day.date() < start:
+                continue
+            if end is not None and day.date() > end:
+                continue
+        driven.add(_reg_key(spell.registration))
+
+    if not driven:
+        return {"name": None, "operators": [], "vehicles": [], "unknown": []}
+
+    rows = (await session.execute(
+        select(Vehicle.registration, Operator.name)
+        .outerjoin(Operator, Operator.id == Vehicle.operator_id)
+        .where(Vehicle.registration.in_(driven)))).all()
+    known = {_reg_key(reg): name for reg, name in rows if name}
+    names = sorted(set(known.values()))
+    unknown = sorted(driven - set(known))
+
+    return {
+        # One operator across every vehicle we can identify, or nothing.
+        "name": names[0] if len(names) == 1 else None,
+        "operators": names,
+        "vehicles": sorted(driven),
+        "unknown": unknown,
+        "spans_operators": len(names) > 1,
+    }
+
+
 async def _latest_company_name(session: AsyncSession, scope: TachoScope) -> str | None:
     return (await session.execute(
         select(TachoFile.company_name)
@@ -391,10 +447,17 @@ async def upload(body: UploadIn, session: AsyncSession = Depends(get_session),
             tf.parse_error = str(e)[:500]
             result["parse_error"] = str(e)
     elif body.file_kind == "vehicle_unit":
+        # The operating company comes off the unit itself, which is the only
+        # source that does not depend on how somebody organised their account.
         try:
-            tf.company_name = ddd_parser.parse_vehicle_unit_company(data)
+            tf.company_name = operators.clean_name(
+                ddd_parser.parse_vehicle_unit_company(data))
         except Exception:
             tf.company_name = None
+        operator = await operators.resolve(session, tf.company_name)
+        if operator is not None:
+            tf.operator_id = operator.id
+            result["operator"] = operator.name
         try:
             # Vehicle-unit files are not driver cards. Parse the VU identity
             # first, then find (or create) the account's vehicle by the
@@ -432,6 +495,18 @@ async def upload(body: UploadIn, session: AsyncSession = Depends(get_session),
                     vehicle.vin = parsed["vehicle_vin"]
                 if parsed.get("tachograph_serial") and not vehicle.tachograph_serial:
                     vehicle.tachograph_serial = parsed["tachograph_serial"]
+                # The unit says who runs this truck. A disagreement with what
+                # is on record is reported, never applied: re-badging a vehicle
+                # silently would rewrite whose name is on its past reports.
+                outcome = await operators.note_vehicle(vehicle, operator)
+                if outcome != "none":
+                    result["operator_on_vehicle"] = outcome
+                if outcome == "conflict":
+                    result["operator_conflict"] = {
+                        "vehicle": vehicle.registration,
+                        "unit_says": operator.name if operator else None,
+                        "on_record": str(vehicle.operator_id),
+                    }
             tf.vehicle_id = vehicle.id if vehicle else None
             tf.vehicle_ref = vehicle.registration if vehicle else source_vehicle_ref
 
@@ -628,10 +703,15 @@ async def _report_for(session: AsyncSession, file_id: uuid.UUID | None,
     reviews = await infringement_reviews.reviews_for(session, [r.id for r in rows])
     signoff = {(r.rule, r.period_start.isoformat()): infringement_reviews.view(reviews.get(r.id)) for r in rows}
 
+    operator = await _operator_for_report(session, parsed, start, end)
     report = tacho_report.build_report(
         parsed, found, start=start, end=end,
         driver_ref=tf.driver_ref or parsed.get("driver_ref"),
-        company_name=await _latest_company_name(session, scope))
+        company_name=operator["name"])
+    # Carried on the report so the screen and the emailing step can see it: a
+    # report spanning two operators must not be sent to either as though it
+    # were theirs.
+    report["operator"] = operator
     for week in report.get("weeks", []):
         for item in week.get("infringements", []) + week.get("working_time_infringements", []):
             item["review"] = signoff.get((item["rule"], item.get("start")))
@@ -725,6 +805,77 @@ async def report_pdf(file_id: uuid.UUID | None = None, driver_ref: str | None = 
         headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
 
+@router.post("/report/send")
+async def send_report(body: dict = Body(default={}),
+                      session: AsyncSession = Depends(get_session),
+                      scope: TachoScope = Depends(tacho_scope),
+                      principal: Principal = Depends(require_manager)) -> dict:
+    """Email driver reports now, instead of waiting for Monday morning.
+
+    What is sent is what the Hours page is showing. Dates given here are
+    honoured; with the date boxes left empty and a driver named, the whole of
+    that driver's card goes - the same span the page draws and the Download PDF
+    button saves. Defaulting to last week instead would email one page where
+    the screen showed a year, which is exactly the wrong surprise.
+
+    With no `driver_ref` at all it falls back to the week, which is the Monday
+    job's job: every driver who worked, in one email.
+
+    It goes to the address the account is registered with unless another is
+    given here.
+    """
+    if not mailer.configured():
+        raise HTTPException(status_code=400,
+                            detail="No mail server is set up, so nothing can be emailed.")
+
+    today = date.today()
+    start = date.fromisoformat(body["start"]) if body.get("start") else None
+    end = date.fromisoformat(body["end"]) if body.get("end") else None
+    whole_card = start is None and end is None and bool(body.get("driver_ref"))
+    if not whole_card and (start is None or end is None):
+        start, end = driver_reports.last_full_week(today)
+
+    to = (body.get("to") or principal.email or "").strip()
+    name = principal.name or principal.email or "your account"
+    week = driver_reports.AccountWeek(user_id=principal.user_id or 0, account=name,
+                                      email=to or None)
+
+    hidden, _ = await report_settings.hidden_for(session, principal.user_id)
+    wanted = ([body["driver_ref"]] if body.get("driver_ref")
+              else await driver_reports.drivers_active(session, scope, start, end))
+    for driver_ref in wanted:
+        week.reports.append(
+            await driver_reports.build_week(session, scope, driver_ref, start, end, hidden))
+
+    if not week.reports:
+        covers = (f"between {start} and {end}" if start and end else "on that card")
+        raise HTTPException(status_code=400,
+                            detail=f"No driver worked {covers}, so there is nothing to send.")
+    if not any(report.pdf for report in week.reports):
+        why = next((r.problem for r in week.reports if r.problem), "the report could not be built")
+        raise HTTPException(status_code=422, detail=f"Nothing could be attached: {why}")
+
+    # Asked for the whole card, the span is only known once it is built, so the
+    # covering note and the subject take it from the reports themselves.
+    if start is None or end is None:
+        froms = [r.period_from for r in week.reports if r.period_from]
+        tos = [r.period_to for r in week.reports if r.period_to]
+        start = min(froms) if froms else driver_reports.last_full_week(today)[0]
+        end = max(tos) if tos else driver_reports.last_full_week(today)[1]
+
+    try:
+        sent_to = await driver_reports.send_week(session, week, start, end,
+                                                 to=to or None, automatic=False)
+    except mailer.MailError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {"sent_to": sent_to, "drivers": len(week.reports),
+            "attached": len(driver_reports.attachments(week)),
+            "infringements": week.total_infringements,
+            "weeks": sum(r.weeks for r in week.reports),
+            "period": {"start": start.isoformat(), "end": end.isoformat()}}
+
+
 async def _card_spans(session: AsyncSession, scope: TachoScope, since: datetime,
                       driver_ref: str | None = None) -> dict[str, list]:
     """Driver-card activity per card holder (your drivers only)."""
@@ -738,6 +889,73 @@ async def _card_spans(session: AsyncSession, scope: TachoScope, since: datetime,
         if ref:
             out.setdefault(ref, []).append((kind, start, end))
     return out
+
+
+@router.get("/calendar")
+async def calendar(weeks: int = 2, end: date | None = None, driver_ref: str | None = None,
+                   reference_weeks: int = 17,
+                   session: AsyncSession = Depends(get_session),
+                   scope: TachoScope = Depends(tacho_scope)) -> dict:
+    """Every driver's fortnight on one grid: who worked, who rested, who is missing.
+
+    The whole depot at once, which is the question actually asked first thing in
+    the morning. One row per driver, one cell per day, plus how much working
+    time each has left this week and next.
+    """
+    if weeks not in (1, 2, 4, 6):
+        raise HTTPException(status_code=400, detail="Show 1, 2, 4 or 6 weeks.")
+    if reference_weeks not in (17, 26):
+        raise HTTPException(status_code=400, detail="The reference period is 17 or 26 weeks.")
+
+    today = datetime.now(wtd_service.LONDON).date()
+    first, last = driver_calendar.span(end or today, weeks)
+
+    # The average needs history well before the grid starts, so the card data
+    # is fetched from far enough back for the reference period to be real.
+    since_day = driver_calendar.week_start(first) - timedelta(weeks=reference_weeks)
+    since = datetime.combine(since_day, datetime.min.time(), timezone.utc)
+    spans = await _card_spans(session, scope, since, driver_ref)
+
+    # Infringements land on the day they start, in local time, so a breach that
+    # begins at 23:00 marks the day the driver would say it happened.
+    found: dict[str, dict[date, list]] = {}
+    rows = (await session.execute(
+        select(Infringement.driver_ref, Infringement.period_start, Infringement.severity)
+        .where(Infringement.status != "dismissed", scope.infringements(),
+               Infringement.period_start >= datetime.combine(first, datetime.min.time(), timezone.utc)))).all()
+    for ref, when, severity in rows:
+        day = when.astimezone(wtd_service.LONDON).date()
+        found.setdefault(ref, {}).setdefault(day, []).append(severity or "serious")
+
+    # When each card was last downloaded - the number the office chases.
+    downloads: dict[str, datetime] = {}
+    for ref, when in (await session.execute(
+            select(TachoFile.driver_ref, func.max(TachoFile.created_at))
+            .where(TachoFile.file_kind == "driver_card", TachoFile.driver_ref.isnot(None),
+                   scope.files()).group_by(TachoFile.driver_ref))).all():
+        downloads[ref] = when
+
+    names = {d.get("uniqueId"): d.get("name") for d in (scope.drivers or [])}
+    drivers = [
+        driver_calendar.build(
+            ref, names.get(ref), items, found.get(ref, {}), first, last, today,
+            last_download=downloads.get(ref), reference_weeks=reference_weeks)
+        for ref, items in sorted(spans.items())
+    ]
+    # The drivers needing attention first: missing records, then infringements.
+    drivers.sort(key=lambda d: (-d["days_without_a_record"], -d["infringements"], d["name"].lower()))
+
+    return {
+        "from": first.isoformat(), "to": last.isoformat(), "weeks": weeks,
+        "today": today.isoformat(), "reference_weeks": reference_weeks,
+        "drivers": drivers,
+        "totals": {
+            "drivers": len(drivers),
+            "without_a_record": sum(1 for d in drivers if d["days_without_a_record"]),
+            "infringements": sum(d["infringements"] for d in drivers),
+            "worked_days": sum(d["worked_days"] for d in drivers),
+        },
+    }
 
 
 @router.get("/wtd")
@@ -834,6 +1052,75 @@ async def hours_csv(start: date, end: date, session: AsyncSession = Depends(get_
                     headers={"Content-Disposition": f'attachment; filename="driver-hours-{start}-to-{end}.csv"'})
 
 
+@router.get("/operators")
+async def list_operators(session: AsyncSession = Depends(get_session),
+                         scope: TachoScope = Depends(tacho_scope),
+                         principal: Principal = Depends(require_manager)) -> dict:
+    """The operating companies read off the vehicle units, and their vehicles.
+
+    This is what decides whose name goes on a driver's report, so it is worth
+    somebody's eyes: a customer running several legal entities out of one login
+    should see each one here, with the right trucks under it.
+    """
+    rows = (await session.execute(
+        select(Operator, func.count(Vehicle.id))
+        .outerjoin(Vehicle, Vehicle.operator_id == Operator.id)
+        .group_by(Operator.id).order_by(Operator.name))).all()
+
+    vehicles = (await session.execute(
+        select(Vehicle.registration, Vehicle.operator_id, Operator.name)
+        .outerjoin(Operator, Operator.id == Vehicle.operator_id)
+        .order_by(Vehicle.registration))).all()
+
+    return {
+        "operators": [{
+            "id": str(op.id), "name": op.name, "source": op.source,
+            "contact_email": op.contact_email, "vehicles": count,
+        } for op, count in rows],
+        "vehicles": [{"registration": reg, "operator": name,
+                      "operator_id": str(oid) if oid else None}
+                     for reg, oid, name in vehicles],
+        # Vehicles with no operator yet: nothing has been downloaded from their
+        # unit, so nobody knows whose name belongs on their driver's report.
+        "unassigned": [reg for reg, oid, _ in vehicles if oid is None],
+    }
+
+
+@router.put("/vehicles/{registration}/operator")
+async def set_vehicle_operator(registration: str, body: dict = Body(...),
+                               session: AsyncSession = Depends(get_session),
+                               principal: Principal = Depends(require_manager)) -> dict:
+    """Say which company operates a vehicle, by hand.
+
+    Needed in two cases: a truck whose unit has never been downloaded, and one
+    the download got wrong or that has changed hands. Set deliberately here
+    rather than by a download quietly overwriting what is on record.
+    """
+    _super_admin_only(principal)
+    reg = "".join(str(registration).upper().split())
+    vehicle = (await session.execute(
+        select(Vehicle).where(Vehicle.registration == reg))).scalar_one_or_none()
+    if vehicle is None:
+        raise HTTPException(status_code=404, detail=f"No vehicle {reg} on the compliance side yet.")
+
+    name = (body.get("operator") or "").strip()
+    if not name:
+        vehicle.operator_id = None
+        await session.commit()
+        return {"registration": reg, "operator": None}
+
+    operator = await operators.resolve(session, name, source="manual")
+    if operator is None:
+        raise HTTPException(status_code=400, detail="That is not a usable company name.")
+    vehicle.operator_id = operator.id
+    await session.commit()
+    logger_name = principal.email or principal.name
+    import logging
+    logging.getLogger("tacho.operators").info(
+        "%s set %s to operator %s", logger_name, reg, operator.name)
+    return {"registration": reg, "operator": operator.name, "id": str(operator.id)}
+
+
 @router.get("/report-settings")
 async def get_report_settings(session: AsyncSession = Depends(get_session),
                               scope: TachoScope = Depends(tacho_scope),
@@ -896,7 +1183,7 @@ async def list_infringements(status: str = "open", driver_ref: str | None = None
     reviews = await infringement_reviews.reviews_for(session, [r.id for r, _ in rows])
     return [{
         "id": str(r.id), "driver_ref": r.driver_ref, "vehicle_ref": vehicle,
-        "rule": r.rule, "title": r.title,
+        "rule": r.rule, "code": tacho_rules_codes(r.rule), "title": r.title,
         "severity": r.severity, "status": r.status,
         "period_start": r.period_start.isoformat(), "period_end": r.period_end.isoformat(),
         "detail": r.detail, "limit_minutes": r.limit_minutes, "actual_minutes": r.actual_minutes,
@@ -971,6 +1258,7 @@ async def list_files(session: AsyncSession = Depends(get_session),
         "id": str(f.id), "filename": f.filename, "file_kind": f.file_kind,
         "driver_ref": f.driver_ref, "vehicle_ref": f.vehicle_ref,
         "company_name": f.company_name,
+        "operator_id": str(f.operator_id) if f.operator_id else None,
         "size_bytes": f.size_bytes, "sha256": f.sha256, "parsed": f.parsed,
         "parse_error": f.parse_error,
         "retain_until": f.retain_until.isoformat() if f.retain_until else None,

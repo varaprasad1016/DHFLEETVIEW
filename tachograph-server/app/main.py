@@ -31,11 +31,25 @@ from app.api.tacho_live import ingest_router as tacho_live_ingest_router, router
 from app.api.driver_accounts import accounts_router as driver_accounts_router, auth_router as driver_auth_router
 from app.api.bridge import public_router as bridge_public_router, router as bridge_router
 from app.api.dvr import router as dvr_router
-from app.api.billing import router as billing_router
+from app.api.billing import public_router as billing_public_router, router as billing_router
+from app.api.mail import router as mail_router
 from app.api.sims import router as sims_router
-from app.services import sms_sender
+from app.api.sms_inbound import public_router as sms_public_router, router as sms_router
+from app.services import download_server, scheduler, sms_sender
 from app.services.auth import allowed_origins
 from app.services.bridge_server import bridge
+
+
+_tacho_log = logging.getLogger("tacho")
+if not _tacho_log.handlers:
+    # uvicorn configures only its own loggers, so without this everything the
+    # platform does of its own accord - emailing an invoice, sending a week of
+    # driver reports - would happen with nothing in the log to show for it.
+    _log_handler = logging.StreamHandler()
+    _log_handler.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
+    _tacho_log.addHandler(_log_handler)
+    _tacho_log.setLevel(logging.INFO)
+    _tacho_log.propagate = False
 
 
 @asynccontextmanager
@@ -48,11 +62,30 @@ async def lifespan(app: FastAPI):
         except Exception:  # noqa: BLE001 - the API must still come up
             logging.getLogger("tacho.bridge").exception("Tacho Bridge endpoint failed to start")
 
+    # The listeners a vehicle sends its own tachograph file to. Off by default;
+    # see services/download_server for why.
+    downloads = []
+    for label, server in download_server.build_servers():
+        try:
+            await server.start()
+            downloads.append(server)
+            logging.getLogger("tacho.download").info("listening for downloads on %s", label)
+        except Exception:  # noqa: BLE001 - the API must still come up
+            logging.getLogger("tacho.download").exception("%s failed to start", label)
+
     # Camera setup commands go out through the SIM provider when one is set up.
     sender = asyncio.create_task(sms_sender.run()) if settings.sms_url else None
+    # Invoices every quarter and driver reports every Monday morning.
+    clock = asyncio.create_task(scheduler.run()) if settings.schedule_enabled else None
     yield
-    if sender:
-        sender.cancel()
+    for task in (sender, clock):
+        if task:
+            task.cancel()
+    for server in downloads:
+        try:
+            await server.stop()
+        except Exception:  # noqa: BLE001 - shutting down must not raise
+            logging.getLogger("tacho.download").exception("a download listener would not stop")
     await bridge.stop()
 
 
@@ -79,7 +112,11 @@ app.include_router(modules_router)
 app.include_router(bridge_router)
 app.include_router(dvr_router)
 app.include_router(billing_router)
+app.include_router(billing_public_router)
+app.include_router(mail_router)
 app.include_router(sims_router)
+app.include_router(sms_router)
+app.include_router(sms_public_router)
 app.include_router(bridge_public_router)
 app.include_router(admin_router)
 app.include_router(maintenance_router)
