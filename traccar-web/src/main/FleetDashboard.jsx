@@ -6,6 +6,7 @@ import DirectionsCarIcon from '@mui/icons-material/DirectionsCar';
 import PauseCircleIcon from '@mui/icons-material/PauseCircle';
 import LocalParkingIcon from '@mui/icons-material/LocalParking';
 import CloudOffIcon from '@mui/icons-material/CloudOff';
+import GpsOffIcon from '@mui/icons-material/GpsOff';
 import GarageIcon from '@mui/icons-material/Garage';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { Typography, Box, Tooltip } from '@mui/material';
@@ -63,6 +64,9 @@ const useStyles = makeStyles()((theme) => ({
   },
   offlineBg: {
     backgroundColor: alpha(theme.palette.error.main, 0.1),
+  },
+  nofixBg: {
+    backgroundColor: alpha(theme.palette.warning.main, 0.1),
   },
   alarmBg: {
     backgroundColor: alpha(theme.palette.error.main, 0.14),
@@ -209,6 +213,19 @@ const FleetDashboard = ({ filter, setFilter }) => {
         bgClass="parkedBg"
         color="neutral"
       />
+      {/* Reporting, but with no satellite fix: the position on the map is the
+          last one it managed and the speed is unknown, so it must not be
+          counted as running or idling. */}
+      {stats.nofix > 0 && (
+        <Card
+          statusKey="nofix"
+          label="No GPS fix"
+          count={stats.nofix}
+          icon={<GpsOffIcon fontSize="inherit" />}
+          bgClass="nofixBg"
+          color="warning"
+        />
+      )}
       <Card
         statusKey="offline"
         label="Offline"

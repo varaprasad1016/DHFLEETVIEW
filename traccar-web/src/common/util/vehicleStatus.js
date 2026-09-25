@@ -11,6 +11,8 @@ import { formatShortSpeed } from './formatter';
  *   idling  - ignition ON + stationary
  *   parked  - ignition OFF (also exposed as "stopped" for UI)
  *   stopped - alias of parked
+ *   nofix   - still reporting, but with no satellite fix: the coordinate is the
+ *             last one it managed and the speed is unknown rather than zero
  *   offline - device offline/unknown or no position
  */
 
@@ -53,10 +55,11 @@ export const getIgnition = (position, device = null) => {
 
   // Per-device override: allow custom ignition attribute key (e.g. Teltonika specific IO)
   // device.attributes.ignitionKey / teltonikaIgnitionKey / ignitionAttribute
-  const customKey = device?.attributes?.ignitionKey
-    || device?.attributes?.teltonikaIgnitionKey
-    || device?.attributes?.ignitionAttribute
-    || device?.attributes?.ignitionSource;
+  const customKey =
+    device?.attributes?.ignitionKey ||
+    device?.attributes?.teltonikaIgnitionKey ||
+    device?.attributes?.ignitionAttribute ||
+    device?.attributes?.ignitionSource;
   if (customKey && attrs.hasOwnProperty(customKey)) {
     const v = normalizeBoolean(attrs[customKey]);
     if (v !== null) return v;
@@ -84,9 +87,19 @@ export const isIgnitionOn = (position, device) => getIgnition(position, device) 
 export const isIgnitionOff = (position, device) => getIgnition(position, device) === false;
 
 /**
- * Derive vehicle status strictly from ignition (+ speed).
+ * Whether the position is an actual satellite fix.
+ *
+ * A tracker with no fix still reports: it sends its last known coordinate with
+ * speed zero and the fix flagged invalid. Believing that is how a lorry doing
+ * 50 on the motorway shows as sitting still — the coordinate is real, it is
+ * just hours old, and the zero speed means "not known" rather than "stopped".
+ */
+export const hasFix = (position) => position?.valid !== false;
+
+/**
+ * Derive vehicle status from ignition, speed and whether the fix is real.
  * DVR behaviour is preserved: it already reports ignition, so same path.
- * @returns {'running'|'idling'|'parked'|'offline'}
+ * @returns {'running'|'idling'|'parked'|'nofix'|'offline'}
  */
 export const getVehicleStatus = (device, position) => {
   if (!device) return 'offline';
@@ -99,6 +112,10 @@ export const getVehicleStatus = (device, position) => {
 
   const ignition = getIgnition(position, device);
   const speed = typeof position.speed === 'number' ? position.speed : 0;
+
+  // Without a fix the speed is unknown, not zero, so neither "running" nor
+  // "idling" can be claimed. Say what is actually true instead.
+  if (!hasFix(position)) return 'nofix';
 
   if (ignition === true) {
     return speed >= SPEED_THRESHOLD_KTS ? 'running' : 'idling';
@@ -136,6 +153,8 @@ export const getStatusColor = (vehicleStatus) => {
       return 'warning'; // amber
     case 'parked':
       return 'neutral'; // gray
+    case 'nofix':
+      return 'warning'; // reporting, but its position cannot be trusted
     case 'offline':
       return 'error';
     default:
@@ -167,14 +186,17 @@ export const getIgnitionAvatarStyle = (position, device, theme) => {
 
 // Fleet counts helper
 export const computeFleetStats = (devices, positions) => {
-  const stats = { running: 0, idling: 0, parked: 0, stopped: 0, offline: 0, total: 0 };
+  const stats = { running: 0, idling: 0, parked: 0, stopped: 0, offline: 0, nofix: 0, total: 0 };
   Object.values(devices).forEach((device) => {
     const position = positions[device.id];
     const status = getVehicleStatus(device, position);
     stats.total += 1;
     if (status === 'running') stats.running += 1;
     else if (status === 'idling') stats.idling += 1;
-    else if (status === 'parked') { stats.parked += 1; stats.stopped += 1; }
+    else if (status === 'parked') {
+      stats.parked += 1;
+      stats.stopped += 1;
+    } else if (status === 'nofix') stats.nofix += 1;
     else if (status === 'offline') stats.offline += 1;
   });
   return stats;
@@ -186,7 +208,8 @@ export const matchesVehicleStatusFilter = (device, position, statuses) => {
   const normalized = statuses.map((s) => normalizeStatus(s));
   const status = getVehicleStatus(device, position);
   // stopped filter should match parked devices
-  if (normalized.includes(status) || (status === 'parked' && normalized.includes('stopped'))) return true;
+  if (normalized.includes(status) || (status === 'parked' && normalized.includes('stopped')))
+    return true;
   // also allow offline filter
   if (normalized.includes('offline') && status === 'offline') return true;
   // unknown status filter -> parked

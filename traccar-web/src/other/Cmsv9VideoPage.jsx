@@ -105,27 +105,37 @@ const useStyles = makeStyles()((theme) => ({
       flexGrow: 1,
     },
   },
+  // The grid divides the space it is given rather than sizing itself from its
+  // tiles. Fixing each tile to 4:3 made a 2x2 wall about 800px tall whatever
+  // the window could spare, so the top row was cut off above the visible area
+  // and the whole thing quietly scrolled - which is what "muddled up" looked
+  // like. The rows and columns are set from the channel count instead, and
+  // each picture letterboxes inside its tile.
   grid: {
-    flexGrow: 1,
     display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
     gap: theme.spacing(1),
     padding: theme.spacing(1, 2),
-    overflow: 'auto',
     backgroundColor: '#000',
-    alignContent: 'start',
+    // A flex child will not shrink below its content without this, and then
+    // the grid pushes the map off the bottom instead of sharing the space.
+    minHeight: 0,
+    overflow: 'hidden',
   },
   cell: {
     position: 'relative',
     backgroundColor: '#0a0a0a',
     borderRadius: 8,
     overflow: 'hidden',
-    aspectRatio: '4 / 3',
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     border: `1px solid ${theme.palette.divider}`,
+    // Each tile is whatever its share of the grid is; the picture fits inside
+    // it with object-fit, so an odd-shaped tile letterboxes rather than
+    // stretching the image or overflowing the row.
+    minHeight: 0,
+    minWidth: 0,
   },
   cellVideo: {
     width: '100%',
@@ -188,8 +198,11 @@ const useStyles = makeStyles()((theme) => ({
     flex: '1 1 50%',
     maxHeight: 'none',
   },
+  // With the map below it the grid takes the larger share and the map the
+  // rest, both able to shrink. Before, the grid was flexGrow 0 and sized by
+  // its tiles, so it overran whatever was left and the first row was clipped.
   gridWithMap: {
-    flexGrow: 0,
+    flex: '1 1 62%',
   },
   mapEmpty: {
     position: 'absolute',
@@ -201,6 +214,19 @@ const useStyles = makeStyles()((theme) => ({
     zIndex: 1,
   },
 }));
+
+// How the tiles are arranged for a given number of channels. Two columns
+// regardless meant a single camera got half the width for no reason, and six
+// made three rows that could not fit. Rows are explicit so the grid divides
+// the height it has rather than growing past it.
+const gridShape = (count) => {
+  const columns = count <= 1 ? 1 : count <= 4 ? 2 : count <= 9 ? 3 : 4;
+  const rows = Math.max(1, Math.ceil(count / columns));
+  return {
+    gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+    gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
+  };
+};
 
 // How often a stalled tile is restarted from the DVR before it gives up, and
 // how long a tile may show nothing before it counts as stalled.
@@ -245,7 +271,8 @@ async function createFlvPlayer(container, url, options = {}) {
     autoWasm: true,
     debug: false,
     showBandwidth: false,
-    // false = stretch to fill (grid tiles); true = keep aspect ratio (single view)
+    // true = keep the picture's own shape and letterbox it; false = stretch to
+    // fill the container. Everything that shows video wants the former.
     isResize: options.isResize ?? false,
     useWebFullScreen: false,
     timeout: options.timeout || 20,
@@ -646,7 +673,11 @@ const Cmsv9VideoPage = () => {
         return;
       }
       if (cancelledRef.current || gridPlayers.current[ch]?.videoEl !== videoEl) return;
-      const player = await createFlvPlayer(videoEl, data.flvUrl, { hasAudio: false });
+      // Keep the picture's own shape inside the tile. Stretching to fill was
+      // fine while every tile was locked to 4:3; now that a tile is whatever
+      // share of the grid it gets, stretching would squash the image.
+      const player = await createFlvPlayer(videoEl, data.flvUrl,
+        { hasAudio: false, isResize: true });
       if (!player) {
         setGridErrors((prev) => ({ ...prev, [ch]: 'error' }));
         return;
@@ -991,7 +1022,10 @@ const Cmsv9VideoPage = () => {
             </div>
           )}
           {tab === 1 && (
-            <div className={`${classes.grid} ${classes.gridWithMap}`}>
+            <div
+              className={`${classes.grid} ${classes.gridWithMap}`}
+              style={gridShape(visibleChannels.length)}
+            >
               {visibleChannels.map((ch) => (
                 <div
                   key={ch}
