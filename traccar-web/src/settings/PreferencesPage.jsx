@@ -36,7 +36,7 @@ import useMapStyles from '../map/core/useMapStyles';
 import useMapOverlays from '../map/overlay/useMapOverlays';
 import { useCatch } from '../reactHelper';
 import { sessionActions } from '../store';
-import { useAdministrator, useRestriction } from '../common/util/permissions';
+import { useRestriction } from '../common/util/permissions';
 import useSettingsStyles from './common/useSettingsStyles';
 import fetchOrThrow from '../common/util/fetchOrThrow';
 
@@ -57,7 +57,6 @@ const PreferencesPage = () => {
   const navigate = useNavigate();
   const t = useTranslation();
 
-  const admin = useAdministrator();
   const readonly = useRestriction('readonly');
 
   const user = useSelector((state) => state.session.user);
@@ -103,10 +102,12 @@ const PreferencesPage = () => {
     navigate(-1);
   });
 
-  const handleReboot = useCatch(async () => {
-    const response = await fetch('/api/server/reboot', { method: 'POST' });
-    throw Error(response.statusText);
-  });
+  // The server reboot control is deliberately gone, handler and all. Nothing on
+  // this box restarts the service once it stops - the Windows service has no
+  // recovery actions configured - so the button did not reboot anything, it
+  // took the platform down until somebody started it again by hand. Removing
+  // the button is only half of it; POST /api/server/reboot is refused by the
+  // server as well, so a saved bookmark or a stray script cannot do it either.
 
   return (
     <PageLayout menu={<SettingsMenu />} breadcrumbs={['settingsTitle', 'sharedPreferences']}>
@@ -393,6 +394,40 @@ const PreferencesPage = () => {
             </FormControl>
           </AccordionDetails>
         </Accordion>
+        {/*
+          Ownership and attribution. Outside the !readonly block on purpose: a
+          read-only user is still a user of the software, and the Apache licence
+          the platform is built on expects its notice to travel with it.
+        */}
+        <Accordion>
+          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+            <Typography variant="subtitle1">About</Typography>
+          </AccordionSummary>
+          <AccordionDetails className={classes.details}>
+            <Typography variant="subtitle2">DH FleetView</Typography>
+            <Typography variant="body2">
+              {'©'} {new Date().getFullYear()} DH Fleet View. All rights reserved.
+            </Typography>
+            <Typography variant="body2">
+              The underlying platform, and all proprietary and white-label rights in it,
+              belong to Infomac Solutions.
+            </Typography>
+            <Typography variant="body2">
+              This branded edition is owned outright by DH Fleet View and may be sold and
+              resold under the DH FleetView name. It is licensed as a branded product, not
+              as a white-label one: it carries no right to rebrand, sublicense or resell it
+              under any other name.
+            </Typography>
+            {/*
+              No upstream credit is shown here. The platform builds on Apache 2.0
+              licensed work, whose attribution clause (section 4d) only reaches a
+              user-facing display when the upstream ships a NOTICE file - it does
+              not. What the licence does still require lives where it belongs: the
+              per-file copyright headers in source, and LICENSE.txt alongside any
+              copy that is distributed. Neither may be stripped.
+            */}
+          </AccordionDetails>
+        </Accordion>
         {!readonly && (
           <>
             <Accordion>
@@ -414,11 +449,6 @@ const PreferencesPage = () => {
                 <Button variant="outlined" color="primary" onClick={() => navigate('/emulator')}>
                   {t('sharedEmulator')}
                 </Button>
-                {admin && (
-                  <Button variant="outlined" color="error" onClick={handleReboot}>
-                    {t('serverReboot')}
-                  </Button>
-                )}
               </AccordionDetails>
             </Accordion>
             <div className={classes.buttons}>

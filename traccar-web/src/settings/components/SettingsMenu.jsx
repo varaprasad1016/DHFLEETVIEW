@@ -15,6 +15,9 @@ import HelpIcon from '@mui/icons-material/Help';
 import PaymentIcon from '@mui/icons-material/Payment';
 import CampaignIcon from '@mui/icons-material/Campaign';
 import CalculateIcon from '@mui/icons-material/Calculate';
+import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
+import SmsIcon from '@mui/icons-material/Sms';
+import SimCardIcon from '@mui/icons-material/SimCard';
 import { useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useTranslation } from '../../common/components/LocalizationProvider';
@@ -144,12 +147,37 @@ const SettingsMenu = () => {
               selected={location.pathname === '/settings/announcement'}
             />
             {admin && (
-              <MenuItem
-                title={t('settingsServer')}
-                link="/settings/server"
-                icon={<SettingsIcon />}
-                selected={location.pathname === '/settings/server'}
-              />
+              <>
+                <MenuItem
+                  title="Add vehicles from labels"
+                  link="/add-vehicle"
+                  icon={<PhotoCameraIcon />}
+                  selected={location.pathname === '/add-vehicle'}
+                />
+                {/* Invoicing is hidden for now. The page and its /invoicing
+                    route are left in place; to put it back, restore a MenuItem
+                    here with ReceiptLongIcon from '@mui/icons-material/ReceiptLong'.
+                    Hiding it changes nothing about the quarterly run: invoices
+                    are raised and sent by the scheduler, not by this page. */}
+                <MenuItem
+                  title="SIM management"
+                  link="/sims"
+                  icon={<SimCardIcon />}
+                  selected={location.pathname === '/sims'}
+                />
+                <MenuItem
+                  title="Camera setup commands"
+                  link="/dvr-commands"
+                  icon={<SmsIcon />}
+                  selected={location.pathname === '/dvr-commands'}
+                />
+                <MenuItem
+                  title={t('settingsServer')}
+                  link="/settings/server"
+                  icon={<SettingsIcon />}
+                  selected={location.pathname === '/settings/server'}
+                />
+              </>
             )}
             <MenuItem
               title={t('settingsUsers')}

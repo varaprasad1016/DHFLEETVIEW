@@ -9,6 +9,7 @@ import {
   Checkbox,
   TextField,
   Button,
+  LinearProgress,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import FileInput from '../common/components/FileInput';
@@ -44,6 +45,44 @@ const DevicePage = () => {
   const [item, setItem] = useState(uniqueId ? { uniqueId } : null);
   const [showQr, setShowQr] = useState(false);
   const [imageFile, setImageFile] = useState(null);
+  const [paramConfigBusy, setParamConfigBusy] = useState(false);
+  const [paramConfigNote, setParamConfigNote] = useState('');
+
+  // A camera's settings page lives on the camera, reachable only while it holds
+  // a tunnel open to us. So it has to be asked to open one, and given time to do
+  // it, before its address means anything.
+  //
+  // The tab is opened here, in the click, and pointed at the camera later. A tab
+  // opened after the wait would be a pop-up as far as the browser is concerned,
+  // and blocked.
+  const handleParameterConfig = useCatch(async () => {
+    const tab = window.open('', '_blank');
+    setParamConfigBusy(true);
+    setParamConfigNote('');
+    try {
+      const response = await fetchOrThrow(`/api/cmsv9/device-web/${item.id}`, { method: 'POST' });
+      const data = await response.json();
+      if (!data.sent) {
+        if (tab) tab.close();
+        setParamConfigNote(data.detail || 'The camera did not answer. It is probably offline.');
+        return;
+      }
+      const seconds = data.waitSeconds || 20;
+      setParamConfigNote(`Camera asked to open its settings page. Waiting ${seconds} seconds…`);
+      await new Promise((resolve) => { setTimeout(resolve, seconds * 1000); });
+      if (tab && !tab.closed) {
+        tab.location = data.url;
+      } else {
+        window.open(data.url, '_blank');
+      }
+      setParamConfigNote('');
+    } catch (error) {
+      if (tab && !tab.closed) tab.close();
+      throw error;
+    } finally {
+      setParamConfigBusy(false);
+    }
+  });
 
   const handleFileInput = useCatch(async (newFile) => {
     setImageFile(newFile);
@@ -260,18 +299,23 @@ const DevicePage = () => {
                 <Typography variant="body2" color="textSecondary">
                   Opens the device parameter configuration interface
                   (encoder, sub-stream codec/resolution, recording). Admin only.
+                  The camera must be online, and takes about 20 seconds to
+                  answer.
                 </Typography>
                 <Button
                   variant="outlined"
                   color="primary"
-                  onClick={() => window.open(
-                    `http://${item.attributes.cmsv9DeviceId}.dhfleetview.co.uk:9966/index.html?lang=en`,
-                    '_blank',
-                    'noopener',
-                  )}
+                  disabled={paramConfigBusy}
+                  onClick={handleParameterConfig}
                 >
-                  Open Parameter Config
+                  {paramConfigBusy ? 'Waking the camera…' : 'Open Parameter Config'}
                 </Button>
+                {paramConfigBusy && <LinearProgress />}
+                {paramConfigNote && (
+                  <Typography variant="caption" color="textSecondary">
+                    {paramConfigNote}
+                  </Typography>
+                )}
                 <Typography variant="caption" color="textSecondary">
                   Config PIN: 111111
                 </Typography>

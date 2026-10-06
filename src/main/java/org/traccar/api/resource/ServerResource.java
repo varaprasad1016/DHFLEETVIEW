@@ -47,6 +47,7 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.io.File;
@@ -177,11 +178,31 @@ public class ServerResource extends BaseResource {
         return cacheManager.toString();
     }
 
+    /**
+     * Refused, deliberately, for everybody including administrators.
+     *
+     * <p>This used to call {@code System.exit(130)}. On this deployment nothing
+     * starts the process again afterwards - the Windows service has no recovery
+     * actions configured - so it was not a reboot at all. It stopped tracking,
+     * live video and the API for every customer until somebody logged into the
+     * server and started the service by hand, and the button that called it sat
+     * one click away from the version numbers people open Preferences to read.
+     *
+     * <p>Kept as a route rather than deleted so that an old cached page or a
+     * bookmarked call gets a clear answer instead of a 404 that reads like a
+     * bug. Restarting the service is an operator action, taken on the server.
+     */
     @Path("reboot")
     @POST
     public void reboot() throws StorageException {
         permissionsService.checkAdmin(getUserId());
-        System.exit(130);
+        throw new WebApplicationException(
+                Response.status(Response.Status.FORBIDDEN)
+                        .entity("Restarting the server from the web app is disabled. "
+                                + "Nothing would bring the service back up, so this would take "
+                                + "the platform offline for every user. Restart it on the server.")
+                        .type(MediaType.TEXT_PLAIN)
+                        .build());
     }
 
 }

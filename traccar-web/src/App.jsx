@@ -3,6 +3,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { useMediaQuery, useTheme } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
+import FactCheckRoundedIcon from '@mui/icons-material/FactCheckRounded';
 import { makeStyles } from 'tss-react/mui';
 import SocketController from './SocketController';
 import CachingController from './CachingController';
@@ -14,6 +15,7 @@ import TermsDialog from './common/components/TermsDialog';
 import Loader from './common/components/Loader';
 import fetchOrThrow from './common/util/fetchOrThrow';
 import ErrorBoundary from './ErrorBoundary';
+import useComplianceAccess from './common/util/useComplianceAccess';
 
 const useStyles = makeStyles()((theme) => {
   const dark = theme.palette.mode === 'dark';
@@ -28,15 +30,25 @@ const useStyles = makeStyles()((theme) => {
         display: 'none',
       },
     },
-    homeButton: {
+    // Home with the Compliance hub shortcut under it, stacked above the add-FAB
+    // (bottom-right on list pages) so they never overlap.
+    shortcuts: {
       position: 'fixed',
       right: theme.spacing(2),
-      // stacked just above the add-FAB (which lives bottom-right on list pages)
       bottom: `calc(${theme.spacing(2)} + 64px)`,
       [theme.breakpoints.down('md')]: {
         bottom: `calc(${theme.dimensions.bottomBarHeight}px + ${theme.spacing(2)} + 64px)`,
       },
       zIndex: 1100,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: theme.spacing(1.25),
+      '@media print': {
+        display: 'none',
+      },
+    },
+    homeButton: {
+      textDecoration: 'none',
       width: 48,
       height: 48,
       display: 'inline-flex',
@@ -72,6 +84,8 @@ const App = () => {
   const location = useLocation();
 
   const desktop = useMediaQuery(theme.breakpoints.up('md'));
+  // The user loads asynchronously; don't read its role before it exists.
+  const complianceAccess = useComplianceAccess();
 
   const newServer = useSelector((state) => state.session.server.newServer);
   const termsUrl = useSelector((state) => state.session.server.attributes.termsUrl);
@@ -122,17 +136,27 @@ const App = () => {
           <Outlet />
         </ErrorBoundary>
       </div>
-      {location.pathname !== '/' && (
+      <nav className={classes.shortcuts} aria-label="Shortcuts">
         <button
           type="button"
           className={classes.homeButton}
           onClick={() => navigate('/')}
-          title="Back to dashboard"
+          title="Home"
           aria-label="Home"
         >
           <HomeRoundedIcon fontSize="small" />
         </button>
-      )}
+        {complianceAccess && (
+          <a
+            className={classes.homeButton}
+            href="/tacho/compliance"
+            title="Compliance hub"
+            aria-label="Compliance hub"
+          >
+            <FactCheckRoundedIcon fontSize="small" />
+          </a>
+        )}
+      </nav>
     </>
   );
 };

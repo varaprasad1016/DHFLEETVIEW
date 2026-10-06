@@ -6,8 +6,24 @@
 
 $ErrorActionPreference = "Stop"
 $ServerPort = 8082
+$GpsPort = 5027
 $InstallDir = "C:\DHFleetView"
-$WebPort = 8082
+$Repository = "https://github.com/varaprasad1016/DHFLEETVIEW"
+$Branch = "main"
+
+$configFile = "$InstallDir\traccar.xml"
+$ServiceAccountToken = $env:DHFLEETVIEW_SERVICE_ACCOUNT_TOKEN
+if ([string]::IsNullOrWhiteSpace($ServiceAccountToken) -and (Test-Path $configFile)) {
+    $tokenMatch = Select-String -Path $configFile -Pattern "<entry key='web.serviceAccountToken'>([^<]+)</entry>" -AllMatches | Select-Object -First 1
+    if ($tokenMatch -and $tokenMatch.Matches.Count -gt 0) {
+        $ServiceAccountToken = $tokenMatch.Matches[0].Groups[1].Value
+    }
+}
+if ([string]::IsNullOrWhiteSpace($ServiceAccountToken)) {
+    $ServiceAccountToken = [guid]::NewGuid().ToString("N")
+    Write-Host "  Generated a new service account token; it is stored in $configFile." -ForegroundColor Yellow
+}
+$XmlServiceAccountToken = [System.Security.SecurityElement]::Escape($ServiceAccountToken)
 
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Cyan
@@ -86,9 +102,9 @@ Write-Host "  Created $InstallDir" -ForegroundColor Green
 # ── Step 4: Clone the repo and get the web build ────────────
 Write-Host "[4/7] Fetching DH FleetView from GitHub..." -ForegroundColor Yellow
 
-# Download the web build zip from the repo
-$repoUrl = "https://github.com/varaprasad1016/DHFLEETVIEW"
-$zipUrl = "$repoUrl/archive/refs/heads/main.zip"
+# Download the web build from the repository when it is present.
+$repoUrl = $Repository
+$zipUrl = "$repoUrl/archive/refs/heads/$Branch.zip"
 $zipPath = "$env:TEMP\DHFleetView.zip"
 
 Write-Host "  Downloading repo..."
@@ -104,14 +120,10 @@ Write-Host "  Copying web build..."
 if (Test-Path "$($extractedDir.FullName)\traccar-web\build") {
     Copy-Item -Path "$($extractedDir.FullName)\traccar-web\build\*" -Destination "$InstallDir\web" -Recurse -Force
 } else {
-    Write-Host "  Web build not found in repo, will build from source..." -ForegroundColor Yellow
-    # Fallback: download the pre-built assets from the release
-    # For now, copy what we have
+    throw "Web build not found at $($extractedDir.FullName)\traccar-web\build. Aborting before replacing the running container."
 }
 
-# Copy traccar.xml config
-Write-Host "  Copying server config..."
-Copy-Item -Path "$($extractedDir.FullName)\setup\traccar.xml" -Destination "$InstallDir\traccar.xml" -Force
+# The production traccar.xml is generated below so deployment settings are explicit.
 
 # Cleanup temp
 Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue
@@ -136,8 +148,7 @@ $traccarXml = @"
     <entry key='web.cacheControl'>no-cache</entry>
     <entry key='web.port'>$ServerPort</entry>
 
-    <!-- Service account token for API access -->
-    <entry key='web.serviceAccountToken'>dhfleetview-prod-2026</entry>
+    <entry key='web.serviceAccountToken'>$XmlServiceAccountToken</entry>
 </properties>
 "@
 
@@ -147,29 +158,38 @@ Write-Host "  Config written to $InstallDir\traccar.xml" -ForegroundColor Green
 # ── Step 6: Open Windows Firewall ───────────────────────────
 Write-Host "[6/7] Configuring Windows Firewall..." -ForegroundColor Yellow
 
-# Remove existing rule if any
+# Remove existing rules if any
 Remove-NetFirewallRule -DisplayName "DH FleetView (8082)" -ErrorAction SilentlyContinue
+Remove-NetFirewallRule -DisplayName "DH FleetView GPS (5027)" -ErrorAction SilentlyContinue
 
-# Add inbound rule
+# Add inbound rules
 New-NetFirewallRule -DisplayName "DH FleetView (8082)" `
     -Direction Inbound `
     -Protocol TCP `
     -LocalPort $ServerPort `
     -Action Allow `
     -Profile Any `
-    -Description "DH FleetView Traccar web server"
-Write-Host "  Firewall rule added: TCP $ServerPort inbound ALLOW" -ForegroundColor Green
+    -Description "DH FleetView web server"
+New-NetFirewallRule -DisplayName "DH FleetView GPS (5027)" `
+    -Direction Inbound `
+    -Protocol TCP `
+    -LocalPort $GpsPort `
+    -Action Allow `
+    -Profile Any `
+    -Description "DH FleetView GPS device connections"
+Write-Host "  Firewall rules added: TCP $ServerPort (web), TCP $GpsPort (GPS)" -ForegroundColor Green
 
 # ── Step 7: Pull Traccar image and run container ────────────
 Write-Host "[7/7] Starting DH FleetView container..." -ForegroundColor Yellow
 
+# Pull the image before stopping the current container so a failed pull does not
+# create avoidable downtime.
+Write-Host "  Pulling Traccar image..."
+docker pull traccar/traccar:latest
+
 # Stop and remove old container if exists
 docker stop dhfleetview 2>$null
 docker rm dhfleetview 2>$null
-
-# Pull the latest Traccar image
-Write-Host "  Pulling Traccar image..."
-docker pull traccar/traccar:latest
 
 # Convert Windows paths to POSIX for Docker mounts
 $dataPath = "$InstallDir\data".Replace('\', '/')
@@ -182,9 +202,10 @@ docker run -d `
     --name dhfleetview `
     --restart unless-stopped `
     -p "${ServerPort}:8082" `
+    -p "${GpsPort}:5027" `
     -v "${dataPath}:/opt/traccar/data" `
-    -v "${webPath}:/opt/traccar/web" `
-    -v "${configPath}:/opt/traccar/conf/traccar.xml" `
+    -v "${webPath}:/opt/traccar/web:ro" `
+    -v "${configPath}:/opt/traccar/conf/traccar.xml:ro" `
     traccar/traccar:latest
 
 # Wait for it to start

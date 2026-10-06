@@ -6,6 +6,8 @@ import DirectionsCarIcon from '@mui/icons-material/DirectionsCar';
 import PauseCircleIcon from '@mui/icons-material/PauseCircle';
 import LocalParkingIcon from '@mui/icons-material/LocalParking';
 import CloudOffIcon from '@mui/icons-material/CloudOff';
+import GpsOffIcon from '@mui/icons-material/GpsOff';
+import GarageIcon from '@mui/icons-material/Garage';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { Typography, Box, Tooltip } from '@mui/material';
 import { computeFleetStats } from '../common/util/vehicleStatus';
@@ -13,15 +15,15 @@ import { computeFleetStats } from '../common/util/vehicleStatus';
 const useStyles = makeStyles()((theme) => ({
   root: {
     display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: theme.spacing(1.2),
-    padding: theme.spacing(2),
+    gridTemplateColumns: 'repeat(auto-fit, minmax(128px, 1fr))',
+    gap: theme.spacing(1),
+    padding: theme.spacing(1.5),
   },
   card: {
     display: 'flex',
     alignItems: 'center',
-    gap: theme.spacing(1.2),
-    padding: theme.spacing(1.5),
+    gap: theme.spacing(1),
+    padding: theme.spacing(1, 1.25),
     borderRadius: 12,
     border: `1px solid ${theme.palette.divider}`,
     backgroundColor: theme.palette.background.paper,
@@ -43,8 +45,8 @@ const useStyles = makeStyles()((theme) => ({
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    width: 40,
-    height: 40,
+    width: 34,
+    height: 34,
     borderRadius: 10,
     flexShrink: 0,
   },
@@ -54,11 +56,17 @@ const useStyles = makeStyles()((theme) => ({
   idlingBg: {
     backgroundColor: alpha(theme.palette.warning.main, 0.14),
   },
+  allBg: {
+    backgroundColor: alpha(theme.palette.primary.main, 0.12),
+  },
   parkedBg: {
     backgroundColor: alpha(theme.palette.neutral.main, 0.14),
   },
   offlineBg: {
     backgroundColor: alpha(theme.palette.error.main, 0.1),
+  },
+  nofixBg: {
+    backgroundColor: alpha(theme.palette.warning.main, 0.1),
   },
   alarmBg: {
     backgroundColor: alpha(theme.palette.error.main, 0.14),
@@ -105,6 +113,8 @@ const FleetDashboard = ({ filter, setFilter }) => {
     return { ...base, alarms };
   }, [devices, positions]);
 
+  const noFilter = !(filter?.vehicleStatuses || filter?.statuses || []).length;
+
   const isActive = (key) => {
     const v = filter?.vehicleStatuses || filter?.statuses || [];
     return v.includes(key);
@@ -136,13 +146,17 @@ const FleetDashboard = ({ filter, setFilter }) => {
         onClick={() => toggleStatus(statusKey)}
         role="button"
         tabIndex={0}
-        onKeyDown={(e) => { if (e.key === 'Enter') toggleStatus(statusKey); }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') toggleStatus(statusKey);
+        }}
       >
         <div className={`${classes.iconBox} ${classes[bgClass]}`}>
           <Box sx={{ color: `${color}.main`, fontSize: 22, display: 'flex' }}>{icon}</Box>
         </div>
         <div className={classes.info}>
-          <Typography className={classes.count} color={`${color}.main`}>{count}</Typography>
+          <Typography className={classes.count} color={`${color}.main`}>
+            {count}
+          </Typography>
           <Typography className={classes.label}>{label}</Typography>
         </div>
       </div>
@@ -151,18 +165,88 @@ const FleetDashboard = ({ filter, setFilter }) => {
 
   return (
     <div className={classes.root}>
-      <Card statusKey="running" label="Running" count={stats.running} icon={<DirectionsCarIcon fontSize="inherit" />} bgClass="runningBg" color="success" />
-      <Card statusKey="idling" label="Idling" count={stats.idling} icon={<PauseCircleIcon fontSize="inherit" />} bgClass="idlingBg" color="warning" />
-      <Card statusKey="parked" label="Parked" count={stats.parked} icon={<LocalParkingIcon fontSize="inherit" />} bgClass="parkedBg" color="neutral" />
-      <Card statusKey="offline" label="Offline" count={stats.offline} icon={<CloudOffIcon fontSize="inherit" />} bgClass="offlineBg" color="error" />
+      <Tooltip title="Show every vehicle" arrow>
+        <div
+          className={`${classes.card} ${noFilter ? classes.cardActive : ''}`}
+          onClick={() => setFilter && filter && setFilter({ ...filter, vehicleStatuses: [] })}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && setFilter && filter)
+              setFilter({ ...filter, vehicleStatuses: [] });
+          }}
+        >
+          <div className={`${classes.iconBox} ${classes.allBg}`}>
+            <Box sx={{ color: 'primary.main', fontSize: 20, display: 'flex' }}>
+              <GarageIcon fontSize="inherit" />
+            </Box>
+          </div>
+          <div className={classes.info}>
+            <Typography className={classes.count} color="primary.main">
+              {stats.total}
+            </Typography>
+            <Typography className={classes.label}>All</Typography>
+          </div>
+        </div>
+      </Tooltip>
+      <Card
+        statusKey="running"
+        label="Running"
+        count={stats.running}
+        icon={<DirectionsCarIcon fontSize="inherit" />}
+        bgClass="runningBg"
+        color="success"
+      />
+      <Card
+        statusKey="idling"
+        label="Idling"
+        count={stats.idling}
+        icon={<PauseCircleIcon fontSize="inherit" />}
+        bgClass="idlingBg"
+        color="warning"
+      />
+      <Card
+        statusKey="parked"
+        label="Parked"
+        count={stats.parked}
+        icon={<LocalParkingIcon fontSize="inherit" />}
+        bgClass="parkedBg"
+        color="neutral"
+      />
+      {/* Reporting, but with no satellite fix: the position on the map is the
+          last one it managed and the speed is unknown, so it must not be
+          counted as running or idling. */}
+      {stats.nofix > 0 && (
+        <Card
+          statusKey="nofix"
+          label="No GPS fix"
+          count={stats.nofix}
+          icon={<GpsOffIcon fontSize="inherit" />}
+          bgClass="nofixBg"
+          color="warning"
+        />
+      )}
+      <Card
+        statusKey="offline"
+        label="Offline"
+        count={stats.offline}
+        icon={<CloudOffIcon fontSize="inherit" />}
+        bgClass="offlineBg"
+        color="error"
+      />
       {stats.alarms > 0 && (
         <Box sx={{ gridColumn: '1 / -1' }}>
-          <div className={classes.card} style={{ borderColor: alpha('#dc2626', 0.3), cursor: 'default' }}>
+          <div
+            className={classes.card}
+            style={{ borderColor: alpha('#dc2626', 0.3), cursor: 'default' }}
+          >
             <div className={`${classes.iconBox} ${classes.alarmBg}`}>
               <WarningAmberIcon sx={{ color: 'error.main', fontSize: 22 }} />
             </div>
             <div className={classes.info}>
-              <Typography className={classes.count} color="error.main">{stats.alarms}</Typography>
+              <Typography className={classes.count} color="error.main">
+                {stats.alarms}
+              </Typography>
               <Typography className={classes.label}>Active Alarms</Typography>
             </div>
           </div>

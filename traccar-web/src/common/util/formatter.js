@@ -97,6 +97,10 @@ export const formatAltitude = (value, unit, t) =>
 export const formatSpeed = (value, unit, t) =>
   `${speedFromKnots(value, unit).toFixed(2)} ${speedUnitString(unit, t)}`;
 
+// Whole numbers, for the live speed shown on map labels and in the vehicle list.
+export const formatShortSpeed = (value, unit, t) =>
+  `${Math.round(speedFromKnots(value || 0, unit))} ${speedUnitString(unit, t)}`;
+
 export const formatVolume = (value, unit, t) =>
   `${volumeFromLiters(value, unit).toFixed(2)} ${volumeUnitString(unit, t)}`;
 

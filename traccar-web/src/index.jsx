@@ -12,8 +12,16 @@ import NativeInterface from './common/components/NativeInterface';
 import ServerProvider from './ServerProvider';
 import ErrorBoundary from './ErrorBoundary';
 import AppThemeProvider from './AppThemeProvider';
+import { savePersistedState } from './common/util/usePersistedState';
 
 preloadImages();
+
+// Starting the app fresh shows the dashboard, whichever view it was left on.
+// This runs on a real page load and nothing else, so an app that was only
+// switched away from comes back exactly as it was left - on the page and the
+// view the user was using. Set before the first render, or the old view would
+// appear for a moment first.
+savePersistedState('fleetView', 'dashboard');
 
 const root = createRoot(document.getElementById('root'));
 root.render(

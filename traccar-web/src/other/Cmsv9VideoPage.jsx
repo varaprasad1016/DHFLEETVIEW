@@ -17,11 +17,13 @@ import {
   ListItemText,
   ListItemButton,
   Chip,
+  Slider,
 } from '@mui/material';
 import { makeStyles } from 'tss-react/mui';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import PauseIcon from '@mui/icons-material/Pause';
 import StopIcon from '@mui/icons-material/Stop';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import VideocamIcon from '@mui/icons-material/Videocam';
@@ -42,6 +44,11 @@ import {
   cmsv9StreamStatus,
 } from '../common/util/cmsv9';
 import { useCatch, useCatchCallback } from '../reactHelper';
+import MapView from '../map/core/MapView';
+import MapPositionMarkers from '../map/MapPositionMarkers';
+import MapCamera from '../map/MapCamera';
+import MapScale from '../map/MapScale';
+import MapCurrentLocation from '../map/MapCurrentLocation';
 
 const useStyles = makeStyles()((theme) => ({
   root: {
@@ -51,6 +58,9 @@ const useStyles = makeStyles()((theme) => ({
   },
   title: {
     flexGrow: 1,
+    [theme.breakpoints.down('sm')]: {
+      display: 'none',
+    },
   },
   video: {
     flexGrow: 1,
@@ -92,28 +102,42 @@ const useStyles = makeStyles()((theme) => ({
   },
   tab: {
     minHeight: 48,
+    minWidth: 0,
+    [theme.breakpoints.down('sm')]: {
+      flexGrow: 1,
+    },
   },
+  // The grid divides the space it is given rather than sizing itself from its
+  // tiles. Fixing each tile to 4:3 made a 2x2 wall about 800px tall whatever
+  // the window could spare, so the top row was cut off above the visible area
+  // and the whole thing quietly scrolled - which is what "muddled up" looked
+  // like. The rows and columns are set from the channel count instead, and
+  // each picture letterboxes inside its tile.
   grid: {
-    flexGrow: 1,
     display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
     gap: theme.spacing(1),
     padding: theme.spacing(1, 2),
-    overflow: 'auto',
     backgroundColor: '#000',
-    alignContent: 'start',
+    // A flex child will not shrink below its content without this, and then
+    // the grid pushes the map off the bottom instead of sharing the space.
+    minHeight: 0,
+    overflow: 'hidden',
   },
   cell: {
     position: 'relative',
     backgroundColor: '#0a0a0a',
     borderRadius: 8,
     overflow: 'hidden',
-    aspectRatio: '4 / 3',
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     border: `1px solid ${theme.palette.divider}`,
+    // Each tile is whatever its share of the grid is; the picture fits inside
+    // it with object-fit, so an odd-shaped tile letterboxes rather than
+    // stretching the image or overflowing the row.
+    minHeight: 0,
+    minWidth: 0,
   },
   cellVideo: {
     width: '100%',
@@ -160,7 +184,70 @@ const useStyles = makeStyles()((theme) => ({
     color: '#666',
     fontSize: '0.8rem',
   },
+  // Live map under the video: half the screen alongside a single channel, and the
+  // space left under the grid in multi-channel view.
+  mapArea: {
+    position: 'relative',
+    flexGrow: 1,
+    minHeight: 200,
+    borderTop: `1px solid ${theme.palette.divider}`,
+  },
+  mapHalf: {
+    flex: '1 1 50%',
+    minHeight: 180,
+  },
+  videoHalf: {
+    flex: '1 1 50%',
+    maxHeight: 'none',
+  },
+  // With the map below it the grid takes the larger share and the map the
+  // rest, both able to shrink. Before, the grid was flexGrow 0 and sized by
+  // its tiles, so it overran whatever was left and the first row was clipped.
+  gridWithMap: {
+    flex: '1 1 62%',
+  },
+  mapEmpty: {
+    position: 'absolute',
+    inset: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.palette.background.paper,
+    zIndex: 1,
+  },
 }));
+
+// How the tiles are arranged for a given number of channels. Two columns
+// regardless meant a single camera got half the width for no reason, and six
+// made three rows that could not fit. Rows are explicit so the grid divides
+// the height it has rather than growing past it.
+const gridShape = (count) => {
+  const columns = count <= 1 ? 1 : count <= 4 ? 2 : count <= 9 ? 3 : 4;
+  const rows = Math.max(1, Math.ceil(count / columns));
+  return {
+    gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+    gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
+  };
+};
+
+// Speeds offered when reviewing a clip. Browsers honour playbackRate up to
+// 16, which is where this stops.
+const REVIEW_RATES = [1, 2, 4, 8, 16];
+
+const clockOf = (seconds) => {
+  const whole = Math.max(0, Math.floor(seconds || 0));
+  const h = Math.floor(whole / 3600);
+  const m = Math.floor((whole % 3600) / 60);
+  const s = whole % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  return h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+};
+
+// How often a stalled tile is restarted from the DVR before it gives up, and
+// how long a tile may show nothing before it counts as stalled.
+const GRID_RESTART_LIMIT = 3;
+const GRID_RESTART_DELAY_MS = 1500;
+const GRID_FIRST_FRAME_MS = 45000;
 
 let jessibucaPromise = null;
 function loadJessibuca() {
@@ -199,11 +286,19 @@ async function createFlvPlayer(container, url, options = {}) {
     autoWasm: true,
     debug: false,
     showBandwidth: false,
-    // false = stretch to fill (grid tiles); true = keep aspect ratio (single view)
+    // true = keep the picture's own shape and letterbox it; false = stretch to
+    // fill the container. Everything that shows video wants the former.
     isResize: options.isResize ?? false,
     useWebFullScreen: false,
     timeout: options.timeout || 20,
     loadingTimeout: options.loadingTimeout || 30,
+    // A live tile that stops receiving frames used to sit there frozen. Let the
+    // player notice the silence and reconnect on its own; the page restarts the
+    // channel from the DVR if those attempts run out (see startChannel).
+    heartTimeout: options.heartTimeout || 8,
+    heartTimeoutReplay: true,
+    heartTimeoutReplayTimes: 2,
+    loadingTimeoutReplay: true,
   });  player.on('error', (err) => console.log('[cmsv9] error:', err));
   player.on('videoInfo', (d) => console.log('[cmsv9] videoInfo:', d));
   player.on('audioInfo', (d) => console.log('[cmsv9] audioInfo:', d));
@@ -290,6 +385,8 @@ const Cmsv9VideoPage = () => {
   const [searchParams] = useSearchParams();
   const deviceId = searchParams.get('deviceId');
   const device = useSelector((state) => state.devices.items[deviceId]);
+  // Live position of this vehicle, for the map under the video.
+  const position = useSelector((state) => state.session.positions[deviceId]);
 
   const defaultChannels = useAttributePreference('cmsv9Channels', 4);
 
@@ -304,10 +401,19 @@ const Cmsv9VideoPage = () => {
   const [playing, setPlaying] = useState(false);
   const [liveError, setLiveError] = useState(false);
   const [playbackActive, setPlaybackActive] = useState(false);
+  // The clip being reviewed, and where we are in it.
+  const reviewRef = useRef(null);
+  const [reviewUrl, setReviewUrl] = useState('');
+  const [reviewRate, setReviewRate] = useState(1);
+  const [reviewAt, setReviewAt] = useState(0);
+  const [reviewLength, setReviewLength] = useState(0);
+  const [reviewRunning, setReviewRunning] = useState(false);
+  const [reviewWaiting, setReviewWaiting] = useState(false);
   const [playerMsg, setPlayerMsg] = useState('');
 
   const [gridActive, setGridActive] = useState(false);
   const [gridHd, setGridHd] = useState(false);
+  const gridHdRef = useRef(false);
   const [singleHd, setSingleHd] = useState(true);
   const singleHdRef = useRef(true);
   const [gridErrors, setGridErrors] = useState({});
@@ -536,6 +642,7 @@ const Cmsv9VideoPage = () => {
   const setGridQuality = useCallback(
     (hd) => {
       setGridHd(hd);
+      gridHdRef.current = hd;
       if (gridActive) {
         stopGrid();
         setTimeout(() => startGrid(), 350);
@@ -544,10 +651,77 @@ const Cmsv9VideoPage = () => {
     [gridActive, stopGrid, startGrid],
   );
 
+  // Starts one tile of the grid, and restarts it if the picture stops arriving.
+  // A live stream can stall a few seconds in (the vehicle's uplink drops frames,
+  // or the DVR stops feeding); the player retries on its own first, and if that
+  // fails we ask the DVR for the channel again, up to GRID_RESTART_LIMIT times.
+  const startChannel = useCallback(async (ch, attempt = 0) => {
+    const entry = gridPlayers.current[ch];
+    const videoEl = entry?.videoEl;
+    if (!videoEl || cancelledRef.current) return;
+    clearTimeout(entry?.timer);
+    destroyFlvPlayer(entry?.player);
+    gridPlayers.current[ch] = { videoEl };
+    setGridErrors((prev) => {
+      if (!prev[ch]) return prev;
+      const next = { ...prev };
+      delete next[ch];
+      return next;
+    });
+
+    const stalled = (reason) => {
+      if (cancelledRef.current || gridPlayers.current[ch]?.videoEl !== videoEl) return;
+      if (attempt + 1 < GRID_RESTART_LIMIT) {
+        console.log(`[cmsv9] channel ${ch + 1} ${reason}; restarting (attempt ${attempt + 2})`);
+        gridPlayers.current[ch] = {
+          videoEl,
+          timer: setTimeout(() => startChannel(ch, attempt + 1), GRID_RESTART_DELAY_MS),
+        };
+      } else {
+        setGridErrors((prev) => ({ ...prev, [ch]: 'stalled' }));
+      }
+    };
+
+    try {
+      const data = await cmsv9StartLive(deviceId, ch, gridHdRef.current ? 0 : 1);
+      if ((data.errCode !== 0 && data.errCode !== -1) || !data.flvUrl) {
+        setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
+        return;
+      }
+      const found = await waitForStream(data.flvUrl, 150000, () => cancelledRef.current);
+      if (!found) {
+        if (!cancelledRef.current) {
+          setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
+        }
+        return;
+      }
+      if (cancelledRef.current || gridPlayers.current[ch]?.videoEl !== videoEl) return;
+      // Keep the picture's own shape inside the tile. Stretching to fill was
+      // fine while every tile was locked to 4:3; now that a tile is whatever
+      // share of the grid it gets, stretching would squash the image.
+      const player = await createFlvPlayer(videoEl, data.flvUrl,
+        { hasAudio: false, isResize: true });
+      if (!player) {
+        setGridErrors((prev) => ({ ...prev, [ch]: 'error' }));
+        return;
+      }
+      // No picture at all within this window counts as a stall too.
+      const timer = setTimeout(() => stalled('never showed a picture'), GRID_FIRST_FRAME_MS);
+      gridPlayers.current[ch] = { player, videoEl, timer };
+      videoEl.dataset.attached = '1';
+      player.on('videoInfo', () => clearTimeout(gridPlayers.current[ch]?.timer));
+      player.on('timeout', () => stalled('stopped sending video'));
+      player.on('error', () => stalled('reported an error'));
+    } catch (e) {
+      if (!cancelledRef.current) {
+        setGridErrors((prev) => ({ ...prev, [ch]: 'error' }));
+      }
+    }
+  }, [deviceId]);
+
   useEffect(() => {
     if (!gridActive || !config) return;
-    const timers = [];
-    const cancelled = new Set();
+    cancelledRef.current = false;
     visibleChannels.forEach(async (ch, idx) => {
       const videoEl = gridPlayers.current[ch]?.videoEl;
       if (!videoEl || videoEl.dataset.attached) return;
@@ -557,55 +731,12 @@ const Cmsv9VideoPage = () => {
         await new Promise((resolve) => setTimeout(resolve, idx * 400));
         if (cancelledRef.current) return;
       }
-      try {
-        const data = await cmsv9StartLive(deviceId, ch, gridHd ? 0 : 1);
-        if (data.errCode !== 0 && data.errCode !== -1) {
-          setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
-          return;
-        }
-        if (!data.flvUrl) {
-          setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
-          return;
-        }
-        const found = await waitForStream(data.flvUrl, 150000, () => cancelledRef.current);
-        if (!found) {
-          if (!cancelledRef.current) {
-            setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
-          }
-          return;
-        }
-        if (cancelled.has(ch) || cancelledRef.current) return;
-        const player = await createFlvPlayer(videoEl, data.flvUrl, { hasAudio: false });
-        gridPlayers.current[ch] = { player, videoEl };
-        videoEl.dataset.attached = '1';
-        if (player) {
-          const timer = setTimeout(() => {
-            setGridErrors((prev) => ({ ...prev, [ch]: 'error' }));
-            destroyFlvPlayer(player);
-            delete gridPlayers.current[ch];
-          }, 120000);
-          timers.push(timer);
-          player.on('videoInfo', () => {
-            clearTimeout(timer);
-          });
-          player.on('error', () => {
-            clearTimeout(timer);
-            setGridErrors((prev) => ({ ...prev, [ch]: 'error' }));
-          });
-        } else {
-          setGridErrors((prev) => ({ ...prev, [ch]: 'error' }));
-        }
-      } catch (e) {
-        if (!cancelledRef.current) {
-          setGridErrors((prev) => ({ ...prev, [ch]: 'error' }));
-        }
-      }
+      startChannel(ch, 0);
     });
     return () => {
       cancelledRef.current = true;
-      visibleChannels.forEach((ch) => cancelled.add(ch));
-      timers.forEach(clearTimeout);
       visibleChannels.forEach((ch) => {
+        clearTimeout(gridPlayers.current[ch]?.timer);
         destroyFlvPlayer(gridPlayers.current[ch]?.player);
         if (gridPlayers.current[ch]?.videoEl) {
           delete gridPlayers.current[ch].videoEl.dataset.attached;
@@ -620,7 +751,7 @@ const Cmsv9VideoPage = () => {
         }
       });
     };
-  }, [gridActive, config, cmsv9DeviceId, deviceId, visibleChannels]);
+  }, [gridActive, config, cmsv9DeviceId, deviceId, visibleChannels, startChannel]);
 
   const takeSnapshot = useCatch(
     async (player) => {
@@ -679,10 +810,35 @@ const Cmsv9VideoPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, timelineDate, channel, cmsv9DeviceId]);
 
+  // Reviewing a clip is a different job from watching a live picture, and it
+  // needs a different player. The relay pushes recorded footage as a live FLV
+  // stream, so Jessibuca can only ever show it at normal speed with no way to
+  // move about in it. The same clip fetched as MP4 plays in the browser's own
+  // video element, which brings real seeking and any speed we ask for.
+  const reviewClip = useCallback((startStr, endStr) => {
+    cancelledRef.current = true;
+    stopPlayback();
+    setPlaybackActive(false);
+    setLiveError(false);
+    setReviewRate(1);
+    setReviewUrl(`/api/cmsv9/download/${deviceId}/${channel}`
+      + `?startTime=${encodeURIComponent(startStr)}`
+      + `&endTime=${encodeURIComponent(endStr)}`);
+  }, [deviceId, channel, stopPlayback]);
+
+  const setRate = useCallback((rate) => {
+    setReviewRate(rate);
+    if (reviewRef.current) reviewRef.current.playbackRate = rate;
+  }, []);
+
+  // format=share re-encodes to H.264 with the index at the front. Without it
+  // the file is the camera's own H.265 in a fragmented container: fine in VLC
+  // or on a PC, but WhatsApp and the phone galleries refuse it.
   const downloadSegment = useCallback((startStr, endStr) => {
     const url = `/api/cmsv9/download/${deviceId}/${channel}`
       + `?startTime=${encodeURIComponent(startStr)}`
-      + `&endTime=${encodeURIComponent(endStr)}`;
+      + `&endTime=${encodeURIComponent(endStr)}`
+      + '&format=share';
     const a = document.createElement('a');
     a.href = url;
     a.download = '';
@@ -773,7 +929,14 @@ const Cmsv9VideoPage = () => {
           <Typography variant="h6" className={classes.title}>
             {device?.name || t('linkLiveVideo')}
           </Typography>
-          <Tabs value={tab} onChange={(_, value) => setTab(value)} className={classes.tab}>
+          <Tabs
+            value={tab}
+            onChange={(_, value) => setTab(value)}
+            className={classes.tab}
+            variant="scrollable"
+            scrollButtons="auto"
+            allowScrollButtonsMobile
+          >
             <Tab label={t('sharedLive')} icon={<VideocamIcon />} iconPosition="start" />
             <Tab label={t('cmsv9Multi')} icon={<GridViewIcon />} iconPosition="start" />
             <Tab label="Download" icon={<DownloadIcon />} iconPosition="start" />
@@ -879,7 +1042,7 @@ const Cmsv9VideoPage = () => {
             </Box>
           )}
           {tab === 0 && (
-            <div className={classes.video}>
+            <div className={`${classes.video} ${classes.videoHalf}`}>
               {playing && !liveError && (
                 <div ref={videoRef} className={classes.player} />
               )}
@@ -907,12 +1070,15 @@ const Cmsv9VideoPage = () => {
             </div>
           )}
           {tab === 1 && (
-            <div className={classes.grid}>
+            <div
+              className={`${classes.grid} ${classes.gridWithMap}`}
+              style={gridShape(visibleChannels.length)}
+            >
               {visibleChannels.map((ch) => (
                 <div
                   key={ch}
                   className={`${classes.cell}${selectedChannel === ch ? ` ${classes.cellSelected}` : ''}`}
-                  onClick={() => setSelectedChannel(ch)}
+                  onClick={() => (gridErrors[ch] ? startChannel(ch, 0) : setSelectedChannel(ch))}
                 >
                   <Chip
                     label={`${device?.name ? `${device.name} - ` : ''}CH${ch + 1}`}
@@ -929,8 +1095,9 @@ const Cmsv9VideoPage = () => {
                   )}
                   {(!gridActive || gridErrors[ch]) && (
                     <Typography className={classes.cellPlaceholder}>
-                      {gridErrors[ch] === 'novideo' && t('cmsv9NoVideo')}
-                      {gridErrors[ch] === 'error' && t('errorConnection')}
+                      {gridErrors[ch] === 'novideo' && `${t('cmsv9NoVideo')} — tap to retry`}
+                      {gridErrors[ch] === 'stalled' && 'Picture stopped — tap to retry'}
+                      {gridErrors[ch] === 'error' && `${t('errorConnection')} — tap to retry`}
                       {!gridErrors[ch] && t('sharedPlay')}
                     </Typography>
                   )}
@@ -959,9 +1126,128 @@ const Cmsv9VideoPage = () => {
               ))}
             </div>
           )}
+          {(tab === 0 || tab === 1) && (
+            <div className={`${classes.mapArea}${tab === 0 ? ` ${classes.mapHalf}` : ''}`}>
+              <MapView>
+                <MapPositionMarkers positions={position ? [position] : []} showStatus />
+              </MapView>
+              <MapScale />
+              <MapCurrentLocation />
+              {position && (
+                <MapCamera latitude={position.latitude} longitude={position.longitude} />
+              )}
+              {!position && (
+                <div className={classes.mapEmpty}>
+                  <Typography variant="body2" color="textSecondary">
+                    {t('sharedNoData')}
+                  </Typography>
+                </div>
+              )}
+            </div>
+          )}
           {tab === 2 && (
             <>
-              {(playing || liveError) && (
+              {reviewUrl && (
+                <Box sx={{ px: 2, pt: 2 }}>
+                  <Box sx={{ bgcolor: '#000', borderRadius: 2, overflow: 'hidden' }}>
+                    <video
+                      ref={reviewRef}
+                      src={reviewUrl}
+                      autoPlay
+                      playsInline
+                      style={{ width: '100%', maxHeight: 360, display: 'block', background: '#000' }}
+                      onLoadedMetadata={(e) => {
+                        e.currentTarget.playbackRate = reviewRate;
+                        // A clip still arriving reports Infinity; the slider
+                        // then follows what has been received so far.
+                        const d = e.currentTarget.duration;
+                        setReviewLength(Number.isFinite(d) ? d : 0);
+                      }}
+                      onDurationChange={(e) => {
+                        const d = e.currentTarget.duration;
+                        if (Number.isFinite(d)) setReviewLength(d);
+                      }}
+                      onTimeUpdate={(e) => setReviewAt(e.currentTarget.currentTime)}
+                      onPlay={() => setReviewRunning(true)}
+                      onPause={() => setReviewRunning(false)}
+                      onWaiting={() => setReviewWaiting(true)}
+                      onPlaying={() => setReviewWaiting(false)}
+                      onError={() => {
+                        // No ffmpeg on the server means the clip comes back as
+                        // FLV, which no browser will play. Fall back to the
+                        // relay stream so the footage is still watchable -
+                        // without the seeking and speed this player adds.
+                        setReviewUrl('');
+                        setError('This clip cannot be scrubbed on this server; '
+                          + 'playing it at normal speed instead.');
+                        cancelledRef.current = false;
+                        playRecording({
+                          startTime: trimStart.format('YYYY-MM-DD HH:mm:ss'),
+                          endTime: trimEnd.format('YYYY-MM-DD HH:mm:ss'),
+                        });
+                      }}
+                    />
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1, flexWrap: 'wrap' }}>
+                    <IconButton
+                      size="small"
+                      onClick={() => {
+                        const v = reviewRef.current;
+                        if (!v) return;
+                        if (v.paused) v.play(); else v.pause();
+                      }}
+                    >
+                      {reviewRunning ? <PauseIcon /> : <PlayArrowIcon />}
+                    </IconButton>
+                    <Typography variant="caption" sx={{ fontVariantNumeric: 'tabular-nums', minWidth: 92 }}>
+                      {`${clockOf(reviewAt)} / ${reviewLength ? clockOf(reviewLength) : '—'}`}
+                    </Typography>
+                    <Slider
+                      size="small"
+                      min={0}
+                      max={reviewLength || Math.max(reviewAt, 1)}
+                      step={0.1}
+                      value={Math.min(reviewAt, reviewLength || reviewAt)}
+                      onChange={(_e, value) => {
+                        const v = reviewRef.current;
+                        if (v) v.currentTime = value;
+                        setReviewAt(value);
+                      }}
+                      sx={{ flex: '1 1 200px', mx: 1 }}
+                      disabled={!reviewLength}
+                    />
+                    {/* Fast forward is the browser's own playback rate, so it
+                        works on whatever has been received without asking the
+                        vehicle for anything. */}
+                    {REVIEW_RATES.map((rate) => (
+                      <Button
+                        key={rate}
+                        size="small"
+                        variant={reviewRate === rate ? 'contained' : 'outlined'}
+                        onClick={() => setRate(rate)}
+                        sx={{ minWidth: 44, px: 0.5 }}
+                      >
+                        {`${rate}×`}
+                      </Button>
+                    ))}
+                    {reviewWaiting && <CircularProgress size={16} />}
+                    <Button
+                      size="small"
+                      color="inherit"
+                      startIcon={<StopIcon />}
+                      onClick={() => { setReviewUrl(''); setReviewRunning(false); }}
+                    >
+                      Close
+                    </Button>
+                  </Box>
+                  <Typography variant="caption" color="textSecondary">
+                    The clip plays back off the camera&apos;s card in real time, so a long
+                    one fills in as it arrives — you can scrub and speed through whatever
+                    has already come down.
+                  </Typography>
+                </Box>
+              )}
+              {!reviewUrl && (playing || liveError) && (
                 <Box sx={{ px: 2, pt: 2 }}>
                   <Box sx={{ position: 'relative', width: '100%', height: 320, background: '#000', borderRadius: 2, overflow: 'hidden' }}>
                     {!liveError && (
@@ -1075,7 +1361,7 @@ const Cmsv9VideoPage = () => {
                       size="small"
                       variant="outlined"
                       startIcon={<PlayArrowIcon />}
-                      onClick={() => playRecording({ startTime: trimStart.format('YYYY-MM-DD HH:mm:ss'), endTime: trimEnd.format('YYYY-MM-DD HH:mm:ss') })}
+                      onClick={() => reviewClip(trimStart.format('YYYY-MM-DD HH:mm:ss'), trimEnd.format('YYYY-MM-DD HH:mm:ss'))}
                     >
                       Preview
                     </Button>

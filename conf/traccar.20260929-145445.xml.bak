@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE properties SYSTEM 'http://java.sun.com/dtd/properties.dtd'>
+<properties>
+    <entry key='database.driver'>org.h2.Driver</entry>
+    <entry key='database.url'>jdbc:h2:D:/DHFleetViewData/traccar/data/database</entry>
+    <entry key='database.user'>sa</entry>
+    <entry key='database.password' />
+    <entry key='web.cacheControl'>no-cache</entry>
+    <entry key='registration.enable'>true</entry>
+    <entry key="web.port">8090</entry>
+
+    <!-- Only bind protocols actually in use. Traccar otherwise opens a listener
+         for every supported protocol it knows (~250 ports on 0.0.0.0). -->
+    <entry key="protocols.enable">osmand,teltonika</entry>
+
+    <!-- CNMS video platform integration -->
+    <entry key="cmsv9.url">https://portal.dhfleetview.co.uk</entry>
+    <entry key="cmsv9.account">admin</entry>
+    <entry key="cmsv9.password">SLGviL9bXjFfSh8</entry>
+    <entry key="cmsv9.mediaPort">4022</entry>
+    <entry key="cmsv9.channels">4</entry>
+    <entry key="cmsv9.clientPort">10077</entry>
+    <entry key="cmsv9.wsPort">9006</entry>
+    <entry key="cmsv9.wsKey">J04Tb9pcLF7y6QrFmgTJLeVv33YbMhqW</entry>
+    <entry key="cmsv9.mediaSecret">kAYUY7AEzk7mlB8XzZQ9qSixAGJGHggZ</entry>
+    <entry key="tacho.enabled">true</entry>
+    <entry key="tacho.storagePath">D:/DHFleetViewData/traccar/tachograph</entry>
+    <entry key="tacho.simulator">true</entry>
+    <entry key="tacho.retryDelays">30,120,600</entry>
+
+    <!-- Data on D: (C: is kept for the system and programs) -->
+    <entry key='logger.file'>D:/DHFleetViewData/traccar/logs/tracker-server.log</entry>
+    <entry key='media.path'>D:/DHFleetViewData/traccar/media</entry>
+
+</properties>

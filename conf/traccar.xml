@@ -2,7 +2,7 @@
 <!DOCTYPE properties SYSTEM 'http://java.sun.com/dtd/properties.dtd'>
 <properties>
     <entry key='database.driver'>org.h2.Driver</entry>
-    <entry key='database.url'>jdbc:h2:./data/database</entry>
+    <entry key='database.url'>jdbc:h2:D:/DHFleetViewData/traccar/data/database</entry>
     <entry key='database.user'>sa</entry>
     <entry key='database.password' />
     <entry key='web.cacheControl'>no-cache</entry>
@@ -23,9 +23,21 @@
     <entry key="cmsv9.wsPort">9006</entry>
     <entry key="cmsv9.wsKey">J04Tb9pcLF7y6QrFmgTJLeVv33YbMhqW</entry>
     <entry key="cmsv9.mediaSecret">kAYUY7AEzk7mlB8XzZQ9qSixAGJGHggZ</entry>
+    <!-- The camera's own settings page: where a camera dials in to open its
+         tunnel, and the domain that page then appears under. Mirrors CNMS's
+         own ConfigDomain rows, so the two stay in step. -->
+    <entry key="cmsv9.frpHost">portal.dhfleetview.co.uk</entry>
+    <entry key="cmsv9.frpPort">7500</entry>
+    <entry key="cmsv9.frpToken">coointech81</entry>
+    <entry key="cmsv9.frpWebHost">dhfleetview.co.uk</entry>
+    <entry key="cmsv9.frpWebPort">9966</entry>
     <entry key="tacho.enabled">true</entry>
-    <entry key="tacho.storagePath">data/tachograph</entry>
+    <entry key="tacho.storagePath">D:/DHFleetViewData/traccar/tachograph</entry>
     <entry key="tacho.simulator">true</entry>
     <entry key="tacho.retryDelays">30,120,600</entry>
+
+    <!-- Data on D: (C: is kept for the system and programs) -->
+    <entry key='logger.file'>D:/DHFleetViewData/traccar/logs/tracker-server.log</entry>
+    <entry key='media.path'>D:/DHFleetViewData/traccar/media</entry>
 
 </properties>

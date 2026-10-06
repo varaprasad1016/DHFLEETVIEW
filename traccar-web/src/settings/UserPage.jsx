@@ -30,7 +30,7 @@ import EditItemView from './components/EditItemView';
 import EditAttributesAccordion from './components/EditAttributesAccordion';
 import { useTranslation } from '../common/components/LocalizationProvider';
 import useUserAttributes from '../common/attributes/useUserAttributes';
-import { sessionActions } from '../store';
+import { errorsActions, sessionActions } from '../store';
 import SelectField from '../common/components/SelectField';
 import PasswordField from '../common/components/PasswordField';
 import SettingsMenu from './components/SettingsMenu';
@@ -41,6 +41,7 @@ import useMapStyles from '../map/core/useMapStyles';
 import { map } from '../map/core/MapView';
 import useSettingsStyles from './common/useSettingsStyles';
 import fetchOrThrow from '../common/util/fetchOrThrow';
+import { getModuleAccess, getUserModules, saveUserModules } from '../common/util/driverApp';
 
 const UserPage = () => {
   const { classes } = useSettingsStyles();
@@ -64,6 +65,37 @@ const UserPage = () => {
 
   const { id } = useParams();
   const [item, setItem] = useState(id === currentUser.id.toString() ? currentUser : null);
+
+  // Compliance module access, only for the super administrator.
+  const [canManageModules, setCanManageModules] = useState(false);
+  const [moduleList, setModuleList] = useState([]);
+  const [moduleFlags, setModuleFlags] = useState(null);
+  const [modulesChanged, setModulesChanged] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const access = await getModuleAccess();
+      if (cancelled || !access?.can_manage) return;
+      setCanManageModules(true);
+      setModuleList(access.modules);
+      if (id) {
+        try {
+          const userAccess = await getUserModules(id);
+          if (!cancelled) setModuleFlags(userAccess.enabled);
+        } catch {
+          if (!cancelled)
+            setModuleFlags(Object.fromEntries(access.modules.map((m) => [m.key, true])));
+        }
+      } else {
+        setModuleFlags(Object.fromEntries(access.modules.map((m) => [m.key, true])));
+        setModulesChanged(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
 
   const [deleteEmail, setDeleteEmail] = useState();
   const [deleteFailed, setDeleteFailed] = useState(false);
@@ -115,9 +147,16 @@ const UserPage = () => {
     }
   }, [item, searchParams, setSearchParams, attribute]);
 
-  const onItemSaved = (result) => {
+  const onItemSaved = async (result) => {
     if (result.id === currentUser.id) {
       dispatch(sessionActions.updateUser(result));
+    }
+    if (canManageModules && moduleFlags && modulesChanged) {
+      try {
+        await saveUserModules(result.id, moduleFlags);
+      } catch (error) {
+        dispatch(errorsActions.push(`User saved, but module access wasn't: ${error.message}`));
+      }
     }
   };
 
@@ -456,6 +495,37 @@ const UserPage = () => {
                   disabled={!manager}
                 />
               </FormGroup>
+              {canManageModules && moduleFlags && (
+                <>
+                  <Typography variant="subtitle2" sx={{ mt: 1 }}>
+                    Compliance modules
+                  </Typography>
+                  <Typography variant="body2" color="textSecondary">
+                    Modules this user can see on the Compliance hub. Only the super administrator
+                    sees these options.
+                  </Typography>
+                  <FormGroup>
+                    {moduleList.map((module) => (
+                      <FormControlLabel
+                        key={module.key}
+                        control={
+                          <Checkbox
+                            checked={moduleFlags[module.key] !== false}
+                            onChange={(event) => {
+                              setModuleFlags({
+                                ...moduleFlags,
+                                [module.key]: event.target.checked,
+                              });
+                              setModulesChanged(true);
+                            }}
+                          />
+                        }
+                        label={module.label}
+                      />
+                    ))}
+                  </FormGroup>
+                </>
+              )}
             </AccordionDetails>
           </Accordion>
           <EditAttributesAccordion

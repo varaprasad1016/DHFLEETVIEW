@@ -120,14 +120,23 @@ class _MainScreenState extends State<MainScreen> {
     final directory = Platform.isAndroid
       ? await getExternalStorageDirectory()
       : await getApplicationDocumentsDirectory();
-    final file = File('${directory!.path}/$fileName');
-    await file.writeAsBytes(bytes);
+    if (directory == null) {
+      throw StateError('No writable storage directory is available');
+    }
+    final file = File('${directory.path}/$fileName');
+    await file.writeAsBytes(bytes, flush: true);
     await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
   }
 
   String _fileNameFor(Uri uri, String? contentDisposition) {
     if (contentDisposition != null) {
-      final match = RegExp('filename="?([^";]+)"?').firstMatch(contentDisposition);
+      final encodedMatch = RegExp(r"filename\*=UTF-8''([^;]+)", caseSensitive: false)
+        .firstMatch(contentDisposition);
+      if (encodedMatch != null) {
+        return Uri.decodeComponent(encodedMatch.group(1)!).trim();
+      }
+      final match = RegExp(r'filename="?([^";]+)"?', caseSensitive: false)
+        .firstMatch(contentDisposition);
       if (match != null && match.group(1)!.trim().isNotEmpty) {
         return match.group(1)!.trim();
       }
@@ -137,18 +146,31 @@ class _MainScreenState extends State<MainScreen> {
     return '${DateTime.now().millisecondsSinceEpoch}_$last';
   }
 
-  Future<void> _downloadFile(Uri uri) async {
+  void _showDownloadMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _downloadFile(Uri uri, {String? contentDisposition}) async {
     try {
       final token = await _loginTokenStore.read(false);
-      if (token == null) return;
+      if (token == null) {
+        _showDownloadMessage('Please log in again before downloading a file.');
+        return;
+      }
       final response = await http.get(uri, headers: {'Authorization': 'Bearer $token'});
-      if (response.statusCode == 200) {
-        _shareFile(_fileNameFor(uri, response.headers['content-disposition']), response.bodyBytes);
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        await _shareFile(
+          _fileNameFor(uri, contentDisposition ?? response.headers['content-disposition']),
+          response.bodyBytes,
+        );
       } else {
-        developer.log('Failed file download request');
+        developer.log('Failed file download request: HTTP ${response.statusCode}');
+        _showDownloadMessage('The file could not be downloaded (${response.statusCode}).');
       }
     } catch (e) {
       developer.log('Failed to download file', error: e);
+      _showDownloadMessage('The file could not be downloaded. Please try again.');
     }
   }
 
@@ -202,9 +224,11 @@ class _MainScreenState extends State<MainScreen> {
         await _loginTokenStore.delete();
       case 'download':
         try {
-          _shareFile('report.xlsx', base64Decode(parts[1]));
+          if (parts.length < 2) throw const FormatException('Missing download data');
+          await _shareFile('report.xlsx', base64Decode(parts[1]));
         } catch (e) {
           developer.log('Failed to save downloaded file', error: e);
+          _showDownloadMessage('The report could not be downloaded. Please try again.');
         }
       case 'server':
         final url = parts[1];
@@ -384,19 +408,41 @@ class _MainScreenState extends State<MainScreen> {
                 _launchAuthorizeRequest(uri);
                 return NavigationActionPolicy.CANCEL;
               }
+              if (uri.scheme == 'blob' || uri.scheme == 'data') {
+                // Blob/data downloads are delivered through the injected bridge.
+                return NavigationActionPolicy.CANCEL;
+              }
+              if (_isDownloadable(uri)) {
+                await _downloadFile(uri);
+                return NavigationActionPolicy.CANCEL;
+              }
               if (uri.authority != Uri.parse(_getUrl()).authority) {
                 try {
-                  launchUrl(uri, mode: LaunchMode.externalApplication);
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
                 } catch (e) {
                   developer.log('Failed to launch url', error: e);
                 }
                 return NavigationActionPolicy.CANCEL;
               }
-              if (_isDownloadable(uri)) {
-                _downloadFile(uri);
-                return NavigationActionPolicy.CANCEL;
-              }
               return NavigationActionPolicy.ALLOW;
+            },
+            onDownloadStartRequest: (controller, downloadStartRequest) async {
+              final target = downloadStartRequest.url;
+              await _downloadFile(
+                Uri.parse(target.toString()),
+                contentDisposition: downloadStartRequest.contentDisposition,
+              );
+            },
+            onCreateWindow: (controller, createWindowAction) async {
+              final target = createWindowAction.request.url;
+              if (target == null) return false;
+              final uri = Uri.parse(target.toString());
+              if (_isDownloadable(uri)) {
+                await _downloadFile(uri);
+              } else {
+                await launchUrl(uri, mode: LaunchMode.externalApplication);
+              }
+              return false;
             },
             onReceivedError: (controller, request, error) {
               if (request.isForMainFrame == true) {

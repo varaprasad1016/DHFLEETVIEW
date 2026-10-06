@@ -2394,6 +2394,38 @@ public final class Keys {
             List.of(KeyType.CONFIG));
 
     /**
+     * Where a camera dials in to open the tunnel that carries its own settings
+     * page. Sent to the device in an 8300 order as #FRPSET:host,port,token; the
+     * device then registers a subdomain and the page becomes reachable on
+     * {@link #CMSV9_FRP_WEB_HOST}. These mirror CNMS's own ConfigDomain rows.
+     */
+    public static final ConfigKey<String> CMSV9_FRP_HOST = new StringConfigKey(
+            "cmsv9.frpHost",
+            List.of(KeyType.CONFIG));
+
+    public static final ConfigKey<Integer> CMSV9_FRP_PORT = new IntegerConfigKey(
+            "cmsv9.frpPort",
+            List.of(KeyType.CONFIG),
+            7500);
+
+    public static final ConfigKey<String> CMSV9_FRP_TOKEN = new StringConfigKey(
+            "cmsv9.frpToken",
+            List.of(KeyType.CONFIG));
+
+    /**
+     * The domain a camera's settings page appears under once its tunnel is up,
+     * reached as http://&lt;deviceId&gt;.&lt;host&gt;:&lt;port&gt;.
+     */
+    public static final ConfigKey<String> CMSV9_FRP_WEB_HOST = new StringConfigKey(
+            "cmsv9.frpWebHost",
+            List.of(KeyType.CONFIG));
+
+    public static final ConfigKey<Integer> CMSV9_FRP_WEB_PORT = new IntegerConfigKey(
+            "cmsv9.frpWebPort",
+            List.of(KeyType.CONFIG),
+            9966);
+
+    /**
      * Tachograph module enabled.
      */
     public static final ConfigKey<Boolean> TACHO_ENABLED = new BooleanConfigKey(
