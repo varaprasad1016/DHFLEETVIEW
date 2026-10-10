@@ -69,6 +69,12 @@ public class TachographDownloadJob extends BaseModel {
     private Date createdAt;
     private Date updatedAt;
 
+    private String progressDetail;
+    private String clientType;
+    private boolean cancelRequested;
+    private long bridgeId;
+    private Date attemptStartedAt;
+
     private String deviceName;
 
     private String requestedByName;
@@ -215,6 +221,54 @@ public class TachographDownloadJob extends BaseModel {
 
     public void setUpdatedAt(Date updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    /** Short description of the current phase, for example "Activities, day 12 of 92". */
+    public String getProgressDetail() {
+        return progressDetail;
+    }
+
+    public void setProgressDetail(String progressDetail) {
+        this.progressDetail = progressDetail;
+    }
+
+    /** Which device client ran the job: FMC650 or SIMULATED. */
+    public String getClientType() {
+        return clientType;
+    }
+
+    public void setClientType(String clientType) {
+        this.clientType = clientType;
+    }
+
+    /**
+     * Set when an operator asks to cancel. A running job checks this between data blocks and
+     * stops at the next safe point rather than being killed mid-transfer.
+     */
+    public boolean getCancelRequested() {
+        return cancelRequested;
+    }
+
+    public void setCancelRequested(boolean cancelRequested) {
+        this.cancelRequested = cancelRequested;
+    }
+
+    /** The bridge whose company card authorised this download, or zero when none was needed. */
+    public long getBridgeId() {
+        return bridgeId;
+    }
+
+    public void setBridgeId(long bridgeId) {
+        this.bridgeId = bridgeId;
+    }
+
+    /** When the current attempt began, as distinct from when the job was first started. */
+    public Date getAttemptStartedAt() {
+        return attemptStartedAt;
+    }
+
+    public void setAttemptStartedAt(Date attemptStartedAt) {
+        this.attemptStartedAt = attemptStartedAt;
     }
 
     @QueryIgnore

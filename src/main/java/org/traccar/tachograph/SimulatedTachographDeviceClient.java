@@ -1,51 +1,78 @@
 /*
  * Copyright 2026 DH FleetView contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 package org.traccar.tachograph;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.traccar.config.Config;
+import org.traccar.config.Keys;
+import org.traccar.model.TachographDownloadJob;
+import org.traccar.tachograph.device.VirtualVehicleUnit;
+import org.traccar.tachograph.device.VuDownloadRunner;
+import org.traccar.tachograph.protocol.VuTimings;
 
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 
-import org.traccar.config.Config;
-import org.traccar.config.Keys;
-import org.traccar.model.TachographDownloadJob;
-
-import java.nio.charset.StandardCharsets;
-import java.security.SecureRandom;
-import java.util.Date;
+import java.util.Locale;
 
 /**
- * Simulated FMC650 client for development/testing ONLY.
- * TEST ONLY - NOT FOR PRODUCTION.
+ * Runs a download against a built-in vehicle-unit emulator instead of real hardware.
  *
- * <p>Generates small synthetic DDD files with deterministic content. The files are valid
- * for end-to-end testing (transfer, SHA-256, storage, download) but are NOT real
- * tachograph data and will not parse as compliant DDD in a real tacho parser.
+ * <p>TEST AND DEMONSTRATION ONLY. The files it produces are structurally correct but synthetic,
+ * and their technical-data block is stamped with {@link VirtualVehicleUnit#MARKER} so one can
+ * never be mistaken for a real tachograph record. Never enable {@code tacho.simulator} on a
+ * production server.
+ *
+ * <p>What makes it worth having is that it is not a shortcut: it drives the same
+ * {@link VuDownloadRunner} the FMC650 client uses, over a channel that speaks the real Annex 1B
+ * protocol. A regression in framing, block assembly, file naming or delivery fails here first.
+ *
+ * <p>Set the {@code tacho.simulator.behaviour} system property to
+ * {@code OFFLINE}, {@code TIMEOUT}, {@code INVALID_FILE}, {@code NO_CARD} or {@code DEVICE_ERROR}
+ * to rehearse the failure paths and their retry behaviour.
  */
 @Singleton
 public class SimulatedTachographDeviceClient implements TachographDeviceClient {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(SimulatedTachographDeviceClient.class);
 
-    public static final String MARKER = "SIMULATED_DDD_FILE_FOR_TESTING_ONLY";
+    /** Kept for compatibility with earlier fixtures that searched files for this text. */
+    public static final String MARKER = VirtualVehicleUnit.MARKER;
 
-    private final Config config;
-    private final SecureRandom random = new SecureRandom();
+    /** The emulator answers instantly, so the protocol timings can be tight. */
+    private static final VuTimings SIMULATOR_TIMINGS = VuTimings.of(2000, 60, 2000, 60000, 2);
 
+    /** Which failure the simulator should stage instead of a successful download. */
     public enum SimulatedBehaviour {
         SUCCESS,
         OFFLINE,
         TIMEOUT,
         INVALID_FILE,
+        NO_CARD,
         DEVICE_ERROR
     }
 
+    private final Config config;
+    private final VuDownloadRunner runner;
+
     @Inject
-    public SimulatedTachographDeviceClient(Config config) {
+    public SimulatedTachographDeviceClient(Config config, VuDownloadRunner runner) {
         this.config = config;
+        this.runner = runner;
     }
 
     @Override
@@ -59,67 +86,40 @@ public class SimulatedTachographDeviceClient implements TachographDeviceClient {
     }
 
     @Override
-    public TachographDownloadResult download(long deviceId, String downloadType) throws TachographException {
-        SimulatedBehaviour behaviour = resolveBehaviour(downloadType);
-        LOGGER.info("Simulated download for device {} type {} behaviour {}", deviceId, downloadType, behaviour);
+    public TachographDownloadResult download(TachographDownloadRequest request) throws TachographException {
+
+        SimulatedBehaviour behaviour = resolveBehaviour();
+        LOGGER.info("Simulated {} download for device {}, staging {}",
+                request.getDownloadType(), request.getDeviceId(), behaviour);
+
         switch (behaviour) {
             case OFFLINE -> throw new TachographException(
-                    TachographException.DEVICE_OFFLINE, "Simulated device offline");
+                    TachographDownloadJob.ERROR_DEVICE_OFFLINE, "Simulated device offline");
             case TIMEOUT -> throw new TachographException(
-                    TachographException.DOWNLOAD_TIMEOUT, "Simulated download timeout");
+                    TachographDownloadJob.ERROR_DOWNLOAD_TIMEOUT, "Simulated download timeout");
             case DEVICE_ERROR -> throw new TachographException(
-                    TachographException.PROTOCOL_ERROR, "Simulated device protocol error");
-            case INVALID_FILE -> {
-                byte[] data = "INVALID_DDD_CONTENT".getBytes(StandardCharsets.UTF_8);
-                String name = buildFileName(deviceId, downloadType, new Date()) + "_INVALID.DDD";
-                return new TachographDownloadResult(data, name, downloadType, new Date());
-            }
+                    TachographDownloadJob.ERROR_PROTOCOL, "Simulated vehicle unit protocol error");
+            case INVALID_FILE -> throw new TachographException(
+                    TachographDownloadJob.ERROR_INVALID_FILE,
+                    "Simulated vehicle unit returned an unusable file");
             default -> {
-                // SUCCESS
-                try {
-                    Thread.sleep(800 + random.nextInt(700));
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
+                boolean cardInserted = behaviour != SimulatedBehaviour.NO_CARD;
+                try (VirtualVehicleUnit unit = new VirtualVehicleUnit(request.getDeviceId(), cardInserted)) {
+                    return runner.run(unit, request, CLIENT_SIMULATED, SIMULATOR_TIMINGS);
                 }
-                byte[] data = buildDddBytes(deviceId, downloadType);
-                String name = buildFileName(deviceId, downloadType, new Date());
-                return new TachographDownloadResult(data, name, downloadType, new Date());
             }
         }
     }
 
-    private SimulatedBehaviour resolveBehaviour(String downloadType) {
-        // Deterministic hook for tests: attribute-driven tests can set tacho.simulator.behaviour
-        // via system property. Default is SUCCESS.
-        String prop = System.getProperty("tacho.simulator.behaviour");
-        if (prop != null) {
+    private SimulatedBehaviour resolveBehaviour() {
+        String value = System.getProperty("tacho.simulator.behaviour");
+        if (value != null && !value.isBlank()) {
             try {
-                return SimulatedBehaviour.valueOf(prop.trim().toUpperCase());
-            } catch (IllegalArgumentException ignored) {
-                // fall through
+                return SimulatedBehaviour.valueOf(value.trim().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                LOGGER.warn("Unknown tacho.simulator.behaviour '{}', running a successful download", value);
             }
         }
         return SimulatedBehaviour.SUCCESS;
-    }
-
-    private byte[] buildDddBytes(long deviceId, String downloadType) {
-        String header = MARKER + "\n"
-                + "deviceId=" + deviceId + "\n"
-                + "type=" + downloadType + "\n"
-                + "generated=" + new Date() + "\n"
-                + "NOTE: This file is synthetic and not a real DDD file.\n";
-        byte[] headerBytes = header.getBytes(StandardCharsets.UTF_8);
-        byte[] payload = new byte[2048 + random.nextInt(1024)];
-        random.nextBytes(payload);
-        byte[] result = new byte[headerBytes.length + payload.length];
-        System.arraycopy(headerBytes, 0, result, 0, headerBytes.length);
-        System.arraycopy(payload, 0, result, headerBytes.length, payload.length);
-        return result;
-    }
-
-    private String buildFileName(long deviceId, String downloadType, Date now) {
-        String typePrefix = TachographDownloadJob.TYPE_DRIVER.equals(downloadType) ? "C" : "M";
-        String ts = String.format("%tY%<tm%<td%<tH%<tM%<tS", now);
-        return String.format("%s_%s_%d.DDD", typePrefix, ts, deviceId);
     }
 }
