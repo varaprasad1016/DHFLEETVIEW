@@ -1,0 +1,1135 @@
+/*
+ * Copyright 2026 DH FleetView contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ */
+package org.traccar.media;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
+import org.traccar.config.Config;
+import org.traccar.config.Keys;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.http.WebSocket;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
+import java.security.cert.X509Certificate;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
+
+@Singleton
+public class Cmsv9Manager {
+
+    private static final Logger LOG = LoggerFactory.getLogger(Cmsv9Manager.class);
+    private static final Duration TIMEOUT = Duration.ofSeconds(30);
+    private static final String WS_KEY = "J04Tb9pcLF7y6QrFmgTJLeVv33YbMhqW";
+
+    /** Orders whose argument is a message object rather than a flat string. */
+    private static final Set<String> TEXT_ORDERS = Set.of("8300");
+
+    private final Config config;
+    private final ObjectMapper objectMapper;
+    private final HttpClient client;
+    private final Object wsOrderLock = new Object();
+    private volatile String loginToken = "";
+
+    @Inject
+    public Cmsv9Manager(Config config, ObjectMapper objectMapper) {
+        this.config = config;
+        this.objectMapper = objectMapper;
+        try {
+            X509TrustManager trustAll = new X509TrustManager() {
+                public X509Certificate[] getAcceptedIssuers() { return null; }
+                public void checkClientTrusted(X509Certificate[] c, String a) {}
+                public void checkServerTrusted(X509Certificate[] c, String a) {}
+            };
+            SSLContext sslContext = SSLContext.getInstance("TLS");
+            sslContext.init(null, new TrustManager[]{trustAll}, new SecureRandom());
+            client = HttpClient.newBuilder()
+                    .connectTimeout(TIMEOUT)
+                    .sslContext(sslContext)
+                    .followRedirects(HttpClient.Redirect.NORMAL)
+                    .build();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create HTTP client", e);
+        }
+    }
+
+    public boolean isConfigured() {
+        return value(Keys.CMSV9_URL) != null
+                && value(Keys.CMSV9_ACCOUNT) != null
+                && value(Keys.CMSV9_PASSWORD) != null;
+    }
+
+    public int getMediaPort() {
+        return config.getInteger(Keys.CMSV9_MEDIA_PORT);
+    }
+
+    public int getChannels() {
+        return config.getInteger(Keys.CMSV9_CHANNELS);
+    }
+
+    public int getClientPort() {
+        return config.getInteger(Keys.CMSV9_CLIENT_PORT);
+    }
+
+    public int getWsPort() {
+        return config.getInteger(Keys.CMSV9_WS_PORT);
+    }
+
+    // --- FLV URL construction ---
+
+    public String buildLiveFlvUrl(String terminal, int channel) {
+        String host = apiUri("").getHost();
+        int port = getMediaPort();
+        return "https://" + host + ":" + port + "/live/" + liveStreamName(terminal, channel) + ".live.flv";
+    }
+
+    public String buildPlaybackFlvUrl(String terminal, int channel) {
+        String host = apiUri("").getHost();
+        int port = getMediaPort();
+        return "https://" + host + ":" + port
+                + "/live/" + canonicalTerminal(terminal) + "_channel_" + channel + "_playback.live.flv";
+    }
+
+    public String rtmpToFlv(String rtmpUrl) {
+        if (rtmpUrl == null || !rtmpUrl.startsWith("rtmp://")) {
+            return rtmpUrl;
+        }
+        String withoutScheme = rtmpUrl.substring("rtmp://".length());
+        int slashIdx = withoutScheme.indexOf('/');
+        String host = withoutScheme.substring(0, slashIdx);
+        String streamPath = withoutScheme.substring(slashIdx + 1);
+        int clientPort = getClientPort();
+        return "https://" + host + ":" + getMediaPort()
+                + "/flv?port=" + clientPort + "&app=live&stream=" + streamPath;
+    }
+
+    // --- CNMS REST API ---
+
+    public JsonNode login() throws Exception {
+        String username = require(Keys.CMSV9_ACCOUNT);
+        String passwordMd5 = md5(require(Keys.CMSV9_PASSWORD)).toLowerCase();
+        String tradeno = String.valueOf(Instant.now().getEpochSecond());
+        String sign = md5(username + passwordMd5 + tradeno).toUpperCase();
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("username", username);
+        body.put("password", passwordMd5);
+        body.put("tradeno", tradeno);
+        body.put("sign", sign);
+
+        LOG.info("CNMS login as {}", username);
+        JsonNode response = post("/ajax/cmsapi/userLogin", body);
+        int errCode = response.path("errCode").asInt(-1);
+        if (errCode != 0) {
+            String msg = response.path("resultMsg").asText("unknown error");
+            LOG.error("CNMS login failed: errCode={}, msg={}", errCode, msg);
+            throw new IOException("CNMS login failed: " + msg);
+        }
+        loginToken = response.path("token").asText("");
+        LOG.info("CNMS login succeeded, token={}", loginToken);
+        return response;
+    }
+
+    public JsonNode deptTree() throws Exception {
+        return signedPost("/ajax/cmsapi/deptTree", new LinkedHashMap<>());
+    }
+
+    public int getDeviceChannels(String terminal) throws Exception {
+        JsonNode response = deptTree();
+        JsonNode list = response.path("resultData");
+        if (list.isArray()) {
+            for (JsonNode node : list) {
+                if (node.path("nodetype").asInt(0) == 2
+                        && terminal.equals(node.path("terminal").asText(""))) {
+                    int channels = node.path("channeltotals").asInt(0);
+                    if (channels > 0) {
+                        return channels;
+                    }
+                }
+            }
+        }
+        return -1;
+    }
+
+    public JsonNode playSend(String terminal, String channel, boolean start) throws Exception {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("type", start ? "1" : "0");
+        body.put("terminal", terminal);
+        body.put("id", String.valueOf(channel));
+        body.put("protocol", "1");
+        body.put("vedioType", "1");
+        body.put("streamType", "1");
+
+        JsonNode response = signedPost("/ajax/cmsapi/playSend", body);
+        int errCode = response.path("errCode").asInt(-1);
+        if (errCode != 0) {
+            LOG.error("playSend failed: {}", response.path("resultMsg").asText());
+        }
+        return response;
+    }
+
+    public JsonNode playbackAppoint(
+            String terminal, String channel, String startTime, String endTime) throws Exception {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("terminal", terminal);
+        body.put("id", String.valueOf(channel));
+        body.put("streamType", "0");
+        body.put("vedioType", "0");
+        body.put("memoryType", "1");
+        body.put("startTime", startTime);
+        body.put("endTime", endTime);
+
+        JsonNode response = signedPost("/ajax/cmsapi/playbackAppoint", body);
+        int errCode = response.path("errCode").asInt(-1);
+        if (errCode != 0) {
+            LOG.error("playbackAppoint failed: {}", response.path("resultMsg").asText());
+        }
+        return response;
+    }
+
+    public JsonNode queryTerminalFileList(
+            String terminal, String channel, String startTime, String endTime) throws Exception {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("terminal", terminal);
+        body.put("id", String.valueOf(channel));
+        body.put("streamType", "0");
+        body.put("vedioType", "0");
+        body.put("memoryType", "1");
+        body.put("startTime", startTime);
+        body.put("endTime", endTime);
+
+        return signedPost("/ajax/cmsapi/queryTerminalFileList", body);
+    }
+
+    /**
+     * Whether CNMS currently sees this camera, or null when it cannot say.
+     *
+     * <p>Null and false are different answers and are kept apart on purpose: a
+     * caller should refuse to send a live order to a camera known to be offline,
+     * but should not refuse merely because CNMS was unreachable for a moment.
+     *
+     * <p>carstatus 2 is what the portal itself renders as offline. Ignition is
+     * not a connectivity signal, so a parked vehicle still counts as online -
+     * the same rule {@code TaskCnmsSync} applies.
+     */
+    public Boolean isDeviceOnline(String terminal) {
+        try {
+            JsonNode response = getGpsStatus(terminal);
+            if (response.path("errCode").asInt(-1) != 0) {
+                return null;
+            }
+            JsonNode list = response.path("resultData");
+            if (!list.isArray() || list.isEmpty()) {
+                return null;
+            }
+            int carstatus = list.get(0).path("carstatus").asInt(0);
+            return carstatus > 0 && carstatus != 2;
+        } catch (Exception e) {
+            LOG.warn("Could not read online status for {}: {}", terminal, e.getMessage());
+            return null;
+        }
+    }
+
+    public JsonNode getGpsStatus(String terminal) throws Exception {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("terminal", terminal);
+        return signedPost("/ajax/cmsapi/getGpsStatus", body);
+    }
+
+    public JsonNode getDownVideosAndPictures(
+            String terminal, String startTime, String endTime, String type) throws Exception {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("terminal", terminal);
+        body.put("startTime", startTime);
+        body.put("endTime", endTime);
+        body.put("type", type);
+        return signedPost("/ajax/Cmsapi/getDownVideos_and_pictures", body);
+    }
+
+    // --- WebSocket play/stop commands ---
+
+    public boolean wsPlay(String terminal, int channel) {
+        return wsPlay(terminal, channel, 1);
+    }
+
+    // streamType 0 = main (HD), 1 = sub (SD). Content: host,port,0,channel,dataType(1=video),streamType
+    public boolean wsPlay(String terminal, int channel, int streamType) {
+        return wsSendOrderOnce(terminal, "9101",
+                videoServerHost() + "," + videoServerPort() + ",0," + (channel) + ",1," + streamType);
+    }
+
+    /**
+     * Plays one live channel and waits until its stream is registered on the
+     * local ZLMediaKit. The whole sequence is serialized so that concurrent
+     * multiview requests start channels one at a time. A stop is sent first to
+     * reset the channel: the device ignores play commands while a previous
+     * push session is stuck.
+     */
+    public boolean playLiveAndWait(String terminal, int channel, long timeoutMillis) {
+        synchronized (wsOrderLock) {
+            resetChannel(terminal, channel);
+            if (!wsPlay(terminal, channel)) {
+                return false;
+            }
+            mediacontrol(terminal, channel, 0);
+            return waitForStreamLive(liveStreamName(terminal, channel), timeoutMillis);
+        }
+    }
+
+    private final ExecutorService playExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "cmsv9-play");
+        t.setDaemon(true);
+        return t;
+    });
+
+    /**
+     * Streams are kept warm for this long after the viewer closes, so re-opening
+     * (or flicking between channels/vehicles) skips the whole start-up handshake.
+     */
+    private static final long KEEP_ALIVE_MS = 60000;
+    private final ScheduledExecutorService keepAliveExecutor =
+            Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "cmsv9-keepalive");
+                t.setDaemon(true);
+                return t;
+            });
+    private final Map<String, ScheduledFuture<?>> pendingStops = new ConcurrentHashMap<>();
+    /** Stream names CNMS reported for a terminal/channel, keyed by "terminal/channel". */
+    private final Map<String, String> streamNames = new ConcurrentHashMap<>();
+    private static final Pattern STREAM_IN_URL = Pattern.compile("/live/([^/.]+)\\.live\\.flv");
+    private final Map<String, InputStream> keepAliveStreams = new ConcurrentHashMap<>();
+
+    private static String streamKey(String terminal, int channel) {
+        return terminal + "_" + channel;
+    }
+
+    /** Cancels a scheduled teardown for this stream (called when it is viewed again). */
+    private void cancelPendingStop(String terminal, int channel) {
+        ScheduledFuture<?> pending = pendingStops.remove(streamKey(terminal, channel));
+        if (pending != null) {
+            pending.cancel(false);
+        }
+        stopKeepAliveReader(terminal, channel);
+    }
+
+    /**
+     * Holds a background reader on the live stream during the keep-alive window.
+     * Without a consumer the media server (and the DVR push) can be torn down when
+     * the viewer disconnects - which is exactly what makes a quick stop/start
+     * struggle. Keeping a reader keeps the stream genuinely live so re-open reuses it.
+     */
+    private void startKeepAliveReader(String terminal, int channel) {
+        String key = streamKey(terminal, channel);
+        if (keepAliveStreams.containsKey(key)) {
+            return;
+        }
+        Thread reader = new Thread(() -> {
+            try {
+                InputStream in = openStream(liveStreamName(terminal, channel));
+                if (in == null) {
+                    return;
+                }
+                keepAliveStreams.put(key, in);
+                byte[] buffer = new byte[8192];
+                while (in.read(buffer) != -1) {
+                    // discard; being a reader keeps the stream and DVR push alive
+                }
+            } catch (Exception e) {
+                // stream closed or interrupted
+            } finally {
+                InputStream in = keepAliveStreams.remove(key);
+                if (in != null) {
+                    try {
+                        in.close();
+                    } catch (IOException ignored) {
+                        // already closed
+                    }
+                }
+            }
+        }, "cmsv9-keepalive-" + key);
+        reader.setDaemon(true);
+        reader.start();
+    }
+
+    private void stopKeepAliveReader(String terminal, int channel) {
+        InputStream in = keepAliveStreams.remove(streamKey(terminal, channel));
+        if (in != null) {
+            try {
+                in.close();
+            } catch (IOException ignored) {
+                // closing unblocks the read loop
+            }
+        }
+    }
+
+    /**
+     * Queues a channel play in the background. If the stream is already live
+     * it is left untouched (a duplicate play request must never kill an
+     * active push). Otherwise the channel is reset (stop first, to clear
+     * stuck device sessions), played via WS order + internal mediacontrol,
+     * and confirmed on the local media server.
+     */
+    public void playLiveAsync(String terminal, int channel) {
+        playLiveAsync(terminal, channel, 1);
+    }
+
+    public void playLiveAsync(String terminal, int channel, int streamType) {
+        cancelPendingStop(terminal, channel);
+        playExecutor.submit(() -> {
+            try {
+                synchronized (wsOrderLock) {
+                    String streamName = liveStreamName(terminal, channel);
+                    if (!isStreamLive(streamName)) {
+                        resetChannel(terminal, channel);
+                        wsPlay(terminal, channel, streamType);
+                        mediacontrol(terminal, channel, 0, streamType);
+                        // Do NOT block here waiting for the stream to appear: this
+                        // task is fire-and-forget (the frontend polls readiness), and
+                        // holding the play lane for up to 45s per channel makes a
+                        // channel that can't establish stall every other channel in a
+                        // multi-view grid. Send the order and move on.
+                    }
+                }
+            } catch (Exception e) {
+                LOG.warn("Live play failed for {}/{}: {}", terminal, channel, e.getMessage());
+            }
+        });
+    }
+
+    private void resetChannel(String terminal, int channel) {
+        wsStop(terminal, channel);
+        mediacontrol(terminal, channel, 1);
+        try {
+            Thread.sleep(400);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    public void stopLiveAsync(String terminal, int channel) {
+        // Keep the stream warm for KEEP_ALIVE_MS so a quick re-open is instant.
+        // A fresh close resets the timer; a re-open (playLiveAsync) cancels it.
+        cancelPendingStop(terminal, channel);
+        startKeepAliveReader(terminal, channel);
+        ScheduledFuture<?> pending = keepAliveExecutor.schedule(() -> {
+            pendingStops.remove(streamKey(terminal, channel));
+            stopKeepAliveReader(terminal, channel);
+            playExecutor.submit(() -> {
+                try {
+                    synchronized (wsOrderLock) {
+                        wsStop(terminal, channel);
+                        mediacontrol(terminal, channel, 1);
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Live stop failed for {}/{}: {}", terminal, channel, e.getMessage());
+                }
+            });
+        }, KEEP_ALIVE_MS, TimeUnit.MILLISECONDS);
+        pendingStops.put(streamKey(terminal, channel), pending);
+    }
+
+    /**
+     * Internal CNMS media control API (same one the portal's on-demand
+     * hooks use). The device appears to only start pushing when this
+     * command is delivered; the WebSocket order alone is not enough.
+     */
+    private void mediacontrol(String terminal, int channel, int type) {
+        mediacontrol(terminal, channel, type, 1);
+    }
+
+    private void mediacontrol(String terminal, int channel, int type, int streamType) {
+        try {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("sign", "ifNTSJ5vmA");
+            body.put("type", type);
+            body.put("terminal", terminal);
+            body.put("id", String.valueOf(channel));
+            body.put("protocol", 1);
+            body.put("vedioType", 1);
+            body.put("streamType", streamType);
+            String json = objectMapper.writeValueAsString(body);
+            HttpRequest request = HttpRequest.newBuilder(
+                            URI.create("http://127.0.0.1:9005/cmsapi/mediacontrol"))
+                    .timeout(Duration.ofSeconds(8))
+                    .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
+                    .header("Content-Type", "application/json")
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            LOG.info("mediacontrol type={} terminal={} channel={} -> {}", type, terminal, channel, response.body());
+            rememberStreamName(terminal, channel, response.body());
+        } catch (Exception e) {
+            LOG.warn("mediacontrol failed for {}/{}: {}", terminal, channel, e.getMessage());
+        }
+    }
+
+    /**
+     * CNMS answers a play order with the URL it will publish the stream on. That
+     * URL carries the stream name CNMS chose, which is the only reliable source:
+     * it normalises device numbers itself (padding some, trimming others), so a
+     * name built here can disagree with the one the media server registers.
+     */
+    private void rememberStreamName(String terminal, int channel, String body) {
+        try {
+            JsonNode data = objectMapper.readTree(body).path("resultData");
+            String url = data.path("httpurl").asText(data.path("url").asText(""));
+            Matcher matcher = STREAM_IN_URL.matcher(url);
+            if (matcher.find()) {
+                String name = matcher.group(1);
+                String previous = streamNames.put(streamKey(terminal, channel), name);
+                if (!name.equals(previous)) {
+                    LOG.info("CNMS stream for {}/{} is {}", terminal, channel, name);
+                }
+            }
+        } catch (Exception e) {
+            LOG.debug("no stream name in mediacontrol reply for {}/{}", terminal, channel);
+        }
+    }
+
+    /**
+     * The device number as CNMS spells it in stream names: eleven digits, so a
+     * shorter number is zero-padded and a longer one loses its leading zeros.
+     * Only used until CNMS tells us the real name (see rememberStreamName).
+     */
+    private static String canonicalTerminal(String terminal) {
+        try {
+            return String.format("%011d", Long.parseLong(terminal.trim()));
+        } catch (NumberFormatException e) {
+            return terminal;
+        }
+    }
+
+    public String liveStreamName(String terminal, int channel) {
+        String known = streamNames.get(streamKey(terminal, channel));
+        return known != null ? known : canonicalTerminal(terminal) + "_channel_" + channel;
+    }
+
+    /**
+     * Checks whether the named stream is currently registered on the local
+     * ZLMediaKit. Uses the media API (no stream URL requests, so no CNMS
+     * on-demand hooks are triggered).
+     */
+    public boolean isStreamLive(String streamName) {
+        // The stream can register on the local relay and/or the portal media
+        // server (where the browser actually plays from). Accept it on either so
+        // a slow local relay does not produce a false "did not appear" while the
+        // portal already serves the stream.
+        return streamOnHost("127.0.0.1", streamName)
+                || streamOnHost(apiUri("").getHost(), streamName);
+    }
+
+    private boolean streamOnHost(String host, String streamName) {
+        String secret = value(Keys.CMSV9_MEDIA_SECRET);
+        if (secret == null) {
+            return false;
+        }
+        try {
+            URI uri = URI.create("https://" + host + ":" + getMediaPort()
+                    + "/index/api/getMediaList?secret=" + secret);
+            HttpRequest request = HttpRequest.newBuilder(uri)
+                    .timeout(Duration.ofSeconds(5))
+                    .GET()
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() / 100 == 2) {
+                JsonNode root = objectMapper.readTree(response.body());
+                JsonNode data = root.path("data");
+                if (data.isArray()) {
+                    for (JsonNode item : data) {
+                        if (streamName.equals(item.path("stream").asText(""))) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // treat as not live on this host
+        }
+        return false;
+    }
+
+    /**
+     * Opens the FLV stream from the local ZLMediaKit. Returns null when the
+     * stream is not available.
+     */
+    public InputStream openStream(String streamName) throws Exception {
+        InputStream in = openStreamOnHost("127.0.0.1", streamName);
+        if (in == null) {
+            in = openStreamOnHost(apiUri("").getHost(), streamName);
+        }
+        return in;
+    }
+
+    private InputStream openStreamOnHost(String host, String streamName) throws Exception {
+        URI uri = URI.create("https://" + host + ":" + getMediaPort()
+                + "/live/" + streamName + ".live.flv");
+        HttpRequest request = HttpRequest.newBuilder(uri)
+                .timeout(Duration.ofSeconds(10))
+                .GET()
+                .build();
+        HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        if (response.statusCode() / 100 != 2) {
+            response.body().close();
+            return null;
+        }
+        return response.body();
+    }
+
+    /**
+     * Starts a recorded-footage playback via the CNMS playbackAppoint API and
+     * opens the FLV stream from the URL the platform returns. The device takes
+     * a moment to begin pushing, so the URL is retried briefly.
+     */
+    public InputStream openPlaybackStream(
+            String terminal, int channel, String startTime, String endTime) throws Exception {
+        JsonNode resp = playbackAppoint(terminal, String.valueOf(channel), startTime, endTime);
+        if (resp.path("errCode").asInt(-1) != 0) {
+            return null;
+        }
+        String httpUrl = resp.path("resultData").path("httpurl").asText("");
+        LOG.info("playback {} ch{} resultData={}", terminal, channel, resp.path("resultData"));
+        if (httpUrl.isEmpty()) {
+            return null;
+        }
+        long start = System.currentTimeMillis();
+        long deadline = start + 45000;
+        while (System.currentTimeMillis() < deadline) {
+            InputStream in = openUrl(httpUrl);
+            if (in != null) {
+                LOG.info("playback {} ch{} connected in {} ms via {}",
+                        terminal, channel, System.currentTimeMillis() - start, httpUrl);
+                return in;
+            }
+            try {
+                Thread.sleep(2000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return null;
+            }
+        }
+        LOG.warn("playback {} ch{} never became available after 45s ({})", terminal, channel, httpUrl);
+        return null;
+    }
+
+    public boolean isFfmpegAvailable() {
+        return new java.io.File(ffmpegPath()).isFile();
+    }
+
+    private String ffmpegPath() {
+        return "tools/ffmpeg.exe";
+    }
+
+    /**
+     * Plays a recorded segment and remuxes the H.265 FLV into a fragmented MP4
+     * on the fly (ffmpeg -c copy for video, no re-encode, nothing written to
+     * disk; audio transcoded to AAC so the file is broadly playable). Closing
+     * the returned stream tears down the ffmpeg process. Returns null if
+     * playback is unavailable.
+     */
+    public InputStream openPlaybackMp4(
+            String terminal, int channel, String startTime, String endTime) throws Exception {
+        InputStream flv = openPlaybackStream(terminal, channel, startTime, endTime);
+        if (flv == null) {
+            return null;
+        }
+        ProcessBuilder pb = new ProcessBuilder(
+                ffmpegPath(),
+                "-hide_banner", "-loglevel", "error",
+                "-i", "pipe:0",
+                "-c:v", "copy",
+                "-c:a", "aac",
+                "-movflags", "frag_keyframe+empty_moov+default_base_moof",
+                "-f", "mp4",
+                "pipe:1");
+        pb.redirectError(ProcessBuilder.Redirect.DISCARD);
+        Process process = pb.start();
+        Thread feeder = new Thread(() -> {
+            try (InputStream in = flv; java.io.OutputStream out = process.getOutputStream()) {
+                in.transferTo(out);
+            } catch (java.io.IOException e) {
+                // downstream closed or playback ended
+            }
+        }, "cmsv9-ffmpeg-feed");
+        feeder.setDaemon(true);
+        feeder.start();
+        return new java.io.FilterInputStream(process.getInputStream()) {
+            @Override
+            public void close() throws java.io.IOException {
+                super.close();
+                process.destroy();
+            }
+        };
+    }
+
+    /**
+     * Plays a recorded segment and writes a file that phones and messaging
+     * apps will actually accept.
+     *
+     * The streaming version above passes the camera's H.265 through untouched
+     * into a fragmented MP4. That plays in VLC and on a PC, but WhatsApp and
+     * the like refuse it on two counts: they want H.264, and a fragmented file
+     * has no index at the front for them to read. So here the video is
+     * re-encoded to H.264 in yuv420p and the index is moved to the front with
+     * faststart.
+     *
+     * Faststart needs to seek in its output, which a pipe cannot do, so this
+     * one goes to a temporary file and is served once ffmpeg has finished.
+     * That means waiting for the whole clip - but the camera plays it back off
+     * its card in real time anyway, so the wait is the clip's own length
+     * either way. The file deletes itself when the download closes.
+     */
+    public InputStream openPlaybackShareableMp4(
+            String terminal, int channel, String startTime, String endTime) throws Exception {
+        InputStream flv = openPlaybackStream(terminal, channel, startTime, endTime);
+        if (flv == null) {
+            return null;
+        }
+        java.nio.file.Path temp = java.nio.file.Files.createTempFile("dhfv-clip-", ".mp4");
+        ProcessBuilder pb = new ProcessBuilder(
+                ffmpegPath(),
+                "-hide_banner", "-loglevel", "error",
+                "-i", "pipe:0",
+                // H.264 Main in yuv420p is the combination every phone decodes.
+                "-c:v", "libx264", "-profile:v", "main", "-level", "4.0",
+                "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", "23",
+                "-c:a", "aac", "-b:a", "96k",
+                // The index at the front, and no fragments.
+                "-movflags", "+faststart",
+                "-f", "mp4",
+                "-y", temp.toString());
+        pb.redirectError(ProcessBuilder.Redirect.DISCARD);
+        Process process = pb.start();
+        Thread feeder = new Thread(() -> {
+            try (InputStream in = flv; java.io.OutputStream out = process.getOutputStream()) {
+                in.transferTo(out);
+            } catch (java.io.IOException e) {
+                // downstream closed or playback ended
+            }
+        }, "cmsv9-ffmpeg-share");
+        feeder.setDaemon(true);
+        feeder.start();
+
+        int exit = process.waitFor();
+        if (exit != 0 || !java.nio.file.Files.isRegularFile(temp)
+                || java.nio.file.Files.size(temp) == 0) {
+            LOG.error("shareable clip conversion failed for {} ch{} (ffmpeg exit {})",
+                    terminal, channel, exit);
+            java.nio.file.Files.deleteIfExists(temp);
+            return null;
+        }
+        return new java.io.FilterInputStream(java.nio.file.Files.newInputStream(temp)) {
+            @Override
+            public void close() throws java.io.IOException {
+                super.close();
+                java.nio.file.Files.deleteIfExists(temp);
+            }
+        };
+    }
+
+    private InputStream openUrl(String url) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+                .timeout(Duration.ofSeconds(15))
+                .GET()
+                .build();
+        HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        if (response.statusCode() / 100 != 2) {
+            response.body().close();
+            return null;
+        }
+        return response.body();
+    }
+
+    /**
+     * Polls the local ZLMediaKit API until the named stream appears.
+     * Avoids HTTP requests to the stream URL (which would trigger the
+     * CNMS on-demand hooks and overload the video backend).
+     */
+    public boolean waitForStreamLive(String streamName, long timeoutMillis) {
+        long deadline = System.currentTimeMillis() + timeoutMillis;
+        while (System.currentTimeMillis() < deadline) {
+            if (isStreamLive(streamName)) {
+                return true;
+            }
+            try {
+                Thread.sleep(300);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        LOG.warn("Stream {} did not appear within {}s", streamName, timeoutMillis / 1000);
+        return false;
+    }
+
+    public boolean wsStop(String terminal, int channel) {
+        return wsSendOrderOnce(terminal, "9102", channel + ",0,0,0");
+    }
+
+    /**
+     * Ask a camera to open the tunnel that exposes its own settings page.
+     *
+     * <p>The page is served by the camera itself, not by us, and it is only
+     * reachable while the camera holds a tunnel open to the FRP server. The
+     * camera opens one when it is told where to dial, which is what this order
+     * carries. Nothing happens until then: requests for the address simply meet
+     * "no such domain" at the proxy, which is a 404 to whoever asked.
+     *
+     * <p>The terminal is padded to twelve digits here because that is the form
+     * the platform's own client uses for this order, and a camera addressed any
+     * other way never sees it.
+     */
+    public boolean wsOpenDeviceWeb(String terminal) {
+        String host = require(Keys.CMSV9_FRP_HOST);
+        String token = require(Keys.CMSV9_FRP_TOKEN);
+        int port = config.getInteger(Keys.CMSV9_FRP_PORT);
+        String padded = terminal.length() >= 12 ? terminal
+                : "0".repeat(12 - terminal.length()) + terminal;
+        // The token is a shared secret; the order is logged by number only.
+        LOG.info("WS device-web tunnel requested for {} via {}:{}", padded, host, port);
+        return wsSendOrderOnce(padded, "8300", "#FRPSET:" + host + "," + port + "," + token);
+    }
+
+    /**
+     * Where that page appears once the tunnel is up. The camera registers its
+     * unpadded id as the subdomain, so this is not the padded form above.
+     */
+    public String deviceWebUrl(String terminal) {
+        return "http://" + terminal + "." + require(Keys.CMSV9_FRP_WEB_HOST)
+                + ":" + config.getInteger(Keys.CMSV9_FRP_WEB_PORT);
+    }
+
+    public boolean wsPlayback(String terminal, int channel, String startTime, String endTime) {
+        return wsSendOrderOnce(terminal, "9201",
+                videoServerHost() + "," + playbackPort() + ",0," + (channel) + ",0,1,1,0,0,"
+                + startTime + "," + endTime);
+    }
+
+    public boolean wsStopPlayback(String terminal, int channel) {
+        return wsSendOrderOnce(terminal, "9202", channel + ",0,0");
+    }
+
+    private boolean wsSendOrderOnce(String terminal, String order, String content) {
+        synchronized (wsOrderLock) {
+            for (int attempt = 0; attempt < 2; attempt++) {
+                try {
+                    if (loginToken.isEmpty()) {
+                        login();
+                    }
+                    if (wsConnectLoginAndSend(terminal, order, content)) {
+                        return true;
+                    }
+                    LOG.warn("WS order not acknowledged ({} {}), refreshing CNMS session...", order, terminal);
+                    loginToken = "";
+                } catch (Exception e) {
+                    LOG.error("WS order failed: {} {} - {}", order, terminal, e.getMessage());
+                    loginToken = "";
+                }
+            }
+            return false;
+        }
+    }
+
+    private boolean wsConnectLoginAndSend(String terminal, String order, String content)
+            throws Exception {
+        String host = apiUri("").getHost();
+        int port = getWsPort();
+        String url = "wss://" + host + ":" + port + "/Order";
+
+        CountDownLatch doneLatch = new CountDownLatch(1);
+        AtomicBoolean success = new AtomicBoolean(false);
+        AtomicReference<String> orderId = new AtomicReference<>();
+        AtomicReference<WebSocket> wsRef = new AtomicReference<>();
+
+        SSLContext sslContext = SSLContext.getInstance("TLS");
+        sslContext.init(null, new TrustManager[]{
+            new X509TrustManager() {
+                public X509Certificate[] getAcceptedIssuers() { return null; }
+                public void checkClientTrusted(X509Certificate[] c, String a) {}
+                public void checkServerTrusted(X509Certificate[] c, String a) {}
+            }
+        }, new SecureRandom());
+
+        HttpClient wsClient = HttpClient.newBuilder()
+                .sslContext(sslContext)
+                .connectTimeout(TIMEOUT)
+                .build();
+
+        WebSocket.Listener listener = new WebSocket.Listener() {
+            private final AtomicBoolean loggedIn = new AtomicBoolean(false);
+
+            @Override
+            public void onOpen(WebSocket webSocket) {
+                wsRef.set(webSocket);
+                WebSocket.Listener.super.onOpen(webSocket);
+            }
+
+            @Override
+            public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
+                String msg = data.toString();
+                LOG.info("WS recv: {}", msg);
+                try {
+                    JsonNode json = objectMapper.readTree(msg);
+                    String type = json.path("type").asText("");
+                    String id = json.path("id").asText("");
+                    if (!id.isEmpty()) {
+                        orderId.set(id);
+                    }
+
+                    if ("answer".equals(type)) {
+                        int result = json.path("content").path("result").asInt(0);
+                        if (result == 1 && !loggedIn.getAndSet(true)) {
+                            LOG.info("WS login required, sending login...");
+                            sendWsLoginMsg(webSocket, id);
+                        } else if (result == 4) {
+                            LOG.info("WS login acknowledged (result=4), sending order...");
+                            sendWsOrderMsg(webSocket, id, terminal, order, content);
+                            Thread.sleep(100);
+                            sendWsOrderMsg(webSocket, id, terminal, order, content);
+                            Thread.sleep(100);
+                            sendWsOrderMsg(webSocket, id, terminal, order, content);
+                            success.set(true);
+                            LOG.info("WS order sent 3 times, waiting for relay...");
+                            Thread.sleep(250);
+                            doneLatch.countDown();
+                        } else {
+                            LOG.info("WS answer result={}, waiting...", result);
+                        }
+                    } else {
+                        LOG.info("WS response type={}, done", type);
+                    }
+                } catch (Exception e) {
+                    LOG.error("WS msg error: {}", e.getMessage());
+                }
+                return WebSocket.Listener.super.onText(webSocket, data, last);
+            }
+
+            @Override
+            public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
+                LOG.info("WS closed: {} {}", statusCode, reason);
+                doneLatch.countDown();
+                return WebSocket.Listener.super.onClose(webSocket, statusCode, reason);
+            }
+
+            @Override
+            public void onError(WebSocket webSocket, Throwable error) {
+                LOG.error("WS error: {}", error.getMessage());
+                doneLatch.countDown();
+            }
+        };
+
+        wsClient.newWebSocketBuilder()
+                .connectTimeout(TIMEOUT)
+                .buildAsync(URI.create(url), listener)
+                .get(10, TimeUnit.SECONDS);
+
+        doneLatch.await(15, TimeUnit.SECONDS);
+        WebSocket ws = wsRef.get();
+        if (ws != null) {
+            try { ws.sendClose(1000, "done"); } catch (Exception ignored) {}
+        }
+        return success.get();
+    }
+
+    private void sendWsLoginMsg(WebSocket webSocket, String orderId) {
+        try {
+            long time = Instant.now().getEpochSecond();
+            String username = require(Keys.CMSV9_ACCOUNT);
+            String signInput = "time=" + time
+                    + "&username=" + username.toLowerCase()
+                    + "&userpwd=" + require(Keys.CMSV9_PASSWORD).toLowerCase()
+                    + "&key=" + WS_KEY.toLowerCase();
+            String sign = md5(signInput).toUpperCase();
+
+            ObjectNode msg = objectMapper.createObjectNode();
+            msg.put("id", orderId);
+            msg.put("type", "login");
+            ObjectNode c = objectMapper.createObjectNode();
+            c.put("username", "");
+            c.put("password", "");
+            c.put("session", loginToken);
+            c.put("SubscribeType", 2);
+            msg.set("content", c);
+            msg.put("username", username);
+            msg.put("time", time);
+            msg.put("sign", sign);
+
+            String json = objectMapper.writeValueAsString(msg);
+            LOG.info("WS login: {}", json);
+            webSocket.sendText(json, true);
+        } catch (Exception e) {
+            LOG.error("WS login failed: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * The tunnel order carries a shared secret as its last field. The rest of
+     * the order is worth having in the log; the secret is not.
+     */
+    private static String redactOrder(String content) {
+        if (content != null && content.startsWith("#FRPSET:")) {
+            int last = content.lastIndexOf(',');
+            if (last > 0) {
+                return content.substring(0, last + 1) + "<token>";
+            }
+        }
+        return content;
+    }
+
+    private void sendWsOrderMsg(WebSocket webSocket, String orderId,
+            String terminal, String order, String content) {
+        try {
+            long time = Instant.now().getEpochSecond();
+            String username = require(Keys.CMSV9_ACCOUNT);
+            String signInput = "time=" + time
+                    + "&username=" + username.toLowerCase()
+                    + "&userpwd=" + require(Keys.CMSV9_PASSWORD).toLowerCase()
+                    + "&key=" + WS_KEY.toLowerCase();
+            String sign = md5(signInput).toUpperCase();
+
+            ObjectNode msg = objectMapper.createObjectNode();
+            msg.put("id", orderId);
+            msg.put("type", "order");
+            ObjectNode c = objectMapper.createObjectNode();
+            c.put("deviceid", terminal);
+            c.put("order", order);
+            // Most orders take their arguments as one comma separated string.
+            // The text-to-terminal orders take an object instead, and a camera
+            // ignores the message entirely if it arrives in the flat form.
+            if (TEXT_ORDERS.contains(order)) {
+                ObjectNode inner = objectMapper.createObjectNode();
+                inner.put("msg", content);
+                c.set("content", inner);
+            } else {
+                c.put("content", content);
+            }
+            msg.set("content", c);
+            msg.put("username", username);
+            msg.put("time", time);
+            msg.put("sign", sign);
+
+            String json = objectMapper.writeValueAsString(msg);
+            LOG.info("WS send order {} to {}: {}", order, terminal, redactOrder(content));
+            webSocket.sendText(json, true);
+        } catch (Exception e) {
+            LOG.error("WS order send failed: {}", e.getMessage());
+        }
+    }
+
+    // --- Helpers ---
+
+    private String videoServerHost() {
+        return apiUri("").getHost();
+    }
+
+    private int videoServerPort() {
+        return 9500;
+    }
+
+    private int playbackPort() {
+        return 9600;
+    }
+
+    private JsonNode signedPost(String path, Map<String, Object> extra) throws Exception {
+        String username = require(Keys.CMSV9_ACCOUNT);
+        String passwordMd5 = md5(require(Keys.CMSV9_PASSWORD)).toLowerCase();
+        String tradeno = String.valueOf(Instant.now().getEpochSecond());
+        String sign = md5(username + passwordMd5 + tradeno).toUpperCase();
+
+        Map<String, Object> body = new LinkedHashMap<>(extra);
+        body.put("username", username);
+        body.put("tradeno", tradeno);
+        body.put("sign", sign);
+
+        return post(path, body);
+    }
+
+    private JsonNode post(String path, Map<String, Object> body) throws Exception {
+        String json = objectMapper.writeValueAsString(body);
+        HttpRequest request = HttpRequest.newBuilder(apiUri(path))
+                .timeout(TIMEOUT)
+                .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
+                .header("Content-Type", "application/json")
+                .build();
+        HttpResponse<String> response = client.send(
+                request, HttpResponse.BodyHandlers.ofString());
+        String responseBody = stripBom(response.body());
+        if (response.statusCode() / 100 != 2) {
+            throw new IOException("CNMS HTTP " + response.statusCode() + ": " + responseBody);
+        }
+        LOG.debug("CNMS {} -> {}", path, responseBody);
+        return objectMapper.readTree(responseBody);
+    }
+
+    private URI apiUri(String path) {
+        String url = value(Keys.CMSV9_URL);
+        URI uri = URI.create(url);
+        return URI.create(uri.getScheme() + "://" + uri.getAuthority() + path);
+    }
+
+    private String value(org.traccar.config.ConfigKey<String> key) {
+        String val = config.getString(key);
+        return val != null && !val.isBlank() ? val : null;
+    }
+
+    private String require(org.traccar.config.ConfigKey<String> key) {
+        String val = value(key);
+        if (val == null) {
+            throw new IllegalStateException("Config key " + key + " is not set");
+        }
+        return val;
+    }
+
+    private static String stripBom(String s) {
+        if (s != null && !s.isEmpty() && s.charAt(0) == '\uFEFF') {
+            return s.substring(1);
+        }
+        return s;
+    }
+
+    private static String md5(String input) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            byte[] digest = md.digest(input.getBytes(StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : digest) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            throw new RuntimeException("MD5 failed", e);
+        }
+    }
+}

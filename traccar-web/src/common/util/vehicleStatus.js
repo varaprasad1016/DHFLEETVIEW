@@ -202,6 +202,32 @@ export const computeFleetStats = (devices, positions) => {
   return stats;
 };
 
+/**
+ * The statuses a user may filter by, and the only ones any filter control
+ * should offer. Three states plus "everything", chosen because they are the
+ * question an operator actually asks of a fleet list.
+ *
+ * Kept here rather than written out in each control: the toolbar, the chips
+ * above the vehicle list and the dashboard cards all drive the same filter, and
+ * when the list of options lived in three places they drifted apart.
+ */
+export const FILTER_STATUSES = [
+  { key: 'running', label: 'Running' },
+  { key: 'idling', label: 'Idling' },
+  { key: 'offline', label: 'Offline' },
+];
+
+/**
+ * Picking a status replaces whatever was selected rather than adding to it, and
+ * picking the selected one again clears back to everything. The value stays an
+ * array of none or one, which is what `matchesVehicleStatusFilter` already
+ * expects, so nothing downstream has to change.
+ */
+export const selectOnlyStatus = (current, key) => {
+  const selected = (current || [])[0];
+  return !key || selected === key ? [] : [key];
+};
+
 // Filter helper for useFilter / UI
 export const matchesVehicleStatusFilter = (device, position, statuses) => {
   if (!statuses || statuses.length === 0) return true;

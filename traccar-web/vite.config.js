@@ -23,13 +23,21 @@ export default defineConfig(() => ({
       includeAssets: ['favicon.ico', 'apple-touch-icon-180x180.png'],
       registerType: 'autoUpdate',
       workbox: {
-        navigateFallbackDenylist: [/^\/api/, /^\/tacho/],
+        // Paths the app does not own. Without this the service worker answers
+        // the navigation with the app shell, and a real page on the server
+        // renders as a blank screen for anyone who has the app installed.
+        navigateFallbackDenylist: [/^\/api/, /^\/tacho/, /^\/support/],
         globPatterns: ['**/*.{js,css,html,woff,woff2,mp3}'],
       },
+      // Fixed DH FleetView branding: the ${title}/${description} placeholders fall
+      // back to "Traccar" on the server, which is what a home-screen install showed.
       manifest: {
-        short_name: '${title}',
-        name: '${description}',
-        theme_color: '${colorPrimary}',
+        id: '/',
+        short_name: 'DH FleetView',
+        name: 'DH FleetView',
+        description: 'Fleet tracking, live video and compliance',
+        theme_color: '#0a0e17',
+        background_color: '#0a0e17',
         icons: [
           {
             src: 'pwa-64x64.png',

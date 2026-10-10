@@ -31,7 +31,7 @@ import SearchIcon from '@mui/icons-material/Search';
 import NotificationsNoneIcon from '@mui/icons-material/NotificationsNone';
 import { useTranslation } from '../common/components/LocalizationProvider';
 import { useDeviceReadonly } from '../common/util/permissions';
-import { computeFleetStats } from '../common/util/vehicleStatus';
+import { computeFleetStats, FILTER_STATUSES } from '../common/util/vehicleStatus';
 import DeviceRow from './DeviceRow';
 import ThemeModeButton from '../common/components/ThemeModeButton';
 
@@ -149,14 +149,11 @@ const MainToolbar = ({
   const [filterAnchorEl, setFilterAnchorEl] = useState(null);
   const [devicesAnchorEl, setDevicesAnchorEl] = useState(null);
 
-  const deviceStatusCount = (status) =>
-    Object.values(devices).filter((d) => d.status === status).length;
 
   const positions = useSelector((state) => state.session.positions);
   const fleetStats = computeFleetStats(devices, positions);
   const safeFilter = filter || { statuses: [], vehicleStatuses: [], groups: [], geofences: [] };
-  const hasActiveFilters = safeFilter.statuses?.length
-    || (safeFilter.vehicleStatuses && safeFilter.vehicleStatuses.length)
+  const hasActiveFilters = safeFilter.vehicleStatuses?.length
     || safeFilter.groups?.length
     || safeFilter.geofences?.length;
 
@@ -247,31 +244,26 @@ const MainToolbar = ({
         }}
       >
         <div className={classes.filterPanel}>
+          {/*
+            One status at a time. The separate device online/offline filter that
+            used to sit below this is gone: it also had an "Offline" option
+            meaning something different from this one, and two filters that
+            disagree about the same word are worse than one.
+          */}
           <FormControl>
-            <InputLabel>Vehicle Status (ignition)</InputLabel>
+            <InputLabel>Vehicle status</InputLabel>
             <Select
-              label="Vehicle Status (ignition)"
-              value={safeFilter.vehicleStatuses || []}
-              onChange={(e) => setFilter({ ...filter, vehicleStatuses: e.target.value })}
-              multiple
+              label="Vehicle status"
+              value={(safeFilter.vehicleStatuses || [])[0] || ''}
+              onChange={(e) => setFilter({
+                ...filter,
+                vehicleStatuses: e.target.value ? [e.target.value] : [],
+              })}
             >
-              <MenuItem value="running">{`Running (ignition ON + moving) (${fleetStats.running})`}</MenuItem>
-              <MenuItem value="idling">{`Idling (ignition ON, stopped) (${fleetStats.idling})`}</MenuItem>
-              <MenuItem value="parked">{`Parked (ignition OFF) (${fleetStats.parked})`}</MenuItem>
-              <MenuItem value="offline">{`Offline (${fleetStats.offline})`}</MenuItem>
-            </Select>
-          </FormControl>
-          <FormControl>
-            <InputLabel>{t('deviceStatus')}</InputLabel>
-            <Select
-              label={t('deviceStatus')}
-              value={safeFilter.statuses || []}
-              onChange={(e) => setFilter({ ...filter, statuses: e.target.value })}
-              multiple
-            >
-              <MenuItem value="online">{`${t('deviceStatusOnline')} (${deviceStatusCount('online')})`}</MenuItem>
-              <MenuItem value="offline">{`${t('deviceStatusOffline')} (${deviceStatusCount('offline')})`}</MenuItem>
-              <MenuItem value="unknown">{`${t('deviceStatusUnknown')} (${deviceStatusCount('unknown')})`}</MenuItem>
+              <MenuItem value="">{`All (${fleetStats.total ?? Object.keys(devices).length})`}</MenuItem>
+              {FILTER_STATUSES.map(({ key, label }) => (
+                <MenuItem key={key} value={key}>{`${label} (${fleetStats[key] ?? 0})`}</MenuItem>
+              ))}
             </Select>
           </FormControl>
           <FormControl>

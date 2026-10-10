@@ -17,6 +17,7 @@ import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 import ViewListIcon from '@mui/icons-material/ViewList';
 import MapIconMui from '@mui/icons-material/Map';
+import { FILTER_STATUSES, selectOnlyStatus } from '../common/util/vehicleStatus';
 import DeviceList from './DeviceList';
 import StatusCard from '../common/components/StatusCard';
 import FleetDashboard from './FleetDashboard';
@@ -214,6 +215,9 @@ const useStyles = makeStyles()((theme) => ({
   },
 }));
 
+// Chip colour per status: green for moving, amber for idling, red for gone.
+const STATUS_CHIP_COLOUR = { running: 'success', idling: 'warning', offline: 'error' };
+
 const MainPage = () => {
   const { classes } = useStyles();
   const dispatch = useDispatch();
@@ -372,14 +376,12 @@ const MainPage = () => {
   ].filter(Boolean);
 
   const safeFilter = filter || { statuses: [], vehicleStatuses: [], groups: [], geofences: [] };
-  const vehicleFilterActive = (key) => (safeFilter.vehicleStatuses || []).includes(key) || (key === 'parked' && (safeFilter.vehicleStatuses || []).includes('stopped')) || (key === 'stopped' && (safeFilter.vehicleStatuses || []).includes('parked'));
-  const toggleVehicleFilter = (key) => {
-    const current = safeFilter.vehicleStatuses || [];
-    const aliases = key === 'parked' || key === 'stopped' ? ['parked', 'stopped'] : [key];
-    const has = aliases.some((k) => current.includes(k));
-    const next = has ? current.filter((s) => !aliases.includes(s)) : [...current, key === 'stopped' ? 'parked' : key];
-    setFilter({ ...safeFilter, vehicleStatuses: next });
-  };
+  // Only ever none or one, so the selection is simply the first entry.
+  const selectedStatus = (safeFilter.vehicleStatuses || [])[0] || null;
+  const toggleVehicleFilter = (key) => setFilter({
+    ...safeFilter,
+    vehicleStatuses: selectOnlyStatus(safeFilter.vehicleStatuses, key),
+  });
 
   const clearVehicleFilters = () => setFilter({ ...safeFilter, vehicleStatuses: [] });
 
@@ -429,13 +431,26 @@ const MainPage = () => {
 
             <Divider />
 
-            {/* Quick filter chips – running / idling / parked / offline */}
+            {/* One status at a time: picking one drops whatever was picked
+                before, and picking it again goes back to All. */}
             <Stack direction="row" className={classes.filterChips} sx={{ flexWrap: 'wrap' }}>
-              <Chip label={`All (${Object.keys(devices).length})`} size="small" variant={(safeFilter.vehicleStatuses || []).length === 0 ? 'filled' : 'outlined'} color={(safeFilter.vehicleStatuses || []).length === 0 ? 'primary' : 'default'} onClick={clearVehicleFilters} />
-              <Chip label="Running" size="small" color="success" variant={vehicleFilterActive('running') ? 'filled' : 'outlined'} onClick={() => toggleVehicleFilter('running')} />
-              <Chip label="Idling" size="small" color="warning" variant={vehicleFilterActive('idling') ? 'filled' : 'outlined'} onClick={() => toggleVehicleFilter('idling')} />
-              <Chip label="Parked" size="small" variant={vehicleFilterActive('parked') ? 'filled' : 'outlined'} onClick={() => toggleVehicleFilter('parked')} />
-              <Chip label="Offline" size="small" color="error" variant={vehicleFilterActive('offline') ? 'filled' : 'outlined'} onClick={() => toggleVehicleFilter('offline')} />
+              <Chip
+                label={`All (${Object.keys(devices).length})`}
+                size="small"
+                variant={selectedStatus ? 'outlined' : 'filled'}
+                color={selectedStatus ? 'default' : 'primary'}
+                onClick={clearVehicleFilters}
+              />
+              {FILTER_STATUSES.map(({ key, label }) => (
+                <Chip
+                  key={key}
+                  label={label}
+                  size="small"
+                  color={STATUS_CHIP_COLOUR[key]}
+                  variant={selectedStatus === key ? 'filled' : 'outlined'}
+                  onClick={() => toggleVehicleFilter(key)}
+                />
+              ))}
             </Stack>
 
             {/* Vehicle List – uses ignition-colored icons (gray=off, green=running) */}
