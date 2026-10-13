@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState, useCallback, useEffect } from 'react';
 import { makeStyles } from 'tss-react/mui';
-import { alpha, useTheme } from '@mui/material/styles';
+import { useTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -8,19 +8,15 @@ import MapIcon from '@mui/icons-material/Map';
 import DescriptionIcon from '@mui/icons-material/Description';
 import SettingsIcon from '@mui/icons-material/Settings';
 import PersonIcon from '@mui/icons-material/Person';
-import LogoutIcon from '@mui/icons-material/Logout';
 import Badge from '@mui/material/Badge';
-import Divider from '@mui/material/Divider';
 import Typography from '@mui/material/Typography';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
-import Stack from '@mui/material/Stack';
 import ViewListIcon from '@mui/icons-material/ViewList';
 import MapIconMui from '@mui/icons-material/Map';
-import { FILTER_STATUSES, selectOnlyStatus } from '../common/util/vehicleStatus';
+import { selectOnlyStatus } from '../common/util/vehicleStatus';
 import DeviceList from './DeviceList';
 import StatusCard from '../common/components/StatusCard';
-import FleetDashboard from './FleetDashboard';
 import { devicesActions, sessionActions } from '../store';
 import { nativePostMessage } from '../common/components/NativeInterface';
 import usePersistedState from '../common/util/usePersistedState';
@@ -142,81 +138,10 @@ const useStyles = makeStyles()((theme) => ({
       display: 'none',
     },
   },
-  navSection: {
-    flexShrink: 0,
-    borderTop: `1px solid ${theme.palette.divider}`,
-    padding: theme.spacing(0.5, 0),
-  },
-  navSectionCompact: {
-    flexShrink: 0,
-    borderTop: `1px solid ${theme.palette.divider}`,
-    display: 'flex',
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    flexWrap: 'wrap',
-    gap: theme.spacing(0.5),
-    padding: theme.spacing(0.5),
-  },
-  navItemCompact: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 44,
-    height: 40,
-    borderRadius: 10,
-    cursor: 'pointer',
-    color: theme.palette.text.secondary,
-    border: 'none',
-    background: 'none',
-    '&:hover': {
-      backgroundColor: alpha(theme.palette.primary.main, 0.06),
-      color: theme.palette.text.primary,
-    },
-  },
-  navItemCompactActive: {
-    backgroundColor: alpha(theme.palette.primary.main, 0.08),
-    color: theme.palette.primary.main,
-  },
-  navItemCompactDanger: {
-    color: theme.palette.error.main,
-    '&:hover': {
-      backgroundColor: alpha(theme.palette.error.main, 0.06),
-    },
-  },
-  navItem: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: theme.spacing(1.5),
-    padding: theme.spacing(1, 2),
-    cursor: 'pointer',
-    color: theme.palette.text.secondary,
-    fontSize: '0.875rem',
-    fontWeight: 500,
-    transition: 'background 0.15s, color 0.15s',
-    border: 'none',
-    background: 'none',
-    width: '100%',
-    textAlign: 'left',
-    '&:hover': {
-      backgroundColor: alpha(theme.palette.primary.main, 0.06),
-      color: theme.palette.text.primary,
-    },
-  },
-  navItemActive: {
-    backgroundColor: alpha(theme.palette.primary.main, 0.08),
-    color: theme.palette.primary.main,
-    fontWeight: 600,
-  },
-  navItemDanger: {
-    color: theme.palette.error.main,
-    '&:hover': {
-      backgroundColor: alpha(theme.palette.error.main, 0.06),
-    },
-  },
 }));
 
-// Chip colour per status: green for moving, amber for idling, red for gone.
-const STATUS_CHIP_COLOUR = { running: 'success', idling: 'warning', offline: 'error' };
+// Named in the list heading so a narrowed view is never silent.
+const STATUS_LABEL = { running: 'Running', idling: 'Idling', offline: 'Offline' };
 
 const MainPage = () => {
   const { classes } = useStyles();
@@ -227,8 +152,6 @@ const MainPage = () => {
   const t = useTranslation();
 
   const desktop = useMediaQuery(theme.breakpoints.up('md'));
-  const compactNav = useMediaQuery(theme.breakpoints.down('sm'))
-    || useMediaQuery('(max-height: 600px)');
 
   const readonly = useRestriction('readonly');
   const disableReports = useRestriction('disableReports');
@@ -282,14 +205,12 @@ const MainPage = () => {
     }
   }, [fleetView, setFleetView]);
 
-  // Selecting a vehicle jumps straight to the full-screen map. Fires only when
-  // the selected id changes, so tapping "Dashboard" afterwards does not bounce
-  // back to the map.
-  useEffect(() => {
-    if (isAppMobile && selectedDeviceId) {
-      setFleetView('map');
-    }
-  }, [isAppMobile, selectedDeviceId, setFleetView]);
+  // Selecting a vehicle used to jump straight to the full-screen map, from
+  // when tapping a row was how you found it on the map. Tapping a row now
+  // opens its cameras, and the map travels with them on the video page, so
+  // the jump has nothing left to do - and it did harm: the selection
+  // outlives the video page, so coming back from one landed on the map
+  // instead of the list the vehicle was tapped from.
 
   useFilter(
     keyword,
@@ -403,6 +324,10 @@ const MainPage = () => {
         setFilterSort={setFilterSort}
         filterMap={filterMap}
         setFilterMap={setFilterMap}
+        navItems={navItems}
+        nav={nav}
+        onNav={handleNav}
+        onLogout={handleLogout}
       />
       {isAppMobile && (
         <div className={classes.viewToggle}>
@@ -426,85 +351,32 @@ const MainPage = () => {
         {/* Sidebar – Fleet List (primary on APK/iOS) */}
         <div className={`${classes.sidebar} ${showSidebar ? '' : classes.sidebarClosed} ${!showSidebar && isAppMobile ? classes.sidebarMobileHidden : ''}`}>
           <div className={classes.sidebarInner}>
-            {/* Fleet Dashboard – ignition-based stats, clickable */}
-            <FleetDashboard filter={filter} setFilter={setFilter} />
-
-            <Divider />
-
-            {/* One status at a time: picking one drops whatever was picked
-                before, and picking it again goes back to All. */}
-            <Stack direction="row" className={classes.filterChips} sx={{ flexWrap: 'wrap' }}>
-              <Chip
-                label={`All (${Object.keys(devices).length})`}
-                size="small"
-                variant={selectedStatus ? 'outlined' : 'filled'}
-                color={selectedStatus ? 'default' : 'primary'}
-                onClick={clearVehicleFilters}
-              />
-              {FILTER_STATUSES.map(({ key, label }) => (
-                <Chip
-                  key={key}
-                  label={label}
-                  size="small"
-                  color={STATUS_CHIP_COLOUR[key]}
-                  variant={selectedStatus === key ? 'filled' : 'outlined'}
-                  onClick={() => toggleVehicleFilter(key)}
-                />
-              ))}
-            </Stack>
-
-            {/* Vehicle List – uses ignition-colored icons (gray=off, green=running) */}
+            {/*
+              The list is the home screen. The stat cards and the chip row used
+              to sit above it and pushed the registrations below the fold, which
+              is the one thing somebody opening the app actually wants to see.
+              The counts and the status filter are still there, behind the
+              filter control in the toolbar, and the selected filter is named
+              above the list so the view is never silently narrowed.
+            */}
             <div className={classes.sectionTitle}>
-              Vehicles ({filteredDevices.length} / {Object.keys(devices).length})
+              {selectedStatus
+                ? `${STATUS_LABEL[selectedStatus]} (${filteredDevices.length} of ${Object.keys(devices).length})`
+                : `Vehicles (${filteredDevices.length})`}
+              {selectedStatus && (
+                <Chip
+                  label="Show all"
+                  size="small"
+                  variant="outlined"
+                  onClick={clearVehicleFilters}
+                  sx={{ ml: 1, height: 20, fontSize: '0.65rem' }}
+                />
+              )}
             </div>
             <div style={{ flex: 1, minHeight: 0 }}>
               <DeviceList devices={filteredDevices} />
             </div>
 
-            {/* Navigation */}
-            {compactNav ? (
-              <div className={classes.navSectionCompact}>
-                {navItems.map((item) => (
-                  <button
-                    key={item.key}
-                    type="button"
-                    title={item.label}
-                    className={`${classes.navItemCompact} ${nav === item.key ? classes.navItemCompactActive : ''}`}
-                    onClick={() => handleNav(item.key)}
-                  >
-                    {item.icon}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  title={t('loginLogout')}
-                  className={`${classes.navItemCompact} ${classes.navItemCompactDanger}`}
-                  onClick={handleLogout}
-                >
-                  <LogoutIcon fontSize="small" />
-                </button>
-              </div>
-            ) : (
-              <div className={classes.navSection}>
-                {navItems.map((item) => (
-                  <button
-                    key={item.key}
-                    className={`${classes.navItem} ${nav === item.key ? classes.navItemActive : ''}`}
-                    onClick={() => handleNav(item.key)}
-                  >
-                    {item.icon}
-                    {item.label}
-                  </button>
-                ))}
-                <button
-                  className={`${classes.navItem} ${classes.navItemDanger}`}
-                  onClick={handleLogout}
-                >
-                  <LogoutIcon fontSize="small" />
-                  {t('loginLogout')}
-                </button>
-              </div>
-            )}
           </div>
         </div>
 

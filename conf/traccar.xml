@@ -13,6 +13,17 @@
          for every supported protocol it knows (~250 ports on 0.0.0.0). -->
     <entry key="protocols.enable">osmand,teltonika</entry>
 
+    <!-- Teltonika's own port is 5027, which the hosting firewall drops: an
+         external check reports it filtered while the listener is up and the
+         Windows firewall is off. 9007 is the one free port inside 9003-9007,
+         a range already allowed for CNMS, so trackers have a way in without
+         waiting on a firewall change.
+
+         Borrowed, not owned. CNMS holds 9003-9006 and would clash if it ever
+         grew into 9007, so move back to 5027 once that port is opened - it is
+         this one line and a restart, plus "setparam 2005:5027" to each unit. -->
+    <entry key="teltonika.port">9007</entry>
+
     <!-- CNMS video platform integration -->
     <entry key="cmsv9.url">https://portal.dhfleetview.co.uk</entry>
     <entry key="cmsv9.account">admin</entry>

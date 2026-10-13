@@ -1,4 +1,6 @@
+import { useMemo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import { useNavigate } from 'react-router-dom';
 import { makeStyles } from 'tss-react/mui';
 import { alpha } from '@mui/material/styles';
 import {
@@ -37,6 +39,7 @@ import { useAttributePreference } from '../common/util/preferences';
 import GeofencesValue from '../common/components/GeofencesValue';
 import DriverValue from '../common/components/DriverValue';
 import MotionBar from './components/MotionBar';
+import { slotReading } from '../common/util/fmc650Tacho';
 import {
   drivingSpeed,
   getIgnition,
@@ -54,6 +57,64 @@ const useStyles = makeStyles()((theme) => ({
   },
   avatar: {
     borderRadius: 10,
+  },
+  // The registration drawn as the plate on the front of the lorry: the same
+  // yellow, the blue band, and a condensed face standing in for Charles
+  // Wright. A fleet is recognised by its plates, so the list reads the way the
+  // yard does. Fixed colours on purpose - a number plate is yellow and black in
+  // either theme.
+  primaryRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(1),
+    minWidth: 0,
+  },
+  plate: {
+    display: 'inline-flex',
+    alignItems: 'stretch',
+    flexShrink: 0,
+    borderRadius: 4,
+    overflow: 'hidden',
+    border: '1px solid #0f1115',
+    backgroundColor: '#f5cd2f',
+    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.3)',
+    lineHeight: 1,
+  },
+  plateBand: {
+    display: 'flex',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    backgroundColor: '#15489f',
+    color: '#ffffff',
+    fontSize: '0.5rem',
+    fontWeight: 700,
+    letterSpacing: '0.02em',
+    padding: '3px 3px 2px',
+    minWidth: 15,
+  },
+  plateText: {
+    color: '#0f1115',
+    fontWeight: 700,
+    fontSize: '0.95rem',
+    letterSpacing: '0.09em',
+    padding: '3px 7px 2px',
+    whiteSpace: 'nowrap',
+    fontFamily: "'Arial Narrow', 'Helvetica Neue', Arial, sans-serif",
+  },
+  plainName: {
+    fontWeight: 600,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  driverName: {
+    fontSize: '0.78rem',
+    fontWeight: 600,
+    color: theme.palette.text.secondary,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    minWidth: 0,
   },
   avatarRunning: {
     backgroundColor: theme.palette.success.main,
@@ -133,9 +194,20 @@ const useStyles = makeStyles()((theme) => ({
   },
 }));
 
-const DeviceRow = ({ devices, index, style }) => {
+/*
+ * A name that is a vehicle registration, rather than a label somebody typed.
+ * Plate styling belongs on the former and would look wrong on the latter -
+ * "To Be Installed" is not a number plate.
+ */
+const looksLikeReg = (value) => {
+  const text = (value || '').replace(/\s+/g, '');
+  return /^[A-Z0-9]{5,8}$/.test(text) && /[A-Z]/.test(text) && /[0-9]/.test(text);
+};
+
+const DeviceRow = ({ devices, index, style, tacho }) => {
   const { classes } = useStyles();
   const dispatch = useDispatch();
+  const navigate = useNavigate();
   const t = useTranslation();
 
   const admin = useAdministrator();
@@ -197,6 +269,16 @@ const DeviceRow = ({ devices, index, style }) => {
   const driverUniqueId = position?.attributes?.driverUniqueId;
   const hasCamera = Boolean(item.attributes?.cmsv9DeviceId);
   const lastUpdate = item.lastUpdate ? dayjs(item.lastUpdate).fromNow() : null;
+
+  // Who is in the driver's seat, from the vehicle's own tachograph. The list
+  // fetches this for every vehicle at once (see DeviceList); a vehicle without
+  // a tachograph simply has nothing here.
+  const driverName = useMemo(() => {
+    const attributes = tacho?.[item.id]?.attributes;
+    if (!attributes) return null;
+    const reading = slotReading(attributes, 1);
+    return reading.cardHolder || null;
+  }, [tacho, item.id]);
 
   const secondaryText = () => {
     // Single source of truth for status: the operational vehicle status. The
@@ -262,18 +344,34 @@ const DeviceRow = ({ devices, index, style }) => {
     </span>
   );
 
+  /**
+   * One tap from the list to the cameras. The video page carries the map
+   * beside the channels, so the position comes with it and nothing is lost by
+   * not going to the map first.
+   *
+   * A vehicle with no camera has nowhere to go, so it falls back to selecting
+   * it, which is what every row used to do. The device is selected either way,
+   * so coming back from the video leaves the right vehicle highlighted.
+   */
+  const openVehicle = () => {
+    dispatch(devicesActions.selectId(item.id));
+    if (hasCamera) {
+      navigate(`/cmsv9-video?deviceId=${item.id}`);
+    }
+  };
+
   return (
     <div style={style}>
       <ListItemButton
         key={item.id}
-        onClick={() => dispatch(devicesActions.selectId(item.id))}
+        onClick={openVehicle}
         disabled={!admin && item.disabled}
         selected={selectedDeviceId === item.id}
         className={`${railClass} ${selectedDeviceId === item.id ? classes.selected : ''}`}
       >
         <ListItemAvatar>
           <Tooltip
-            title={`${vehicleStatusLabel} — ${item.category || 'default'} icon (${ignition === true ? 'ignition ON → green' : ignition === false ? 'ignition OFF → gray' : 'unknown'})`}
+            title={`${vehicleStatusLabel} — ${item.category || 'default'} icon (${ignition === true ? 'ignition ON' : ignition === false ? 'ignition OFF' : 'ignition unknown'}${vehicleStatus === 'offline' ? ', when last heard from' : ''})`}
           >
             <Avatar className={`${classes.avatar} ${avatarClass}`}>
               <img className={classes.icon} src={mapIcons[mapIconKey(item.category)]} alt="" />
@@ -281,7 +379,19 @@ const DeviceRow = ({ devices, index, style }) => {
           </Tooltip>
         </ListItemAvatar>
         <ListItemText
-          primary={primaryValue}
+          primary={(
+            <span className={classes.primaryRow}>
+              {looksLikeReg(primaryValue) ? (
+                <span className={classes.plate} title={primaryValue}>
+                  <span className={classes.plateBand}>UK</span>
+                  <span className={classes.plateText}>{primaryValue}</span>
+                </span>
+              ) : (
+                <span className={classes.plainName}>{primaryValue}</span>
+              )}
+              {driverName && <span className={classes.driverName}>{driverName}</span>}
+            </span>
+          )}
           secondary={
             <>
               {secondaryText()}
@@ -306,16 +416,27 @@ const DeviceRow = ({ devices, index, style }) => {
                 </IconButton>
               </Tooltip>
             )}
+            {/* Ignition is the last thing the vehicle told us, not a live reading:
+                it stays as it was when the unit stopped reporting. A vehicle that
+                went quiet with the engine running kept a green engine here next to
+                the word OFFLINE, which reads as a contradiction. Offline, it is
+                shown grey and the tooltip says the state is the last known one. */}
             {ignition !== null && (
               <Tooltip
-                title={`${t('positionIgnition')}: ${formatBoolean(ignition, t)} (${vehicleStatusLabel})`}
+                title={
+                  vehicleStatus === 'offline'
+                    ? `${t('positionIgnition')}: ${formatBoolean(ignition, t)} when last heard from (${vehicleStatusLabel})`
+                    : `${t('positionIgnition')}: ${formatBoolean(ignition, t)} (${vehicleStatusLabel})`
+                }
               >
                 <IconButton size="small">
-                  {ignition ? (
-                    <EngineIcon width={20} height={20} className={classes.success} />
-                  ) : (
-                    <EngineIcon width={20} height={20} className={classes.neutral} />
-                  )}
+                  <EngineIcon
+                    width={20}
+                    height={20}
+                    className={
+                      ignition && vehicleStatus !== 'offline' ? classes.success : classes.neutral
+                    }
+                  />
                 </IconButton>
               </Tooltip>
             )}

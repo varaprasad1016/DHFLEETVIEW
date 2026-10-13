@@ -15,8 +15,11 @@ import {
   FormControlLabel,
   Checkbox,
   Badge,
+  Divider,
   ListItemButton,
+  ListItemIcon,
   ListItemText,
+  Menu,
   Tooltip,
   Typography,
   Box,
@@ -29,6 +32,8 @@ import MenuIcon from '@mui/icons-material/Menu';
 import TuneIcon from '@mui/icons-material/Tune';
 import SearchIcon from '@mui/icons-material/Search';
 import NotificationsNoneIcon from '@mui/icons-material/NotificationsNone';
+import LogoutIcon from '@mui/icons-material/Logout';
+import ViewListIcon from '@mui/icons-material/ViewList';
 import { useTranslation } from '../common/components/LocalizationProvider';
 import { useDeviceReadonly } from '../common/util/permissions';
 import { computeFleetStats, FILTER_STATUSES } from '../common/util/vehicleStatus';
@@ -130,6 +135,10 @@ const MainToolbar = ({
   setFilterSort,
   filterMap,
   setFilterMap,
+  navItems,
+  nav,
+  onNav,
+  onLogout,
 }) => {
   const { classes } = useStyles();
   const theme = useTheme();
@@ -147,6 +156,7 @@ const MainToolbar = ({
   const toolbarRef = useRef();
   const inputRef = useRef();
   const [filterAnchorEl, setFilterAnchorEl] = useState(null);
+  const [menuAnchorEl, setMenuAnchorEl] = useState(null);
   const [devicesAnchorEl, setDevicesAnchorEl] = useState(null);
 
 
@@ -172,10 +182,59 @@ const MainToolbar = ({
         </div>
       </div>
 
-      {/* Hamburger / toggle */}
-      <IconButton edge="start" onClick={() => setDevicesOpen(!devicesOpen)}>
-        {devicesOpen ? <MapIcon /> : <MenuIcon />}
+      {/*
+        Everything the sidebar used to carry along its bottom edge lives behind
+        this button now: map, reports, settings, account and sign out. They were
+        a row of buttons under the vehicle list, which cost the list height on
+        the one screen where height is what matters, and put sign-out a thumb's
+        width from the vehicles.
+      */}
+      <IconButton edge="start" onClick={(e) => setMenuAnchorEl(e.currentTarget)}>
+        <MenuIcon />
       </IconButton>
+      <Menu
+        anchorEl={menuAnchorEl}
+        open={!!menuAnchorEl}
+        onClose={() => setMenuAnchorEl(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        slotProps={{ paper: { sx: { minWidth: 220 } } }}
+      >
+        {(navItems || []).map((item) => (
+          <MenuItem
+            key={item.key}
+            selected={nav === item.key}
+            onClick={() => {
+              setMenuAnchorEl(null);
+              onNav?.(item.key);
+            }}
+          >
+            <ListItemIcon>{item.icon}</ListItemIcon>
+            <ListItemText>{item.label}</ListItemText>
+          </MenuItem>
+        ))}
+        <Divider />
+        <MenuItem
+          onClick={() => {
+            setMenuAnchorEl(null);
+            setDevicesOpen(!devicesOpen);
+          }}
+        >
+          <ListItemIcon>{devicesOpen ? <MapIcon fontSize="small" /> : <ViewListIcon fontSize="small" />}</ListItemIcon>
+          <ListItemText>{devicesOpen ? 'Full-screen map' : 'Show vehicle list'}</ListItemText>
+        </MenuItem>
+        <Divider />
+        <MenuItem
+          onClick={() => {
+            setMenuAnchorEl(null);
+            onLogout?.();
+          }}
+          sx={{ color: 'error.main' }}
+        >
+          <ListItemIcon><LogoutIcon fontSize="small" sx={{ color: 'error.main' }} /></ListItemIcon>
+          <ListItemText>{t('loginLogout')}</ListItemText>
+        </MenuItem>
+      </Menu>
 
       {/* Search */}
       <OutlinedInput

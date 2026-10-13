@@ -108,9 +108,9 @@ public class TaskCnmsSync extends SingleScheduleTask {
             // actual tracker (any protocol other than our CNMS pull), skip the DVR GPS
             // fallback so tracker data drives trips and reports; the DVR GPS is only
             // written when no fresh tracker fix exists.
-            Position last = cacheManager.getPosition(device.getId());
-            if (last != null && !"cnms".equals(last.getProtocol()) && last.getFixTime() != null
-                    && System.currentTimeMillis() - last.getFixTime().getTime() < TRACKER_FRESH_MS) {
+            Position last = currentPosition(device);
+            boolean tracked = last != null && !"cnms".equals(last.getProtocol()) && last.getFixTime() != null;
+            if (tracked && System.currentTimeMillis() - last.getFixTime().getTime() < TRACKER_FRESH_MS) {
                 cSkipTracker++;
                 continue;
             }
@@ -187,6 +187,15 @@ public class TaskCnmsSync extends SingleScheduleTask {
                     position.setFixTime(new Date());
                 }
 
+                // The fallback must not drag the vehicle backwards. Once a tracker has
+                // gone quiet for longer than TRACKER_FRESH_MS the DVR takes over, but
+                // only with a fix newer than the one the tracker already reported -
+                // otherwise a camera sitting on an old fix replaces a later position.
+                if (tracked && !position.getFixTime().after(last.getFixTime())) {
+                    cSkipTracker++;
+                    continue;
+                }
+
                 position.set(Position.KEY_IGNITION, acc);
                 // Mileage comes in 0.1 km units as well; Traccar stores metres.
                 position.set(Position.KEY_TOTAL_DISTANCE, data.path("summileage").asDouble(0) * 100.0);
@@ -225,6 +234,31 @@ public class TaskCnmsSync extends SingleScheduleTask {
             LOG.info("CNMS GPS cycle: {} linked, {} written, {} zero-fix, {} empty, {} errCode, {} tracker-preferred",
                     cLinked, cWritten, cZero, cEmpty, cErr, cSkipTracker);
         }
+    }
+
+    /**
+     * The position the vehicle is actually showing.
+     *
+     * This used to be read from the live cache, which only holds a position while the
+     * device has a session - and a Teltonika unit connects, sends its records and
+     * disconnects every few seconds, so most of the time the cache held nothing for
+     * it. The tracker check therefore found no fix, the DVR fallback ran anyway, and
+     * the camera's older fix was written over the tracker's: the cycle logged "0
+     * tracker-preferred" while the tracker was reporting every five seconds, and the
+     * vehicle's position flipped between the two every 15 seconds.
+     *
+     * The stored position is what the device is showing whether or not it happens to
+     * be connected at this instant, which is the question being asked here.
+     */
+    private Position currentPosition(Device device) throws StorageException {
+        if (device.getPositionId() > 0) {
+            Position stored = storage.getObject(Position.class, new Request(
+                    new Columns.All(), new Condition.Equals("id", device.getPositionId())));
+            if (stored != null) {
+                return stored;
+            }
+        }
+        return cacheManager.getPosition(device.getId());
     }
 
     /**
@@ -417,10 +451,23 @@ public class TaskCnmsSync extends SingleScheduleTask {
         return value.toUpperCase().replaceAll("[^A-Z0-9]", "");
     }
 
-    // CNMS/CMSV9 gpstime is "yyMMddHHmmss" in UTC, e.g. "260908060034" =
-    // 2026-09-08 06:00:34 UTC. (It is NOT day-first, and NOT server-local: decoding
-    // it as ddMMyy stamped every fix in ~2008 so date-ranged reports found nothing;
-    // decoding it as server-local put fixes in the future.)
+    // CNMS/CMSV9 gpstime is "yyMMddHHmmss" in UK local time, e.g. "260908060034"
+    // = 2026-09-08 06:00:34 London. It is not day-first (decoding it as ddMMyy
+    // stamped every fix in ~2008, so date-ranged reports found nothing) and not
+    // server-local either - this machine's clock is set to UTC-6, which is what
+    // put fixes in the future the first time that was tried.
+    //
+    // It was read as UTC until a live check settled it: with UTC 15:54 and London
+    // 16:54, every connected camera was reporting 16:54. Reading those as UTC
+    // stamped each one an hour ahead of real time for the whole of British Summer
+    // Time, which skewed last-update, trips and every date-ranged report. In
+    // winter the two agree, which is why it went unseen.
+    //
+    // Positions already stored during BST keep their one-hour error; only new
+    // ones are right. The hour that repeats when the clocks go back resolves to
+    // the first (BST) occurrence, which is the normal convention.
+    private static final java.time.ZoneId CNMS_ZONE = java.time.ZoneId.of("Europe/London");
+
     private Date parseCnmsTime(String gpstime) {
         if (gpstime == null || gpstime.length() < 12) {
             return null;
@@ -435,7 +482,7 @@ public class TaskCnmsSync extends SingleScheduleTask {
             Date parsed = Date.from(java.time.LocalDateTime.of(
                     Integer.parseInt(year), Integer.parseInt(month), Integer.parseInt(day),
                     Integer.parseInt(hour), Integer.parseInt(min), Integer.parseInt(sec))
-                    .toInstant(java.time.ZoneOffset.UTC));
+                    .atZone(CNMS_ZONE).toInstant());
             // A DVR without a GPS fix sends a garbage clock (years in the future, or
             // long past). Such a time would file the position at the wrong date and
             // hide the vehicle's real last position, so treat it as unknown and let

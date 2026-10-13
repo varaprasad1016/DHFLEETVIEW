@@ -167,6 +167,9 @@ export const getStatusColor = (vehicleStatus) => {
  * @returns {'success'|'neutral'|'warning'|'error'}
  */
 export const getIgnitionColor = (position, device) => {
+  // Offline, the ignition attribute is a memory of the last message rather than
+  // the state of the vehicle, so it is not coloured as if it were live.
+  if (device?.status === 'offline' || device?.status === 'unknown') return 'neutral';
   const ignition = getIgnition(position, device);
   if (ignition === true) return 'success';
   if (ignition === false) return 'neutral';
