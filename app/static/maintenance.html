@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>${title} — Maintenance planner</title>
+<style>
+  :root{color-scheme:dark;--bg:#0b1220;--card:#131c2e;--line:#22304a;--fg:#e6edf7;--mut:#8aa0c0;--acc:#38bdf8;--ok:#34d399;--warn:#f59e0b;--bad:#f87171;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif;}
+  header{padding:16px;max-width:1200px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;gap:10px;}
+  h1{font-size:19px;margin:0;} a.back{color:var(--acc);text-decoration:none;font-size:13px;}
+  main{padding:0 16px 60px;max-width:1200px;margin:0 auto;}
+  .kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:12px;}
+  @media (max-width:760px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr));}}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;}
+  .kpi b{display:block;font-size:22px;font-variant-numeric:tabular-nums;} .kpi span{color:var(--mut);font-size:12px;}
+  .tabs{display:flex;gap:8px;margin:6px 0 12px;flex-wrap:wrap;}
+  .tabs button{background:var(--card);border:1px solid var(--line);color:var(--mut);border-radius:999px;padding:7px 14px;font:inherit;cursor:pointer;}
+  .tabs button.on{background:var(--acc);color:var(--on-acc);font-weight:700;border-color:var(--acc);}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:12px;}
+  .wrap{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:14px;}
+  th{text-align:left;color:var(--mut);font-weight:600;font-size:12px;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap;}
+  td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top;}
+  tr:last-child td{border-bottom:0;}
+  .mut{color:var(--mut);font-size:12px;} .reg{font-weight:700;}
+  .chip{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap;}
+  .st-overdue{background:#f8717122;color:var(--bad);} .st-due_soon{background:#f59e0b22;color:var(--warn);}
+  .st-ok{background:#34d39922;color:var(--ok);} .st-not_scheduled,.st-inactive{background:#64748b22;color:var(--mut);}
+  .due{display:block;font-size:13px;white-space:nowrap;} .due.overdue{color:var(--bad);font-weight:700;} .due.due_soon{color:var(--warn);font-weight:700;}
+  .btn{background:var(--acc);color:var(--on-acc);font-weight:700;border:none;border-radius:8px;padding:9px 14px;font:inherit;cursor:pointer;}
+  .btn.small{background:transparent;color:var(--acc);border:1px solid var(--line);padding:5px 10px;font-size:12px;font-weight:600;}
+  .btn.bad{background:transparent;color:var(--bad);border:1px solid var(--line);}
+  input,select,textarea{background:var(--input,#0f172a);border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:8px;font:inherit;width:100%;}
+  textarea{min-height:64px;}
+  label{display:block;font-size:12px;color:var(--mut);margin:0 0 3px;}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;}
+  .sched-row{display:grid;grid-template-columns:1.3fr 1.3fr .6fr .8fr 1fr auto auto;gap:8px;align-items:end;padding:8px 0;border-bottom:1px solid var(--line);}
+  @media (max-width:760px){.sched-row{grid-template-columns:1fr 1fr;}}
+  .panel{position:fixed;inset:0;background:#000b;z-index:40;overflow-y:auto;padding:16px;}
+  .panel .inner{max-width:1000px;margin:0 auto;background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:16px;}
+  h2{font-size:17px;margin:0;} h3{font-size:14px;margin:0 0 10px;}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;}
+  .msg{font-size:13px;margin-top:8px;} .msg.ok{color:var(--ok);} .msg.bad{color:var(--bad);}
+  .brake{display:none;} .brake.show{display:contents;}
+  .empty{color:var(--mut);padding:20px;text-align:center;}
+  .lock{text-align:center;color:var(--mut);padding:40px 16px;} .lock a{color:var(--acc);}
+  .hidden{display:none!important;}
+</style>
+</head>
+<body>
+<header><h1>Maintenance planner</h1><a class="back" href="compliance">← Compliance</a></header>
+<main>
+  <div id="lock" class="lock hidden"></div>
+  <div id="app" class="hidden">
+    <div class="kpis">
+      <div class="kpi"><b id="kOver">0</b><span>Overdue</span></div>
+      <div class="kpi"><b id="kSoon">0</b><span>Due soon</span></div>
+      <div class="kpi"><b id="kUnsched">0</b><span>Vehicles with no schedule</span></div>
+      <div class="kpi"><b id="kDef">0</b><span>Open defects</span></div>
+      <div class="kpi"><b id="kOnTime">—</b><span>Safety inspections on time (12 months)</span></div>
+    </div>
+    <div class="tabs"><button data-t="vehicles" class="on">Vehicles</button><button data-t="upcoming">Coming up</button></div>
+    <div id="view"></div>
+  </div>
+</main>
+<div id="panel" class="panel hidden"><div class="inner" id="panelBody"></div></div>
+<script>
+  const $=(id)=>document.getElementById(id);
+  const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const dd=s=>s?new Date(s+(s.length===10?'T12:00:00Z':'')).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric',timeZone:'Europe/London'}):'—';
+  const today=()=>new Date().toLocaleDateString('en-CA',{timeZone:'Europe/London'});
+  const STATUS={overdue:'Overdue',due_soon:'Due soon',ok:'Up to date',not_scheduled:'Not scheduled',inactive:'Paused'};
+  const RESULT={pass:'Pass',advisories:'Pass with advisories',fail:'Fail'};
+  const BRAKE={roller_laden:'Roller brake test (laden)',roller_unladen:'Roller brake test (unladen)',decelerometer:'Decelerometer',ebpms:'EBPMS report'};
+  let tab='vehicles', meta=null;
+
+  async function api(path, opts){
+    const r=await fetch('api/maintenance'+path,{cache:'no-store',...(opts||{})});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok){ const e=new Error((d.detail&&d.detail.message)||(typeof d.detail==='string'?d.detail:'')||'Request failed ('+r.status+')'); e.status=r.status; e.detail=d.detail; throw e; }
+    return d;
+  }
+  function locked(e){
+    $('app').classList.add('hidden'); $('lock').classList.remove('hidden');
+    if(e.detail&&e.detail.error==='licence_suspended') $('lock').innerHTML='🔒 Locked. <a href="approver">Approve this month\'s licence</a> to use the maintenance planner.';
+    else $('lock').textContent=e.message||'Sign in to DH FleetView to use the maintenance planner.';
+  }
+  const dueText=(s)=>`<span class="due ${s.status}">${esc(s.label)}: ${s.next_due?dd(s.next_due):'no date'}${s.status==='overdue'?' ('+(-s.days_left)+'d late)':''}</span>`;
+
+  async function loadKpis(){
+    try{ const s=await api('/summary');
+      $('kOver').textContent=s.overdue; $('kSoon').textContent=s.due_soon; $('kUnsched').textContent=s.not_scheduled;
+      $('kDef').textContent=s.open_defects; $('kOnTime').textContent=s.pmi_on_time_pct==null?'—':s.pmi_on_time_pct+'%';
+    }catch(e){}
+  }
+  async function render(){
+    if(tab==='upcoming') return renderUpcoming();
+    let list;
+    try{ list=await api('/vehicles'); }catch(e){ return locked(e); }
+    $('lock').classList.add('hidden'); $('app').classList.remove('hidden');
+    if(!list.length){ $('view').innerHTML='<div class="card empty">No vehicles in your DH FleetView account yet.</div>'; return; }
+    $('view').innerHTML='<div class="card wrap"><table><tr><th>Vehicle</th><th>Status</th><th>Next due</th><th>MOT (DVLA)</th><th>Last safety inspection</th><th>Open defects</th><th></th></tr>'+
+      list.map(v=>`<tr><td><span class="reg">${esc(v.name||v.registration)}</span>${v.registration&&v.name!==v.registration?`<div class="mut">${esc(v.registration)}</div>`:''}</td>
+        <td><span class="chip st-${v.status}">${STATUS[v.status]||v.status}</span></td>
+        <td>${v.schedules.filter(s=>s.active).map(dueText).join('')||'<span class="mut">Set up a schedule</span>'}</td>
+        <td>${v.mot_expiry?dd(v.mot_expiry):'<span class="mut">—</span>'}</td>
+        <td>${v.last_pmi?dd(v.last_pmi):'<span class="mut">None recorded</span>'}</td>
+        <td>${v.open_defects?`<b style="color:${v.dangerous_defects?'var(--bad)':'var(--warn)'}">${v.open_defects}${v.dangerous_defects?' ('+v.dangerous_defects+' dangerous)':''}</b>`:'<span class="mut">0</span>'}</td>
+        <td><button class="btn small" data-open="${v.traccar_device_id}">Open</button></td></tr>`).join('')+'</table></div>';
+    $('view').querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>openVehicle(Number(b.dataset.open)));
+  }
+  async function renderUpcoming(){
+    let list;
+    try{ list=await api('/upcoming?days=56'); }catch(e){ return locked(e); }
+    $('view').innerHTML=list.length?'<div class="card wrap"><table><tr><th>Due</th><th>Vehicle</th><th>What</th><th>Status</th><th></th></tr>'+
+      list.map(s=>`<tr><td>${dd(s.next_due)}</td><td class="reg">${esc(s.vehicle||s.registration)}</td><td>${esc(s.label)}<div class="mut">every ${s.interval_value} ${s.interval_unit}</div></td>
+        <td><span class="chip st-${s.status}">${STATUS[s.status]}${s.status==='overdue'?' · '+(-s.days_left)+'d':''}</span></td>
+        <td><button class="btn small" data-open="${s.traccar_device_id}">Record</button></td></tr>`).join('')+'</table></div>'
+      :'<div class="card empty">Nothing due in the next 8 weeks.</div>';
+    $('view').querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>openVehicle(Number(b.dataset.open)));
+  }
+
+  // ---- vehicle panel ----
+  let current=null;
+  async function openVehicle(id){
+    if(!meta) meta=await api('/presets');
+    try{ current=await api('/vehicles/'+id); }catch(e){ alert(e.message); return; }
+    $('panel').classList.remove('hidden'); document.body.style.overflow='hidden';
+    drawPanel();
+  }
+  function closePanel(){ $('panel').classList.add('hidden'); document.body.style.overflow=''; current=null; loadKpis(); render(); }
+  const kindOptions=(sel)=>meta.kinds.map(k=>`<option value="${k.code}"${k.code===sel?' selected':''}>${esc(k.label)}</option>`).join('');
+  function schedRow(s){
+    return `<div class="sched-row" data-row>
+      <div><label>Type</label><select data-f="kind">${kindOptions(s.kind)}</select></div>
+      <div><label>Name</label><input data-f="label" value="${esc(s.label||'')}" maxlength="80"></div>
+      <div><label>Every</label><input data-f="interval_value" type="number" min="1" max="120" value="${s.interval_value||6}"></div>
+      <div><label>&nbsp;</label><select data-f="interval_unit"><option value="weeks"${s.interval_unit==='weeks'?' selected':''}>weeks</option><option value="months"${s.interval_unit==='months'?' selected':''}>months</option></select></div>
+      <div><label>Next due</label><input data-f="next_due" type="date" value="${s.next_due||''}"></div>
+      <div><label>Active</label><input data-f="active" type="checkbox" ${s.active!==false?'checked':''} style="width:auto;margin:10px 0"></div>
+      <div><button class="btn small bad" data-remove>✕</button></div></div>`;
+  }
+  function drawPanel(){
+    const v=current;
+    const brakeKinds=['pmi','brake_test','mot'];
+    $('panelBody').innerHTML=`
+      <div class="row" style="margin-bottom:12px"><div><h2>${esc(v.name||v.registration)}</h2><div class="mut">${esc(v.registration||'')}${v.mot_expiry?' · MOT expires '+dd(v.mot_expiry)+' (DVLA)':''}</div></div>
+        <button class="btn small" id="pClose">Close</button></div>
+
+      <div class="card"><div class="row"><h3>Schedule</h3><div>
+        ${Object.keys(meta.presets).map(p=>`<button class="btn small" data-preset="${p}">+ ${{hgv:'HGV',trailer:'Trailer',van:'Van',tail_lift:'Tail lift'}[p]}</button>`).join(' ')}
+        <button class="btn small" id="addRow">+ Item</button></div></div>
+        <div id="schedRows">${v.schedules.map(schedRow).join('')||'<div class="mut" data-none style="padding:8px 0">No schedule yet — add a preset or an item.</div>'}</div>
+        <div style="margin-top:10px"><button class="btn" id="saveSched">Save schedule</button><span class="msg" id="schedMsg"></span></div></div>
+
+      <div class="card"><h3>Record an inspection, test or service</h3>
+        <div class="grid">
+          <div><label>What</label><select id="rWhat">${v.schedules.filter(s=>s.active).map(s=>`<option value="s:${s.id}" data-kind="${s.kind}">${esc(s.label)} (due ${s.next_due?dd(s.next_due):'—'})</option>`).join('')}
+            <optgroup label="One-off">${meta.kinds.map(k=>`<option value="k:${k.code}" data-kind="${k.code}">${esc(k.label)}</option>`).join('')}</optgroup></select></div>
+          <div><label>Date carried out</label><input type="date" id="rDate" value="${today()}" max="${today()}"></div>
+          <div><label>Carried out by</label><input id="rBy" placeholder="Garage / inspector" maxlength="160"></div>
+          <div><label>Odometer (km)</label><input type="number" id="rOdo" min="0"></div>
+          <div><label>Result</label><select id="rResult"><option value="">—</option><option value="pass">Pass</option><option value="advisories">Pass with advisories</option><option value="fail">Fail</option></select></div>
+          <div class="brake" id="brakeFields">
+            <div><label>Brake test</label><select id="rBrakeType"><option value="">—</option>${Object.entries(BRAKE).map(([k,l])=>`<option value="${k}">${l}</option>`).join('')}</select></div>
+            <div><label>Service brake %</label><input type="number" id="rBs" min="0" max="100" step="0.1"></div>
+            <div><label>Secondary brake %</label><input type="number" id="rB2" min="0" max="100" step="0.1"></div>
+            <div><label>Parking brake %</label><input type="number" id="rBp" min="0" max="100" step="0.1"></div>
+          </div>
+          <div><label>Inspection sheet (PDF or photo)</label><input type="file" id="rDoc" accept="application/pdf,image/*"></div>
+          <div><label>Next due (optional)</label><input type="date" id="rNext"></div>
+        </div>
+        <div class="grid" style="margin-top:10px">
+          <div><label>Defects found / work done</label><textarea id="rDefects" maxlength="4000"></textarea></div>
+          <div><label>Notes</label><textarea id="rNotes" maxlength="4000"></textarea></div>
+        </div>
+        <div style="margin-top:10px"><button class="btn" id="saveRec">Save record</button><span class="msg" id="recMsg"></span></div></div>
+
+      ${v.open_defects.length?`<div class="card"><h3>Open driver-reported defects</h3>${v.open_defects.map(d=>`<div style="padding:6px 0;border-bottom:1px solid var(--line)"><b style="color:${d.severity==='dangerous'?'var(--bad)':d.severity==='major'?'var(--warn)':'inherit'}">${esc(d.severity)}</b> ${esc(d.item)}${d.description?' — '+esc(d.description):''}<div class="mut">${esc(d.reported_by||'')} · ${dd((d.created_at||'').slice(0,10))}</div></div>`).join('')}
+        <div style="margin-top:8px"><a class="btn small" href="defects" style="text-decoration:none">Rectify on the Defects page</a></div></div>`:''}
+
+      <div class="card"><h3>History</h3>${v.records.length?`<div class="wrap"><table><tr><th>Date</th><th>What</th><th>By</th><th>Result</th><th>Brakes (service / secondary / parking)</th><th>On time</th><th>Sheet</th><th></th></tr>
+        ${v.records.map(r=>`<tr><td>${dd(r.performed_on)}${r.odometer_km?`<div class="mut">${r.odometer_km.toLocaleString()} km</div>`:''}</td>
+          <td>${esc(r.label)}${r.defects_found?`<div class="mut">${esc(r.defects_found)}</div>`:''}${r.notes?`<div class="mut">${esc(r.notes)}</div>`:''}</td>
+          <td>${esc(r.performed_by||'')}</td><td>${r.result?`<span class="chip st-${r.result==='fail'?'overdue':r.result==='advisories'?'due_soon':'ok'}">${RESULT[r.result]}</span>`:''}</td>
+          <td>${r.brake_service_pct!=null||r.brake_secondary_pct!=null||r.brake_parking_pct!=null?`${r.brake_service_pct??'—'}% / ${r.brake_secondary_pct??'—'}% / ${r.brake_parking_pct??'—'}%<div class="mut">${esc(BRAKE[r.brake_test_type]||'')}</div>`:''}</td>
+          <td>${r.on_time==null?'<span class="mut">—</span>':r.on_time?'<span style="color:var(--ok)">✓</span>':`<span style="color:var(--bad)">Late (due ${dd(r.due_on)})</span>`}</td>
+          <td>${r.has_document?`<a href="api/maintenance/records/${r.id}/document" target="_blank" style="color:var(--acc)">View</a>`:''}</td>
+          <td><button class="btn small bad" data-del="${r.id}">Delete</button></td></tr>`).join('')}</table></div>`:'<div class="mut">Nothing recorded yet.</div>'}</div>`;
+
+    $('pClose').onclick=closePanel;
+    const rows=$('schedRows');
+    const wireRows=()=>rows.querySelectorAll('[data-remove]').forEach(b=>b.onclick=()=>b.closest('[data-row]').remove());
+    const addRow=(s)=>{ rows.querySelector('[data-none]')?.remove(); rows.insertAdjacentHTML('beforeend',schedRow(s)); wireRows(); };
+    wireRows();
+    $('addRow').onclick=()=>addRow({kind:'pmi',label:'Safety inspection (PMI)',interval_value:6,interval_unit:'weeks',active:true});
+    document.querySelectorAll('[data-preset]').forEach(b=>b.onclick=()=>{
+      const have=new Set([...rows.querySelectorAll('[data-row]')].map(r=>r.querySelector('[data-f=label]').value));
+      meta.presets[b.dataset.preset].forEach(p=>{ if(!have.has(p.label)) addRow({...p,active:true}); });
+    });
+    $('saveSched').onclick=async()=>{
+      const schedules=[...rows.querySelectorAll('[data-row]')].map(r=>({kind:r.querySelector('[data-f=kind]').value,
+        label:r.querySelector('[data-f=label]').value.trim()||null, interval_value:Number(r.querySelector('[data-f=interval_value]').value),
+        interval_unit:r.querySelector('[data-f=interval_unit]').value, next_due:r.querySelector('[data-f=next_due]').value||null,
+        active:r.querySelector('[data-f=active]').checked}));
+      try{ current=await api('/vehicles/'+v.traccar_device_id+'/schedules',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({schedules})});
+        drawPanel(); $('schedMsg').className='msg ok'; $('schedMsg').textContent=' Saved.'; }
+      catch(e){ $('schedMsg').className='msg bad'; $('schedMsg').textContent=' '+e.message; }
+    };
+    const what=$('rWhat');
+    const syncBrake=()=>{ const k=what.selectedOptions[0]?.dataset.kind; $('brakeFields').classList.toggle('show',brakeKinds.includes(k)); };
+    what.onchange=syncBrake; syncBrake();
+    $('saveRec').onclick=async()=>{
+      const msg=$('recMsg'); msg.className='msg'; msg.textContent=' Saving…';
+      const val=what.value, file=$('rDoc').files[0];
+      const numOrNull=id=>$(id).value===''?null:Number($(id).value);
+      const body={schedule_id:val.startsWith('s:')?val.slice(2):null, kind:what.selectedOptions[0].dataset.kind,
+        performed_on:$('rDate').value, performed_by:$('rBy').value||null, odometer_km:numOrNull('rOdo'), result:$('rResult').value||null,
+        defects_found:$('rDefects').value||null, notes:$('rNotes').value||null, next_due:$('rNext').value||null};
+      if(brakeKinds.includes(body.kind)) Object.assign(body,{brake_test_type:$('rBrakeType').value||null, brake_service_pct:numOrNull('rBs'), brake_secondary_pct:numOrNull('rB2'), brake_parking_pct:numOrNull('rBp')});
+      if(!body.performed_on){ msg.className='msg bad'; msg.textContent=' Enter the date it was carried out.'; return; }
+      if(file){
+        if(file.size>15*1024*1024){ msg.className='msg bad'; msg.textContent=' The file is over 15 MB.'; return; }
+        body.document=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(file); });
+        body.document_name=file.name;
+      }
+      try{ const r=await api('/vehicles/'+v.traccar_device_id+'/records',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+        current=await api('/vehicles/'+v.traccar_device_id); drawPanel();
+        $('recMsg').className='msg ok'; $('recMsg').textContent=' Saved.'+(r.next_due?' Next due '+dd(r.next_due)+'.':''); }
+      catch(e){ msg.className='msg bad'; msg.textContent=' '+e.message; }
+    };
+    document.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{
+      if(!confirm('Delete this record? This cannot be undone.')) return;
+      try{ await api('/records/'+b.dataset.del,{method:'DELETE'}); current=await api('/vehicles/'+v.traccar_device_id); drawPanel(); }
+      catch(e){ alert(e.message); }
+    });
+  }
+  $('panel').onclick=e=>{ if(e.target===$('panel')) closePanel(); };
+  document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{ tab=b.dataset.t; document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x===b)); render(); });
+  loadKpis(); render();
+</script>
+</body>
+</html>

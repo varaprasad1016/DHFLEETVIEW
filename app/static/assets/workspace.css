@@ -1,0 +1,234 @@
+/* Manager Workspace — the card language the office pages share.
+ *
+ * Pages keep defining their own dark palette on :root and theme.css swaps it
+ * for light, so everything here is written in those tokens only. Nothing in
+ * this file names a colour directly except the number plate, which is yellow
+ * in both themes because that is what a number plate is.
+ */
+:root {
+  --wk-radius: 14px;
+  --wk-rail: 4px;
+}
+
+/* ---------- page frame ---------- */
+.wk-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 18px 10px; max-width: 1040px; margin: 0 auto;
+}
+.wk-head .back {
+  width: 34px; height: 34px; border-radius: 10px; flex: none;
+  display: grid; place-items: center; text-decoration: none;
+  color: var(--fg); background: var(--card); border: 1px solid var(--line);
+}
+.wk-head .back:hover { color: var(--acc); border-color: var(--acc); }
+.wk-head hgroup { flex: 1; min-width: 0; }
+.wk-head h1 { margin: 0; font-size: 19px; line-height: 1.2; }
+.wk-head p { margin: 2px 0 0; font-size: 12.5px; color: var(--mut); }
+.wk-main { max-width: 1040px; margin: 0 auto; padding: 4px 16px 56px; }
+
+/* ---------- the strip of figures at the top ---------- */
+.wk-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(126px, 1fr)); gap: 10px; }
+.wk-stat {
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  padding: 11px 13px; min-width: 0;
+}
+.wk-stat .k {
+  display: block; font-size: 10.5px; letter-spacing: .5px; text-transform: uppercase;
+  color: var(--mut); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.wk-stat .v { display: block; margin-top: 3px; font-size: 21px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.wk-stat.ok   { background: var(--ok-soft);   border-color: transparent; }
+.wk-stat.ok .v   { color: var(--ok); }
+.wk-stat.warn { background: var(--warn-soft); border-color: transparent; }
+.wk-stat.warn .v { color: var(--warn); }
+.wk-stat.bad  { background: var(--bad-soft);  border-color: transparent; }
+.wk-stat.bad .v  { color: var(--bad); }
+
+/* ---------- search and filters ---------- */
+.wk-search { position: relative; margin-top: 14px; }
+.wk-search svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--mut); }
+.wk-search input {
+  width: 100%; padding: 11px 12px 11px 38px; font: inherit; font-size: 14.5px;
+  color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 11px;
+}
+.wk-search input:focus { outline: none; border-color: var(--acc); }
+.wk-chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 11px; }
+.wk-chip {
+  padding: 6px 13px; border-radius: 999px; cursor: pointer; font: inherit; font-size: 12.5px;
+  color: var(--mut); background: var(--card); border: 1px solid var(--line); white-space: nowrap;
+}
+.wk-chip:hover { color: var(--fg); }
+.wk-chip.on { background: var(--acc); border-color: var(--acc); color: var(--on-acc); font-weight: 600; }
+.wk-chip:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+.wk-count { margin: 14px 2px 8px; font-size: 12px; color: var(--mut); }
+
+/* ---------- the list ---------- */
+.wk-list { display: flex; flex-direction: column; gap: 10px; }
+.wk-item {
+  display: block; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer;
+  background: var(--card); border: 1px solid var(--line); border-left: var(--wk-rail) solid var(--mut);
+  border-radius: var(--wk-radius); padding: 12px 14px;
+}
+.wk-item:hover { border-color: var(--acc); border-left-color: inherit; }
+.wk-item:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+.wk-item[data-rail="ok"]   { border-left-color: var(--ok); }
+.wk-item[data-rail="warn"] { border-left-color: var(--warn); }
+.wk-item[data-rail="bad"]  { border-left-color: var(--bad); }
+.wk-item[data-rail="info"] { border-left-color: var(--acc); }
+.wk-item[data-rail="mut"]  { border-left-color: var(--line); }
+.wk-top { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.wk-title { font-weight: 600; font-size: 14.5px; min-width: 0; overflow-wrap: anywhere; }
+.wk-ref { font-size: 11.5px; color: var(--mut); font-variant-numeric: tabular-nums; }
+.wk-spacer { flex: 1 1 auto; }
+
+/* the row of small facts under a card's title */
+.wk-meta { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 9px; font-size: 12.5px; color: var(--mut); }
+.wk-meta span { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+.wk-meta svg { flex: none; opacity: .75; }
+.wk-meta b { color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* ---------- chips that carry a state ---------- */
+.wk-badge {
+  display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .2px;
+  padding: 3px 9px; border-radius: 999px; white-space: nowrap;
+  background: var(--card2); color: var(--mut);
+}
+.wk-badge.ok   { background: var(--ok-soft);   color: var(--ok); }
+.wk-badge.warn { background: var(--warn-soft); color: var(--warn); }
+.wk-badge.bad  { background: var(--bad-soft);  color: var(--bad); }
+.wk-badge.info { background: var(--acc); color: var(--on-acc); }
+
+/* A registration reads fastest as the thing it is. */
+.wk-plate {
+  display: inline-flex; align-items: stretch; border-radius: 4px; overflow: hidden;
+  font: 700 12.5px/1 "Segoe UI", system-ui, sans-serif; letter-spacing: .6px;
+  border: 1px solid #0b1220; flex: none;
+}
+.wk-plate i { background: #0a3d91; color: #fff; font: 700 7px/1 system-ui, sans-serif; font-style: normal; display: grid; place-items: center; padding: 0 3px; }
+.wk-plate b { background: #ffd400; color: #111; padding: 5px 7px; }
+
+.wk-empty {
+  text-align: center; padding: 34px 18px; color: var(--mut); font-size: 13.5px;
+  background: var(--card); border: 1px dashed var(--line); border-radius: var(--wk-radius);
+}
+
+/* ---------- buttons ---------- */
+.wk-btn {
+  padding: 8px 14px; border-radius: 10px; border: 1px solid var(--line); cursor: pointer;
+  font: inherit; font-size: 13px; font-weight: 600; background: var(--card); color: var(--fg);
+}
+.wk-btn:hover { border-color: var(--acc); color: var(--acc); }
+.wk-btn:disabled { opacity: .5; cursor: not-allowed; }
+.wk-btn.primary { background: var(--acc); border-color: var(--acc); color: var(--on-acc); }
+.wk-btn.primary:hover { color: var(--on-acc); filter: brightness(1.08); }
+.wk-btn.danger { color: var(--bad); }
+.wk-btn.danger:hover { border-color: var(--bad); color: var(--bad); }
+.wk-btn:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
+/* ---------- the detail sheet ---------- */
+.wk-sheet { position: fixed; inset: 0; z-index: 120; background: rgba(2,6,16,.55); display: flex; justify-content: flex-end; }
+.wk-sheet[hidden] { display: none; }
+.wk-sheet-box {
+  background: var(--bg); width: min(560px, 100%); height: 100%;
+  display: flex; flex-direction: column; border-left: 1px solid var(--line);
+  animation: wk-slide .18s ease-out;
+}
+@keyframes wk-slide { from { transform: translateX(26px); opacity: .4; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .wk-sheet-box { animation: none; } }
+.wk-sheet-head {
+  display: flex; align-items: center; gap: 10px; padding: 14px 16px;
+  border-bottom: 1px solid var(--line); background: var(--card);
+}
+.wk-sheet-head h2 { margin: 0; font-size: 16px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.wk-sheet-body { flex: 1; overflow: auto; padding: 14px 16px 28px; display: flex; flex-direction: column; gap: 12px; }
+.wk-sheet-foot { display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 16px; border-top: 1px solid var(--line); background: var(--card); }
+
+.wk-sect { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 13px 14px; }
+.wk-sect > h3 {
+  margin: 0 0 10px; font-size: 10.5px; letter-spacing: .6px; text-transform: uppercase;
+  color: var(--mut); font-weight: 700; display: flex; align-items: center; gap: 8px;
+}
+.wk-sect > h3 .wk-spacer { flex: 1; }
+
+/* label / value rows */
+.wk-kv { display: flex; justify-content: space-between; gap: 14px; padding: 6px 0; font-size: 13.5px; border-top: 1px solid var(--line); }
+.wk-kv:first-of-type { border-top: 0; padding-top: 0; }
+.wk-kv dt { color: var(--mut); flex: none; }
+.wk-kv dd { margin: 0; text-align: right; font-weight: 600; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+dl.wk-kvs { margin: 0; }
+
+/* the big in/out figures */
+.wk-figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 1px; background: var(--line); border-radius: 10px; overflow: hidden; }
+.wk-figs div { background: var(--card2); padding: 10px 12px; }
+.wk-figs .k { display: block; font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--mut); }
+.wk-figs .v { display: block; margin-top: 3px; font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.wk-figs .s { display: block; margin-top: 2px; font-size: 11.5px; color: var(--mut); }
+
+/* where a job has got to */
+.wk-steps { display: flex; align-items: flex-start; }
+.wk-steps .st { flex: 1; text-align: center; position: relative; font-size: 10px; color: var(--mut); line-height: 1.25; }
+.wk-steps .st .dot {
+  width: 20px; height: 20px; margin: 0 auto 6px; border-radius: 50%;
+  border: 2px solid var(--line); background: var(--card); display: grid; place-items: center;
+  color: var(--on-acc); position: relative; z-index: 1;
+}
+.wk-steps .st::before {
+  content: ""; position: absolute; top: 10px; right: 50%; left: -50%; height: 2px; background: var(--line);
+}
+.wk-steps .st:first-child::before { display: none; }
+.wk-steps .st.done .dot { background: var(--acc); border-color: var(--acc); }
+.wk-steps .st.done { color: var(--fg); font-weight: 600; }
+.wk-steps .st.done::before { background: var(--acc); }
+.wk-steps .st.now .dot { box-shadow: 0 0 0 4px var(--card2); }
+.wk-steps.stopped .st.done .dot { background: var(--bad); border-color: var(--bad); }
+.wk-steps.stopped .st.done::before { background: var(--bad); }
+
+/* notes, messages and the box to add one */
+.wk-notes { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow: auto; }
+.wk-note { padding: 8px 11px; border-radius: 11px; background: var(--card2); font-size: 13.5px; max-width: 86%; overflow-wrap: anywhere; }
+.wk-note.mine { align-self: flex-end; background: var(--acc); color: var(--on-acc); }
+.wk-note.change { border: 1.5px solid var(--warn); }
+.wk-note .by { display: block; margin-top: 3px; font-size: 10.5px; opacity: .75; }
+.wk-composer { display: flex; gap: 8px; margin-top: 10px; }
+.wk-composer input {
+  flex: 1; min-width: 0; padding: 10px 12px; font: inherit; font-size: 14px;
+  color: var(--fg); background: var(--input); border: 1px solid var(--line); border-radius: 10px;
+}
+.wk-composer input:focus { outline: none; border-color: var(--acc); }
+.wk-send { width: 40px; height: 40px; flex: none; border-radius: 50%; border: 0; cursor: pointer; background: var(--acc); color: var(--on-acc); display: grid; place-items: center; }
+.wk-send:disabled { opacity: .5; cursor: not-allowed; }
+
+/* photos */
+.wk-photos { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.wk-photos figure { margin: 0; }
+.wk-photos img { width: 100%; height: 118px; object-fit: cover; border-radius: 9px; border: 1px solid var(--line); display: block; }
+.wk-photos figcaption { margin-top: 4px; font-size: 11px; color: var(--mut); text-align: center; text-transform: capitalize; }
+
+/* ---------- forms in a dialog ---------- */
+.wk-modal { position: fixed; inset: 0; z-index: 130; background: rgba(2,6,16,.6); display: flex; align-items: center; justify-content: center; padding: 18px; }
+.wk-modal[hidden] { display: none; }
+.wk-modal-box { background: var(--bg); border: 1px solid var(--line); border-radius: var(--wk-radius); width: min(520px, 100%); max-height: 92vh; overflow: auto; padding: 20px; }
+.wk-modal-box h2 { margin: 0 0 4px; font-size: 17px; }
+.wk-modal-box > p { margin: 0 0 12px; font-size: 12.5px; color: var(--mut); }
+.wk-field { margin-top: 12px; }
+.wk-field label { display: block; font-size: 12px; color: var(--mut); margin-bottom: 5px; }
+.wk-field input, .wk-field select, .wk-field textarea {
+  width: 100%; padding: 10px 12px; font: inherit; font-size: 14.5px;
+  color: var(--fg); background: var(--input); border: 1px solid var(--line); border-radius: 10px;
+}
+.wk-field textarea { min-height: 70px; resize: vertical; }
+.wk-field input:focus, .wk-field select:focus, .wk-field textarea:focus { outline: none; border-color: var(--acc); }
+.wk-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.wk-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; flex-wrap: wrap; }
+
+.wk-toast {
+  position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 200;
+  padding: 11px 20px; border-radius: 11px; font-size: 13.5px; font-weight: 600;
+  background: var(--ok); color: var(--on-acc); box-shadow: 0 10px 30px rgba(0,0,0,.3);
+}
+.wk-toast.bad { background: var(--bad); color: #fff; }
+
+@media (max-width: 560px) {
+  .wk-sheet-box { width: 100%; border-left: 0; }
+  .wk-two { grid-template-columns: 1fr; }
+}

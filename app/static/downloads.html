@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tachograph downloads · ${title}</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #ffffff; --ink: #11151c; --muted: #5b6472;
+    --line: #e3e6ec; --accent: #4f46e5; --good: #16a34a; --bad: #dc2626; --warn: #b45309;
+  }
+  :root[data-theme="dark"], body.dark {
+    --bg: #0d1117; --panel: #161b22; --ink: #e6edf3; --muted: #8b949e;
+    --line: #272d36; --accent: #818cf8;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 14px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; letter-spacing: -0.02em; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+           padding: 16px; margin-bottom: 16px; }
+  .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .spread { justify-content: space-between; }
+  h2 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em;
+       color: var(--muted); margin: 0 0 12px; font-weight: 700; }
+  .tabs { display:flex; gap:8px; margin:14px 0 4px; }
+  .tab { padding:8px 16px; border-radius:999px; border:1px solid var(--line); background:transparent;
+         color:var(--mut); cursor:pointer; font:inherit; font-size:13px; }
+  .tab.on { background:var(--acc); border-color:var(--acc); color:var(--on-acc); font-weight:600; }
+  .pane[hidden] { display:none; }
+  .bad { color:var(--bad); }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em;
+       color: var(--muted); padding: 0 8px 8px; font-weight: 600; }
+  td { padding: 10px 8px; border-top: 1px solid var(--line); vertical-align: top;
+       font-variant-numeric: tabular-nums; }
+  .scroll { overflow-x: auto; }
+  button { font: inherit; font-weight: 600; border-radius: 8px; padding: 8px 14px;
+           border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button[disabled] { opacity: 0.55; cursor: default; }
+  a.file { color: var(--accent); font-weight: 600; text-decoration: none; }
+  a.file:hover { text-decoration: underline; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 999px;
+          font-size: 0.72rem; font-weight: 700; }
+  .ok { background: rgba(22,163,74,0.14); color: var(--good); }
+  .no { background: rgba(220,38,38,0.12); color: var(--bad); }
+  .wait { background: rgba(180,83,9,0.14); color: var(--warn); }
+  .empty { color: var(--muted); padding: 18px 8px; }
+  .why { border-left: 3px solid var(--bad); padding: 10px 12px; margin-top: 10px;
+         background: rgba(220,38,38,0.06); border-radius: 0 8px 8px 0; }
+  .why b { display: block; margin-bottom: 2px; }
+  .note { color: var(--muted); font-size: 0.82rem; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Tachograph downloads</h1>
+  <p class="sub">DDD files pulled from the vehicles by TachoSync, archived here. New files are
+     fetched automatically, attached to their vehicle by registration, and analysed once &mdash;
+     the same file arriving twice is recognised and ignored.</p>
+
+  <div class="tabs">
+    <button class="tab on" data-tab="sync">From TachoSync</button>
+    <button class="tab" data-tab="raw">Raw files in the archive</button>
+  </div>
+
+  <div class="panel pane" data-pane="sync">
+    <div class="row spread">
+      <h2 style="margin:0">Vehicles</h2>
+      <div class="row">
+        <button id="refresh">Refresh</button>
+        <button id="sync" class="primary">Fetch new files</button>
+      </div>
+    </div>
+    <div id="vehicles" class="scroll" style="margin-top:12px"><p class="empty">Loading…</p></div>
+  </div>
+
+  <div class="panel pane" data-pane="sync">
+    <h2>Files</h2>
+    <div id="files" class="scroll"><p class="empty">Loading…</p></div>
+    <p class="note">Downloading a file here fetches it from TachoSync. Files already pulled into
+      the archive are also parsed into driver hours and infringements automatically.</p>
+  </div>
+
+  <div class="panel pane" id="pane-raw" hidden>
+    <div class="row spread">
+      <h2 style="margin:0">Raw files in the archive</h2>
+      <input id="rawSearch" placeholder="Search registration, driver or file name"
+             style="padding:8px 11px;border-radius:9px;border:1px solid var(--line);
+                    background:var(--bg);color:var(--fg);min-width:260px" />
+    </div>
+    <p class="note" style="margin-top:8px">Every download held, byte for byte as it arrived. A .ddd
+       is signed, so these are served untouched &mdash; that signature is what an analysis bureau
+       or DVSA checks them by.</p>
+    <div id="raw" class="scroll" style="margin-top:12px"><p class="empty">Loading&hellip;</p></div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const when = (iso) => {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return isNaN(d) ? iso : d.toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
+};
+const size = (n) => (n === null || n === undefined) ? '—'
+  : n > 1048576 ? (n / 1048576).toFixed(1) + ' MB'
+  : n > 1024 ? Math.round(n / 1024) + ' KB' : n + ' B';
+const esc = (s) => String(s ?? '').replace(/[<>&"]/g, (c) =>
+  ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
+
+async function loadVehicles() {
+  const box = $('vehicles');
+  try {
+    const r = await fetch('api/tachosync/overview');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    if (!data.configured) { box.innerHTML = '<p class="empty">' + esc(data.hint || 'Not connected.') + '</p>'; return; }
+    if (!data.vehicles.length) { box.innerHTML = '<p class="empty">No vehicles registered with TachoSync yet.</p>'; return; }
+    box.innerHTML = '<table><thead><tr><th>Vehicle</th><th>Status</th><th>Last seen by TachoSync</th>'
+      + '<th>Last download</th></tr></thead><tbody>'
+      + data.vehicles.map((v) => {
+        const done = v.last_download;
+        const pill = done ? '<span class="pill ok">downloaded</span>'
+          : v.status === 'Online' ? '<span class="pill wait">waiting</span>'
+          : '<span class="pill no">' + esc(v.status || 'offline') + '</span>';
+        const why = v.blocked_by ? '<div class="why"><b>Stopped at: ' + esc(v.blocked_by.stage)
+          + '</b>' + esc(v.blocked_by.detail) + '</div>' : '';
+        return '<tr><td><b>' + esc(v.registration) + '</b><br><span style="color:var(--muted)">'
+          + esc(v.imei) + '</span>' + why + '</td><td>' + pill + '</td><td>' + when(v.last_connected)
+          + '</td><td>' + when(done) + '</td></tr>';
+      }).join('') + '</tbody></table>';
+  } catch (e) {
+    box.innerHTML = '<p class="empty">Could not reach TachoSync: ' + esc(e.message) + '</p>';
+  }
+}
+
+async function loadFiles() {
+  const box = $('files');
+  try {
+    const r = await fetch('api/tachosync/files');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    if (!data.files || !data.files.length) {
+      box.innerHTML = '<p class="empty">No files yet. They appear here as soon as a vehicle '
+        + 'completes a download.</p>';
+      return;
+    }
+    box.innerHTML = '<table><thead><tr><th>File</th><th>Type</th><th>Vehicle / driver</th>'
+      + '<th>Downloaded</th><th>Size</th></tr></thead><tbody>'
+      + data.files.map((f) => '<tr><td><a class="file" href="api/tachosync/files/' + esc(f.kind)
+        + '/' + esc(f.id) + '">' + esc(f.name || 'download') + '</a></td><td>' + esc(f.kind)
+        + '</td><td>' + esc(f.vehicle || f.driver || '—') + '</td><td>' + when(f.created_at)
+        + '</td><td>' + size(f.size) + '</td></tr>').join('') + '</tbody></table>';
+  } catch (e) {
+    box.innerHTML = '<p class="empty">Could not list files: ' + esc(e.message) + '</p>';
+  }
+}
+
+$('refresh').onclick = () => { loadVehicles(); loadFiles(); };
+$('sync').onclick = async (e) => {
+  const b = e.currentTarget;
+  b.disabled = true; b.textContent = 'Fetching…';
+  try {
+    const r = await fetch('api/tachosync/sync', { method: 'POST' });
+    const data = await r.json();
+    b.textContent = data.fetched ? 'Fetched ' + data.fetched : 'Nothing new';
+    loadFiles();
+  } catch (err) {
+    b.textContent = 'Failed';
+  }
+  setTimeout(() => { b.disabled = false; b.textContent = 'Fetch new files'; }, 2500);
+};
+
+loadVehicles();
+loadFiles();
+setInterval(loadVehicles, 60000);
+
+// --- the archive tab -------------------------------------------------------
+// The files we actually hold, as opposed to what TachoSync is offering.
+let archived = [];
+
+const kindLabel = (k) => (k === 'driver_card' ? 'Driver card' : k === 'vehicle_unit' ? 'Vehicle unit' : (k || '-'));
+
+async function loadRaw() {
+  const box = $('raw');
+  try {
+    const r = await fetch('api/tacho/files?limit=500');
+    if (!r.ok) throw new Error('The archive could not be read (' + r.status + ')');
+    const data = await r.json();
+    archived = data.files || [];
+    renderRaw(data.total || archived.length);
+  } catch (e) {
+    box.innerHTML = '<p class="empty">' + esc(e.message) + '</p>';
+  }
+}
+
+function renderRaw(total) {
+  const box = $('raw');
+  const needle = ($('rawSearch').value || '').trim().toLowerCase();
+  const rows = archived.filter((f) => !needle
+    || [f.filename, f.vehicle, f.driver, f.company, f.card_number]
+      .some((v) => (v || '').toLowerCase().includes(needle)));
+
+  if (!rows.length) {
+    box.innerHTML = '<p class="empty">' + (archived.length
+      ? 'No file matches that.'
+      : 'No downloads in the archive yet. New ones are fetched from TachoSync automatically.') + '</p>';
+    return;
+  }
+  box.innerHTML = '<table><thead><tr><th>File</th><th>Type</th><th>Vehicle / driver</th>'
+    + '<th>Arrived</th><th>Size</th><th>Read</th><th></th></tr></thead><tbody>'
+    + rows.map((f) => '<tr>'
+      + '<td>' + esc(f.filename) + '</td>'
+      + '<td>' + kindLabel(f.kind) + '</td>'
+      + '<td>' + esc(f.vehicle || f.driver || f.card_number || '-') + '</td>'
+      + '<td>' + when(f.created_at) + '</td>'
+      + '<td>' + size(f.size_bytes) + '</td>'
+      + '<td>' + (f.parsed ? 'yes'
+        : '<span class="bad" title="' + esc(f.parse_error || '') + '">could not be read</span>') + '</td>'
+      + '<td><a class="file" href="api/tacho/files/' + f.id + '/raw">Download</a></td>'
+      + '</tr>').join('')
+    + '</tbody></table>'
+    + (total > rows.length ? '<p class="note">Showing ' + rows.length + ' of ' + total + '.</p>' : '');
+}
+
+document.querySelectorAll('.tab').forEach((tab) => tab.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t === tab));
+  const wanted = tab.dataset.tab;
+  document.querySelectorAll('[data-pane="sync"]').forEach((p) => { p.hidden = wanted !== 'sync'; });
+  $('pane-raw').hidden = wanted !== 'raw';
+  if (wanted === 'raw' && !archived.length) loadRaw();
+}));
+$('rawSearch').addEventListener('input', () => renderRaw(archived.length));
+</script>
+</body>
+</html>

@@ -1,0 +1,563 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0b1220" />
+<title>${title} — Jobs</title>
+<link rel="stylesheet" href="assets/workspace.css" />
+<style>
+  :root { color-scheme: dark; --bg:#0b1220; --card:#131c2e; --line:#22304a; --fg:#e6edf7; --mut:#8aa0c0; --acc:#38bdf8; --ok:#34d399; --warn:#f59e0b; --bad:#f87171; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui,"Segoe UI",Roboto,sans-serif; }
+  /* What the driver's tachograph says they have left, under the driver picker. */
+  .hours-note { font-size:12px; color:var(--mut); margin-top:6px; }
+  .hours-note.low { color:var(--warn); font-weight:700; }
+  .btn-link { background:none; border:0; color:var(--acc); font:inherit; font-weight:700; text-decoration:underline; cursor:pointer; padding:0; }
+  /* The leg of the job: where it starts, where it ends. */
+  .leg { position:relative; }
+  .leg::before { content:""; position:absolute; left:4px; top:14px; bottom:14px; width:2px; background:var(--line); }
+  .stop { display:flex; gap:12px; align-items:flex-start; position:relative; }
+  .stop + .stop { margin-top:16px; }
+  .stop i { width:10px; height:10px; border-radius:50%; background:var(--acc); flex:none; margin-top:4px; }
+  .stop.end i { background:var(--ok); }
+  .stop div { min-width:0; }
+  .stop small { display:block; font-size:10.5px; letter-spacing:.5px; text-transform:uppercase; color:var(--mut); }
+  .stop p { margin:1px 0 0; font-size:13.5px; overflow-wrap:anywhere; }
+  .closure { display:flex; gap:8px; padding:8px 0; border-top:1px solid var(--line); font-size:13px; }
+  .closure:first-of-type { border-top:0; padding-top:0; }
+  .closure b { color:var(--bad); flex:none; }
+  .instructions { margin:0; font-size:14px; white-space:pre-wrap; overflow-wrap:anywhere; }
+</style>
+</head>
+<body>
+<header class="wk-head">
+  <a class="back" href="compliance" aria-label="Back to the compliance hub"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M15.4 4.6a1 1 0 0 1 0 1.4L9.4 12l6 6a1 1 0 0 1-1.4 1.4l-6.7-6.7a1 1 0 0 1 0-1.4L14 4.6a1 1 0 0 1 1.4 0z"/></svg></a>
+  <hgroup>
+    <h1>Jobs</h1>
+    <p>Work sent to drivers, and where each one has got to</p>
+  </hgroup>
+  <button class="wk-btn primary" type="button" id="newBtn">Send job</button>
+</header>
+
+<main class="wk-main">
+  <div class="wk-stats" id="stats"></div>
+
+  <div class="wk-search">
+    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M10 2a8 8 0 1 0 4.9 14.3l4.4 4.4a1 1 0 0 0 1.4-1.4l-4.4-4.4A8 8 0 0 0 10 2zm0 2a6 6 0 1 1 0 12 6 6 0 0 1 0-12z"/></svg>
+    <input id="q" type="search" placeholder="Search job, reference, driver or registration" autocomplete="off" aria-label="Search jobs" />
+  </div>
+
+  <div class="wk-chips" id="tabs"></div>
+  <p class="wk-count" id="count"></p>
+  <div class="wk-list" id="list"></div>
+</main>
+
+<!-- One job -->
+<div class="wk-sheet" id="sheet" hidden>
+  <div class="wk-sheet-box" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <div class="wk-sheet-head">
+      <h2 id="sheetTitle">Job</h2>
+      <button class="wk-btn" type="button" id="sheetClose">Close</button>
+    </div>
+    <div class="wk-sheet-body" id="sheetBody"></div>
+    <div class="wk-sheet-foot" id="sheetFoot"></div>
+  </div>
+</div>
+
+<!-- Send a job -->
+<div class="wk-modal" id="createDialog" hidden>
+  <div class="wk-modal-box" role="dialog" aria-modal="true" aria-labelledby="createTitle">
+    <h2 id="createTitle">Send a job to a driver</h2>
+    <p>It lands in their driver app straight away, and they accept or decline it there.</p>
+    <div class="wk-field">
+      <label for="cDriver">Driver</label>
+      <select id="cDriver"><option value="">Loading drivers…</option></select>
+      <div id="cDriverHours" class="hours-note"></div>
+      <input id="cDriverOther" placeholder="Type the driver's name" autocomplete="off" style="margin-top:8px" hidden />
+    </div>
+    <div class="wk-field"><label for="cTitle">Job title</label><input id="cTitle" placeholder="e.g. Delivery to Manchester" /></div>
+    <div class="wk-field"><label for="cDesc">Instructions</label><textarea id="cDesc" placeholder="Load number, gate, contact on site…"></textarea></div>
+    <div class="wk-field"><label for="cVehicle">Vehicle registration</label><input id="cVehicle" placeholder="e.g. AB12 CDE" /></div>
+    <div class="wk-two">
+      <div class="wk-field"><label for="cPickup">Collect from</label><input id="cPickup" /></div>
+      <div class="wk-field"><label for="cDropoff">Deliver to</label><input id="cDropoff" /></div>
+    </div>
+    <div class="wk-two">
+      <div class="wk-field"><label for="cWhen">Scheduled for</label><input id="cWhen" type="datetime-local" /></div>
+      <div class="wk-field"><label for="cPriority">Priority</label>
+        <select id="cPriority"><option value="normal">Normal</option><option value="urgent">Urgent</option><option value="low">Low</option></select>
+      </div>
+    </div>
+    <div class="wk-actions">
+      <button class="wk-btn" type="button" id="createCancel">Cancel</button>
+      <button class="wk-btn primary" type="button" id="createSend">Send job</button>
+    </div>
+  </div>
+</div>
+
+<!-- Send it to someone else -->
+<div class="wk-modal" id="resendDialog" hidden>
+  <div class="wk-modal-box" role="dialog" aria-modal="true" aria-labelledby="resendTitle">
+    <h2 id="resendTitle">Send this job again</h2>
+    <p id="resendInfo"></p>
+    <div class="wk-field">
+      <label for="rDriver">Send to</label>
+      <select id="rDriver"></select>
+      <div id="rDriverHours" class="hours-note"></div>
+      <input id="rDriverOther" placeholder="Type the driver's name" autocomplete="off" style="margin-top:8px" hidden />
+    </div>
+    <div class="wk-field"><label for="rWhen">Scheduled for (optional)</label><input id="rWhen" type="datetime-local" /></div>
+    <div class="wk-actions">
+      <button class="wk-btn" type="button" id="resendCancel">Cancel</button>
+      <button class="wk-btn primary" type="button" id="resendBtn">Send job</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// Same-origin: works at /tacho/<page> behind Apache and at :8000/<page> directly.
+const API = location.pathname.replace(/\/[^\/]*$/, '') + '/api/shifts';
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+let jobs = [], filter = 'all', query = '';
+const FILTERS = ['all', 'pending', 'accepted', 'in_progress', 'completed', 'denied', 'cancelled'];
+const LABEL = { all: 'All', pending: 'Waiting', accepted: 'Accepted', in_progress: 'In progress', completed: 'Completed', denied: 'Declined', cancelled: 'Cancelled' };
+const STATE = {
+  pending:     { label: 'Waiting',     rail: 'warn', badge: 'warn' },
+  accepted:    { label: 'Accepted',    rail: 'ok',   badge: 'ok' },
+  in_progress: { label: 'In progress', rail: 'info', badge: 'info' },
+  completed:   { label: 'Completed',   rail: 'mut',  badge: '' },
+  denied:      { label: 'Declined',    rail: 'bad',  badge: 'bad' },
+  cancelled:   { label: 'Cancelled',   rail: 'mut',  badge: '' },
+};
+const stateOf = j => STATE[j.status] || { label: (j.status || '').replace('_', ' '), rail: 'mut', badge: '' };
+const PRIORITY = { urgent: 'bad', low: '', normal: '' };
+
+const ICON = {
+  clock: '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16zm1 3a1 1 0 1 0-2 0v5.4l3.3 2a1 1 0 0 0 1-1.7L13 11.4z"/></svg>',
+  person: '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zm0 2c-4 0-8 2-8 4.5V21h16v-2.5c0-2.5-4-4.5-8-4.5z"/></svg>',
+  pin: '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>',
+  chat: '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4V5a2 2 0 0 1 2-2z"/></svg>',
+  send: '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M3.4 3.1 21 12 3.4 20.9 6 12z"/></svg>',
+  tick: '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M9.6 16.2 5.4 12l-1.4 1.4 5.6 5.6L20.4 8.2 19 6.8z"/></svg>',
+};
+
+function toast(msg, ok = true) {
+  const d = document.createElement('div');
+  d.className = 'wk-toast' + (ok ? '' : ' bad');
+  d.textContent = msg;
+  document.body.appendChild(d);
+  setTimeout(() => d.remove(), 3200);
+}
+
+async function api(method, path, body) {
+  const opts = { method, headers: {} };
+  if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+  // Don't hang forever on a poor mobile connection.
+  const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), 20000);
+  opts.signal = ctrl.signal;
+  let res;
+  try { res = await fetch(API + path, opts); }
+  catch (e) { throw new Error(e.name === 'AbortError' ? 'The connection timed out. Check your signal and try again.' : 'Could not reach the server. Check your connection.'); }
+  finally { clearTimeout(timer); }
+  if (!res.ok) {
+    let msg = `Request failed (${res.status})`;
+    try { const b = await res.json(); msg = typeof b.detail === 'string' ? b.detail : (b.detail && b.detail.message) || msg; } catch (e) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+const fmt = iso => iso ? new Date(iso).toLocaleString('en-GB', { timeZone: 'Europe/London', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
+const plate = reg => reg ? `<span class="wk-plate"><i>UK</i><b>${esc(reg)}</b></span>` : '';
+const meta = (icon, text) => `<span>${icon}${text}</span>`;
+
+// --- list -----------------------------------------------------------------
+function visible() {
+  let rows = filter === 'all' ? jobs : jobs.filter(j => j.status === filter);
+  if (query) {
+    const q = query.toLowerCase();
+    rows = rows.filter(j => [j.title, j.ref, j.driver_name, j.vehicle_reg].some(v => (v || '').toLowerCase().includes(q)));
+  }
+  return rows;
+}
+
+function render() {
+  const today = new Date().toDateString();
+  const done = jobs.filter(j => j.completed_at && new Date(j.completed_at).toDateString() === today).length;
+  $('stats').innerHTML = [
+    ['Waiting', jobs.filter(j => j.status === 'pending').length, 'warn'],
+    ['In progress', jobs.filter(j => j.status === 'in_progress').length, 'ok'],
+    ['Done today', done, ''],
+    ['Declined', jobs.filter(j => j.status === 'denied').length, 'bad'],
+  ].map(([k, v, kind]) => `<div class="wk-stat ${v ? kind : ''}"><span class="k">${k}</span><span class="v">${v}</span></div>`).join('');
+
+  $('tabs').innerHTML = FILTERS.map(f => {
+    const n = f === 'all' ? jobs.length : jobs.filter(j => j.status === f).length;
+    return `<button class="wk-chip ${filter === f ? 'on' : ''}" type="button" data-filter="${f}">${LABEL[f]} (${n})</button>`;
+  }).join('');
+
+  const rows = visible();
+  $('count').textContent = `${rows.length} ${rows.length === 1 ? 'job' : 'jobs'}` + (query ? ` matching “${query}”` : '');
+
+  if (!rows.length) {
+    $('list').innerHTML = `<p class="wk-empty">${query ? 'Nothing matches that search.' : 'No jobs here yet.'}</p>`;
+    return;
+  }
+
+  $('list').innerHTML = rows.map(j => {
+    const st = stateOf(j);
+    const bits = [meta(ICON.person, esc(j.driver_name))];
+    if (j.scheduled_at || j.assigned_at) bits.push(meta(ICON.clock, `${j.scheduled_at ? 'For' : 'Sent'} <b>${fmt(j.scheduled_at || j.assigned_at)}</b>`));
+    if (j.deny_reason) bits.push(meta(ICON.chat, `Reason: ${esc(j.deny_reason)}`));
+    return `<button class="wk-item" type="button" data-rail="${st.rail}" data-id="${j.id}">
+      <span class="wk-top">
+        <span class="wk-ref">${esc(j.ref || '')}</span>
+        <span class="wk-title">${esc(j.title)}</span>
+        <span class="wk-spacer"></span>
+        ${j.priority === 'urgent' ? '<span class="wk-badge bad">Urgent</span>' : ''}
+        <span class="wk-badge ${st.badge}">${st.label}</span>
+      </span>
+      <span class="wk-top" style="margin-top:9px">${plate(j.vehicle_reg)}<span class="wk-meta" style="margin:0">${bits.join('')}</span></span>
+    </button>`;
+  }).join('');
+}
+
+async function loadJobs() {
+  try { jobs = await api('GET', '/jobs'); } catch (e) { jobs = []; }
+  render();
+}
+
+// --- one job --------------------------------------------------------------
+// Where the work has got to. A job is allocated the moment it is sent, so the
+// first step is already behind it; declining or cancelling stops it there.
+const STEPS = ['Unallocated', 'Allocated', 'Accepted', 'In progress', 'Completed'];
+const REACHED = { pending: 1, accepted: 2, in_progress: 3, completed: 4, denied: 1, cancelled: 1 };
+
+function stepper(j) {
+  const at = REACHED[j.status] ?? 1;
+  const stopped = j.status === 'denied' || j.status === 'cancelled';
+  return `<div class="wk-steps ${stopped ? 'stopped' : ''}">${STEPS.map((s, i) =>
+    `<div class="st ${i <= at ? 'done' : ''} ${i === at ? 'now' : ''}"><div class="dot">${i <= at ? ICON.tick : ''}</div>${s}</div>`).join('')}</div>`;
+}
+
+let openJob = null, routeFor = null;
+
+async function showJob(id, keepScroll) {
+  const j = await api('GET', `/jobs/${id}`).catch(e => { toast(e.message, false); return null; });
+  if (!j) return;
+  openJob = j;
+  const st = stateOf(j);
+  $('sheetTitle').innerHTML = `${esc(j.ref || 'Job')} <span class="wk-badge ${st.badge}" style="margin-left:6px">${st.label}</span>`;
+
+  const body = $('sheetBody');
+  const top = keepScroll ? body.scrollTop : 0;
+  // The sheet redraws itself every 15 seconds; a message being typed survives it.
+  const old = $('noteIn');
+  const draft = keepScroll && old ? old.value : '';
+  const typing = old && document.activeElement === old;
+  const parts = [];
+
+  parts.push(`<section class="wk-sect">
+    <h3>Progress</h3>
+    ${stepper(j)}
+    ${j.deny_reason ? `<p style="margin:12px 0 0;font-size:13px;color:var(--bad)">Declined by ${esc(j.driver_name)}: ${esc(j.deny_reason)}</p>` : ''}
+    <dl class="wk-kvs" style="margin-top:12px">
+      <div class="wk-kv"><dt>Sent</dt><dd>${fmt(j.assigned_at)}</dd></div>
+      ${j.accepted_at ? `<div class="wk-kv"><dt>Accepted</dt><dd>${fmt(j.accepted_at)}</dd></div>` : ''}
+      ${j.started_at ? `<div class="wk-kv"><dt>Started</dt><dd>${fmt(j.started_at)}</dd></div>` : ''}
+      ${j.completed_at ? `<div class="wk-kv"><dt>Completed</dt><dd>${fmt(j.completed_at)}</dd></div>` : ''}
+    </dl>
+  </section>`);
+
+  parts.push(`<section class="wk-sect">
+    <h3>The job</h3>
+    <p style="margin:-4px 0 12px;font-size:15px;font-weight:600;overflow-wrap:anywhere">${esc(j.title)}</p>
+    <dl class="wk-kvs">
+      <div class="wk-kv"><dt>Driver</dt><dd>${esc(j.driver_name)}</dd></div>
+      ${j.vehicle_reg ? `<div class="wk-kv"><dt>Vehicle</dt><dd>${plate(j.vehicle_reg)}</dd></div>` : ''}
+      <div class="wk-kv"><dt>Priority</dt><dd><span class="wk-badge ${PRIORITY[j.priority] || ''}" style="text-transform:capitalize">${esc(j.priority)}</span></dd></div>
+      ${j.scheduled_at ? `<div class="wk-kv"><dt>Scheduled for</dt><dd>${fmt(j.scheduled_at)}</dd></div>` : ''}
+      ${j.assigned_by ? `<div class="wk-kv"><dt>Sent by</dt><dd>${esc(j.assigned_by)}</dd></div>` : ''}
+    </dl>
+    ${j.description ? `<p class="instructions" style="margin-top:12px">${esc(j.description)}</p>` : ''}
+  </section>`);
+
+  if (j.pickup_location || j.dropoff_location) {
+    parts.push(`<section class="wk-sect">
+      <h3>Route<span class="wk-spacer"></span><span id="routeState" style="font-weight:600;text-transform:none;letter-spacing:0">checking…</span></h3>
+      <div class="leg">
+        <div class="stop"><i></i><div><small>Collect from</small><p>${esc(j.pickup_location || 'Not given')}</p></div></div>
+        <div class="stop end"><i></i><div><small>Deliver to</small><p>${esc(j.dropoff_location || 'Not given')}</p></div></div>
+      </div>
+      <div id="routeBox" style="margin-top:12px"></div>
+    </section>`);
+  }
+
+  const msgs = j.messages || [];
+  parts.push(`<section class="wk-sect">
+    <h3>Notes &amp; activity<span class="wk-spacer"></span>${msgs.length || ''}</h3>
+    <div class="wk-notes" id="notes">${msgs.length ? msgs.map(m => `<div class="wk-note ${m.sender === 'office' ? 'mine' : ''} ${m.kind === 'change' ? 'change' : ''}">
+      ${m.kind === 'change' ? '<b>Change reported</b><br>' : ''}${esc(m.body)}
+      <span class="by">${esc(m.author || (m.sender === 'office' ? 'Office' : 'Driver'))} · ${fmt(m.created_at)}</span>
+    </div>`).join('') : '<p style="margin:0;color:var(--mut);font-size:13.5px">Nothing yet. A message here reaches the driver in their app.</p>'}</div>
+    <div class="wk-composer">
+      <input id="noteIn" placeholder="Message ${esc((j.driver_name || '').split(' ')[0] || 'the driver')}…" aria-label="Message the driver" />
+      <button class="wk-send" type="button" id="noteSend" aria-label="Send">${ICON.send}</button>
+    </div>
+  </section>`);
+
+  body.innerHTML = parts.join('');
+  body.scrollTop = top;
+
+  $('sheetFoot').innerHTML =
+    (['pending', 'accepted', 'in_progress'].includes(j.status) ? `<button class="wk-btn danger" type="button" data-act="cancel">Cancel job</button>` : '') +
+    (['denied', 'cancelled'].includes(j.status) ? `<button class="wk-btn primary" type="button" data-act="resend">Send to another driver</button>` : '') +
+    `<span class="wk-spacer"></span><button class="wk-btn" type="button" data-act="close">Close</button>`;
+
+  const notes = $('notes'); if (notes) notes.scrollTop = notes.scrollHeight;
+  const send = $('noteSend');
+  if (send) {
+    send.addEventListener('click', sendNote);
+    const input = $('noteIn');
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') sendNote(); });
+    if (draft) input.value = draft;
+    if (typing) { input.focus(); input.setSelectionRange(draft.length, draft.length); }
+  }
+
+  $('sheet').hidden = false;
+  if (!keepScroll && (j.pickup_location || j.dropoff_location)) loadRoute(j);
+}
+
+// The route is worked out when asked, so it costs a request: only once per job.
+async function loadRoute(j) {
+  routeFor = j.id;
+  let plan;
+  try { plan = await api('GET', `/jobs/${j.id}/route`); }
+  catch (e) { const s = $('routeState'); if (s && routeFor === j.id) s.textContent = 'could not be checked'; return; }
+  if (routeFor !== j.id || !$('routeBox')) return;
+  const closures = plan.closures || [];
+  $('routeState').innerHTML = plan.checked
+    ? (closures.length ? `<span class="wk-badge bad">${closures.length} closure${closures.length === 1 ? '' : 's'}</span>` : '<span class="wk-badge ok">Clear</span>')
+    : 'not checked';
+  const miles = plan.distance_km != null ? Math.round(plan.distance_km * 0.621371) : null;
+  $('routeBox').innerHTML =
+    (plan.checked ? `<dl class="wk-kvs" style="margin-bottom:12px">
+      <div class="wk-kv"><dt>Distance</dt><dd>${miles} miles</dd></div>
+      <div class="wk-kv"><dt>Driving time</dt><dd>${Math.floor(plan.duration_min / 60)}h ${String(Math.round(plan.duration_min % 60)).padStart(2, '0')}m</dd></div>
+    </dl>` : '<p style="margin:0 0 12px;color:var(--mut);font-size:13px">The addresses could not be placed on the map, so the route was not checked for closures.</p>') +
+    (closures.length ? `<div style="margin-bottom:12px">${closures.map(c => `<div class="closure"><b>${esc(c.road || 'Closed')}</b><span>${esc(c.where || c.description || '')}</span></div>`).join('')}</div>` : '') +
+    (plan.navigation ? `<a class="wk-btn primary" href="${esc(plan.navigation)}" target="_blank" rel="noopener" style="display:inline-block;text-decoration:none">Open in Google Maps</a>` : '') +
+    (plan.navigation_apple ? ` <a class="wk-btn" href="${esc(plan.navigation_apple)}" target="_blank" rel="noopener" style="display:inline-block;text-decoration:none">Apple Maps</a>` : '');
+}
+
+async function sendNote() {
+  const input = $('noteIn');
+  const body = input.value.trim();
+  if (!body || !openJob) return;
+  $('noteSend').disabled = true;
+  try {
+    await api('POST', `/jobs/${openJob.id}/messages`, { body, sender: 'office', author: 'Office' });
+    input.value = '';
+    await showJob(openJob.id, true);
+  } catch (e) { toast(e.message, false); }
+  finally { const s = $('noteSend'); if (s) s.disabled = false; }
+}
+
+function closeSheet() { openJob = null; routeFor = null; $('sheet').hidden = true; }
+
+// --- actions --------------------------------------------------------------
+async function doCancel() {
+  if (!openJob) return;
+  try { await api('POST', `/jobs/${openJob.id}/cancel`); toast('Job cancelled'); await showJob(openJob.id, true); loadJobs(); }
+  catch (e) { toast(e.message, false); }
+}
+
+// --- drivers --------------------------------------------------------------
+// Every driver: DH FleetView drivers, driver app accounts and names used before.
+let driverList = null, driversRequest = null;
+const OTHER = '__other__';
+// Loads once in the background when the page opens and again whenever a driver
+// picker opens. A failed load is never remembered, so the next try can succeed.
+function loadDrivers(force) {
+  if (driverList && !force) return Promise.resolve(driverList);
+  if (!driversRequest) {
+    driversRequest = api('GET', '/drivers')
+      .then(list => { driverList = list; return list; })
+      .finally(() => { driversRequest = null; });
+  }
+  return driversRequest;
+}
+// Live tachograph hours (FMC650), when the driver's card is in a tracked vehicle.
+const hmm = m => `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}`;
+function liveLabel(d) {
+  const l = d.live;
+  if (!l || l.driving_left_today == null) return null;
+  return `${hmm(l.driving_left_today)} driving left today`;
+}
+function hoursWarning(selectId) {
+  const v = $(selectId).value, d = (driverList || []).find(x => String(x.id) === v);
+  const box = $(selectId + 'Hours');
+  if (!box) return;
+  const l = d && d.live;
+  if (!l || l.driving_left_today == null) { box.textContent = ''; box.className = 'hours-note'; return; }
+  const low = l.driving_left_today < 60 || (l.driving_left_week != null && l.driving_left_week < 120);
+  box.className = 'hours-note' + (low ? ' low' : '');
+  box.textContent = `Live from the tachograph: ${hmm(l.driving_left_today)} driving left today`
+    + (l.driving_until_break != null ? `, break due in ${hmm(l.driving_until_break)}` : '')
+    + (l.driving_left_week != null ? `, ${hmm(l.driving_left_week)} left this week` : '')
+    + (low ? ' — may not have the hours for this job.' : '.');
+}
+// selected: {id, name} — your DH FleetView driver (by id), or a typed name.
+async function fillDriverSelect(selectId, otherId, selected, refreshed) {
+  const sel = $(selectId);
+  const note = $(selectId + 'Hours');
+  selected = selected || {};
+  let list;
+  if (driverList) {
+    list = driverList;
+    // Show what we have straight away, then refresh once in case drivers were added.
+    if (!refreshed) loadDrivers(true).then(() => { if (!sel.value) fillDriverSelect(selectId, otherId, selected, true); }).catch(() => {});
+  } else {
+    sel.innerHTML = '<option value="">Loading drivers…</option>';
+    sel.disabled = true;
+    try { list = await loadDrivers(); }
+    catch (e) {
+      sel.innerHTML = '<option value="">Drivers could not be loaded</option>';
+      if (note) { note.className = 'hours-note low'; note.innerHTML = esc(e.message) + ' <button type="button" class="btn-link" id="' + selectId + 'Retry">Try again</button>'; }
+      const retry = $(selectId + 'Retry');
+      if (retry) retry.onclick = () => fillDriverSelect(selectId, otherId, selected);
+      return;
+    } finally { sel.disabled = false; }
+  }
+  const name = (selected.name || '').toLowerCase();
+  const match = list.find(d => selected.id != null ? d.id === selected.id : d.name.toLowerCase() === name);
+  sel.innerHTML = '<option value="">Choose a driver…</option>' + list.map(d => {
+    const extra = [d.unique_id, d.app_access ? null : 'no app PIN', liveLabel(d)].filter(Boolean).join(' · ');
+    return `<option value="${esc(d.id)}" ${match === d ? 'selected' : ''}>${esc(d.name)}${extra ? ' (' + esc(extra) + ')' : ''}</option>`;
+  }).join('') + (selected.name && !match ? `<option value="${OTHER}" selected>Other driver…</option>` : '');
+  if (!list.length) sel.innerHTML = '<option value="">No drivers on your account yet — add them in Settings → Drivers</option>';
+  $(otherId).value = selected.name && !match ? selected.name : '';
+  toggleOther(selectId, otherId);
+}
+function toggleOther(selectId, otherId) {
+  hoursWarning(selectId);
+  const other = $(selectId).value === OTHER;
+  $(otherId).hidden = !other;
+  if (other) $(otherId).focus();
+}
+// {traccar_driver_id, driver_name, label} for the request, or null when nothing is chosen.
+function chosenDriver(selectId, otherId) {
+  const v = $(selectId).value;
+  if (v === OTHER) {
+    const typed = $(otherId).value.trim();
+    return typed ? { traccar_driver_id: null, driver_name: typed, label: typed } : null;
+  }
+  if (!v) return null;
+  const d = (driverList || []).find(x => String(x.id) === v);
+  return d ? { traccar_driver_id: d.id, driver_name: null, label: d.name } : null;
+}
+
+// --- send a job -----------------------------------------------------------
+async function openCreate() {
+  $('createDialog').hidden = false;
+  const cur = chosenDriver('cDriver', 'cDriverOther');
+  await fillDriverSelect('cDriver', 'cDriverOther', cur && { id: cur.traccar_driver_id, name: cur.label });
+}
+function closeCreate() { $('createDialog').hidden = true; }
+
+async function doCreate() {
+  const d = chosenDriver('cDriver', 'cDriverOther');
+  const t = $('cTitle').value.trim();
+  if (!d || !t) { toast('Choose a driver and give the job a title', false); return; }
+  $('createSend').disabled = true;
+  try {
+    await api('POST', '/jobs', {
+      traccar_driver_id: d.traccar_driver_id, driver_name: d.driver_name, title: t,
+      description: $('cDesc').value.trim() || null,
+      vehicle_reg: $('cVehicle').value.trim() || null,
+      pickup_location: $('cPickup').value.trim() || null,
+      dropoff_location: $('cDropoff').value.trim() || null,
+      priority: $('cPriority').value,
+      scheduled_at: $('cWhen').value ? new Date($('cWhen').value).toISOString() : null,
+    });
+    closeCreate();
+    ['cDriverOther', 'cTitle', 'cDesc', 'cVehicle', 'cPickup', 'cDropoff', 'cWhen'].forEach(id => $(id).value = '');
+    $('cDriver').value = '';
+    toast(`Job sent to ${d.label}`);
+    loadJobs();
+  } catch (e) { toast(e.message, false); }
+  finally { $('createSend').disabled = false; }
+}
+
+// --- send it again --------------------------------------------------------
+let resendJob = null;
+async function openResend(j) {
+  resendJob = j;
+  $('resendInfo').textContent = `${j.ref || 'Job'} · ${j.title} — ` +
+    (j.status === 'denied' ? `declined by ${j.driver_name}${j.deny_reason ? ': ' + j.deny_reason : ''}` : 'cancelled');
+  $('rWhen').value = '';
+  $('resendDialog').hidden = false;
+  await fillDriverSelect('rDriver', 'rDriverOther', { id: j.traccar_driver_id, name: j.driver_name });
+}
+function closeResend() { resendJob = null; $('resendDialog').hidden = true; }
+async function doResend() {
+  if (!resendJob) return;
+  const driver = chosenDriver('rDriver', 'rDriverOther');
+  if (!driver) { toast('Choose a driver', false); return; }
+  $('resendBtn').disabled = true;
+  try {
+    await api('POST', `/jobs/${resendJob.id}/resend`, {
+      traccar_driver_id: driver.traccar_driver_id,
+      driver_name: driver.driver_name,
+      scheduled_at: $('rWhen').value ? new Date($('rWhen').value).toISOString() : null,
+    });
+    toast(`Job sent to ${driver.label}`);
+    closeResend();
+    closeSheet();
+    loadJobs();
+  } catch (e) { toast(e.message, false); }
+  finally { $('resendBtn').disabled = false; }
+}
+
+// --- wiring ---------------------------------------------------------------
+$('list').addEventListener('click', e => {
+  const item = e.target.closest('.wk-item');
+  if (item) showJob(item.dataset.id);
+});
+$('tabs').addEventListener('click', e => {
+  const chip = e.target.closest('.wk-chip');
+  if (chip) { filter = chip.dataset.filter; render(); }
+});
+$('q').addEventListener('input', e => { query = e.target.value.trim(); render(); });
+$('sheetFoot').addEventListener('click', e => {
+  const act = e.target.closest('[data-act]');
+  if (!act) return;
+  if (act.dataset.act === 'close') closeSheet();
+  if (act.dataset.act === 'cancel') doCancel();
+  if (act.dataset.act === 'resend' && openJob) openResend(openJob);
+});
+$('sheetClose').addEventListener('click', closeSheet);
+$('sheet').addEventListener('click', e => { if (e.target === $('sheet')) closeSheet(); });
+$('newBtn').addEventListener('click', openCreate);
+$('createCancel').addEventListener('click', closeCreate);
+$('createSend').addEventListener('click', doCreate);
+$('resendCancel').addEventListener('click', closeResend);
+$('resendBtn').addEventListener('click', doResend);
+$('cDriver').addEventListener('change', () => toggleOther('cDriver', 'cDriverOther'));
+$('rDriver').addEventListener('change', () => toggleOther('rDriver', 'rDriverOther'));
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (!$('createDialog').hidden) return closeCreate();
+  if (!$('resendDialog').hidden) return closeResend();
+  if (!$('sheet').hidden) closeSheet();
+});
+
+loadJobs();
+loadDrivers().catch(() => {});   // ready before "Send job" is opened
+setInterval(() => { loadJobs(); if (openJob) showJob(openJob.id, true); }, 15000);
+</script>
+</body>
+</html>

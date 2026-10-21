@@ -42,3 +42,20 @@ tools/ffmpeg.exe
 tracker-server.jar.backup-*
 # Graphify AST cache - rebuilt by "graphify update .", not source
 graphify-out/cache/
+
+# Live server settings. This checkout has the running tacho server deployed at
+# its root, so a .env with the real SMTP password, DH FleetView API token,
+# DVR SMS key and JWT secret sits here. It must never be committed.
+.env
+.env.*
+!.env.example
+
+# Things that live beside the source but are not the source.
+# The embedded Postgres, its logs and the pairing PIN.
+.runtime/
+# The virtual environment.
+.venv/
+# A third-party binary: installed, not built here.
+tools/tachograph-go/
+# Tachograph downloads are operator data, never source.
+*.ddd

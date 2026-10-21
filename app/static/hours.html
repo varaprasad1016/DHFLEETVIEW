@@ -1,0 +1,672 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Tacho Compliance</title>
+<style>
+  :root{color-scheme:dark;--bg:#0b1220;--card:#131c2e;--line:#22304a;--fg:#e6edf7;--mut:#8aa0c0;--acc:#38bdf8;--ok:#34d399;--warn:#f59e0b;--bad:#f87171;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif;}
+  header{padding:16px;max-width:1400px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;}
+  h1{font-size:19px;margin:0;} a.back{color:var(--acc);text-decoration:none;font-size:13px;}
+  main{padding:0 16px 60px;max-width:1400px;margin:0 auto;}
+  .tabs{display:flex;gap:8px;margin:6px 0 14px;flex-wrap:wrap;}
+  .tabs button{background:var(--card);border:1px solid var(--line);color:var(--mut);border-radius:999px;padding:7px 14px;font:inherit;cursor:pointer;}
+  .tabs button.on{background:var(--acc);color:var(--on-acc);font-weight:700;border-color:var(--acc);}
+  table{width:100%;border-collapse:collapse;font-size:14px;}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);}
+  .report-table-wrap{width:100%;overflow-x:auto;overflow-y:hidden;border:1px solid var(--line);border-radius:8px;}
+  .report-table{min-width:1180px;margin:0;}
+  .report-table th{white-space:normal;line-height:1.25;}
+  .report-table td{white-space:nowrap;}
+  .report-table th:first-child,.report-table td:first-child{position:sticky;left:0;background:var(--card);z-index:1;}
+  .report-table th:first-child{z-index:2;}
+  .report-table tr:last-child td{border-bottom:0;}
+  .report-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
+  .report-controls{align-items:flex-end;}
+  .report-controls .note{max-width:340px;}
+  .report-controls select{min-width:220px;}
+  .infringement-filters select{min-width:180px;}
+  .timeline-chart{overflow-x:auto;padding-bottom:4px;}
+  .timeline-day{min-width:760px;border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:12px;background:#f8f8d8;color:#172033;}
+  .timeline-day-head{display:flex;justify-content:space-between;gap:12px;align-items:baseline;margin-bottom:9px;}
+  .timeline-day-head strong{font-size:15px;color:#172033;}
+  .timeline-day-head span{font-size:12px;color:#526174;}
+  .timeline-legend{display:flex;gap:14px;flex-wrap:wrap;margin:4px 0 10px;color:var(--mut);font-size:12px;}
+  .timeline-legend i{display:inline-block;width:12px;height:12px;border-radius:2px;vertical-align:-2px;margin-right:4px;}
+  .timeline-lane{display:grid;grid-template-columns:118px 1fr;gap:8px;align-items:center;margin:8px 0 14px;}
+  .timeline-lane-label{font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#172033;}
+  .timeline-lane-label small{display:block;font-size:10px;font-weight:500;color:#526174;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .timeline-track{position:relative;height:48px;background:#ffffd5;border:1px solid #6b7280;}
+  .timeline-grid{position:absolute;inset:0;display:grid;grid-template-columns:repeat(24,1fr);pointer-events:none;}
+  .timeline-grid span{border-left:1px solid #7d8490;position:relative;}
+  .timeline-grid span:last-child{border-right:1px solid #7d8490;}
+  .timeline-grid b{position:absolute;top:50px;left:-4px;font-size:10px;font-weight:500;color:#374151;}
+  .timeline-grid span:last-child b{left:auto;right:-5px;}
+  .timeline-block{position:absolute;top:6px;height:34px;border-radius:1px;min-width:1px;border:0;padding:0;cursor:pointer;}
+  .timeline-block:hover{filter:brightness(1.12);outline:2px solid #111827;z-index:2;}
+  .timeline-block.drive{background:#ef1717;}.timeline-block.work{background:#1d9b3a;}
+  .timeline-block.available{background:#f1cf35;}.timeline-block.rest{background:#3f46c9;}
+  .timeline-axis{display:grid;grid-template-columns:118px 1fr;gap:8px;margin-top:2px;}
+  .timeline-axis>div:last-child{height:18px;}
+  .timeline-action{margin-left:auto;}
+  .timeline-detail{min-height:22px;padding:8px 10px;border-radius:7px;background:var(--card);border:1px solid var(--line);color:var(--fg);font-size:13px;}
+  th{color:var(--mut);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.03em;}
+  .tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;text-transform:uppercase;}
+  .compliant{background:var(--ok-soft);color:var(--ok);} .due_soon{background:var(--warn-soft);color:var(--warn);}
+  .overdue{background:var(--bad-soft);color:var(--bad);} .no_data{background:var(--card2);color:var(--mut);}
+  /* Driver calendar: the depot's fortnight on one grid. */
+  .cal-wrap{overflow-x:auto;}
+  .cal{border-collapse:separate;border-spacing:2px;width:100%;}
+  .cal th,.cal td{font-size:12px;}
+  .cal th.cal-name{position:sticky;left:0;background:var(--card);z-index:2;text-align:left;
+    min-width:170px;padding:4px 8px 4px 2px;vertical-align:middle;}
+  .cal-driver{display:block;font-weight:700;color:var(--fg);}
+  .cal th.cal-name .note{font-size:11px;font-weight:400;}
+  .cal th.cal-h{padding:2px;font-weight:600;color:var(--mut);line-height:1.15;min-width:38px;}
+  .cal th.cal-h span{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.04em;}
+  .cal th.cal-h b{display:block;font-size:13px;color:var(--fg);}
+  .cal th.cal-h.cal-wknd{opacity:.65;}
+  .cal th.cal-h.cal-today b{color:var(--acc);}
+  .cal-cell{position:relative;height:38px;border-radius:6px;text-align:center;vertical-align:middle;
+    border:1px solid var(--line);cursor:default;}
+  .cal-v{font-weight:700;font-size:11.5px;}
+  .cal-worked{background:var(--ok-soft);color:var(--ok);}
+  .cal-rested{background:var(--card2);color:var(--mut);}
+  /* A day with no record is drawn as a hole, not a quiet blank: it is the
+     thing the office has to chase. */
+  .cal-no_data{background:repeating-linear-gradient(45deg,transparent,transparent 4px,var(--line) 4px,var(--line) 5px);
+    color:var(--mut);border-style:dashed;}
+  .cal-future{background:none;border-style:dotted;opacity:.45;}
+  .cal-inf{outline:2px solid var(--warn);outline-offset:-2px;}
+  .cal-inf.cal-very_serious{outline-color:var(--bad);}
+  .cal-inf.cal-minor{outline-color:var(--acc);}
+  .cal-dot{position:absolute;top:-4px;right:-4px;min-width:14px;height:14px;border-radius:999px;
+    background:var(--bad);color:#fff;font-size:9px;font-style:normal;font-weight:700;line-height:14px;padding:0 3px;}
+  .cal td.cal-tot,.cal th.cal-tot{min-width:78px;padding:2px 6px;text-align:right;font-weight:700;color:var(--fg);}
+  .cal th.cal-tot{font-size:10px;font-weight:600;color:var(--mut);text-transform:uppercase;line-height:1.15;}
+  .cal td.cal-tot .note{display:block;font-size:10px;font-weight:400;}
+  .cal-warn{color:var(--warn);} .cal-bad{color:var(--bad);}
+  .cal-summary{display:flex;flex-wrap:wrap;gap:8px 18px;margin-bottom:10px;font-size:13px;color:var(--mut);}
+  .cal-summary b{color:var(--fg);font-size:15px;}
+  .cal-key{display:flex;flex-wrap:wrap;gap:8px 16px;margin-top:10px;font-size:11.5px;color:var(--mut);align-items:center;}
+  .cal-key span{display:flex;align-items:center;gap:5px;}
+  .cal-key i{display:inline-block;width:16px;height:16px;border-radius:4px;}
+  @media(max-width:700px){ .cal th.cal-name{min-width:120px;} }
+  .sev{font-size:11px;font-weight:700;text-transform:uppercase;}
+  .sev.serious{color:var(--warn);} .sev.very_serious{color:var(--bad);} .sev.minor{color:var(--acc);}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px;}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;}
+  @media(max-width:600px){
+    .kpis{grid-template-columns:repeat(2,1fr);}
+    header{padding:12px;}
+    main{padding:0 12px 40px;}
+    .card{padding:10px;}
+    .report-controls{display:grid;grid-template-columns:1fr 1fr;align-items:end;}
+    .report-controls>div:nth-child(3),.report-controls>div:nth-child(4),.report-controls>div:nth-child(5){grid-column:1 / -1;max-width:none;}
+    .report-controls .btn{padding:8px 10px;}
+    .infringement-filters{display:grid;grid-template-columns:1fr 1fr;align-items:end;}
+    .infringement-filters>div:nth-child(3),.infringement-filters>div:nth-child(4){grid-column:1 / -1;}
+    .infringement-filters select{width:100%;min-width:0;}
+  }
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;text-align:center;}
+  .kpi b{display:block;font-size:22px;} .kpi span{color:var(--mut);font-size:12px;}
+  .btn{background:var(--acc);color:var(--on-acc);font-weight:700;border:none;border-radius:9px;padding:10px 16px;font:inherit;cursor:pointer;}
+  .btn.small{padding:6px 10px;font-size:13px;background:transparent;color:var(--acc);border:1px solid var(--line);}
+  input,select{background:var(--input);border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:9px;font:inherit;}
+  label{font-size:12px;color:var(--mut);display:block;margin:8px 0 3px;}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:end;}
+  .row>div{min-width:0;}
+  .msg{padding:10px;border-radius:9px;margin-top:8px;display:none;} .msg.ok{background:var(--ok-soft);border:1px solid var(--ok);display:block;} .msg.bad{background:var(--bad-soft);border:1px solid var(--bad);display:block;}
+  .empty{color:var(--mut);padding:24px;text-align:center;}
+  .lock{text-align:center;color:var(--mut);padding:40px 16px;} .lock a{color:var(--acc);}
+  .note{color:var(--mut);font-size:12px;margin-top:6px;}
+  .hidden{display:none!important;}
+  .modal{position:fixed;inset:0;background:#000a;display:flex;align-items:center;justify-content:center;padding:16px;z-index:50;}
+  .modal .box{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;width:100%;max-width:480px;}
+  .modal h3{margin:0 0 6px;font-size:16px;} .modal label{display:block;font-size:12px;color:var(--mut);margin:10px 0 4px;}
+  .modal select,.modal textarea{width:100%;} .modal textarea{min-height:80px;}
+  .signed{color:var(--ok);font-size:12px;} .awaiting{color:var(--warn);font-size:12px;}
+  .timeline-note{font-size:11px;color:#6b7280;margin:4px 0 8px;}
+</style>
+</head>
+<body>
+<header><h1>Tacho compliance</h1><a class="back" href="compliance">← Compliance</a></header>
+<main>
+  <div id="lock" class="lock hidden">🔒 Locked. <a href="approver">Approve this month's licence</a> to open tacho compliance.</div>
+  <div id="app" class="hidden">
+    <div class="kpis" id="kpis"></div>
+    <div class="tabs">
+      <button data-t="calendar" class="on">Calendar</button>
+      <button data-t="compliance">Download status</button>
+      <button data-t="infringements">Infringements</button>
+      <button data-t="timeline">Timeline</button>
+      <button data-t="report">Weekly report</button>
+      <button data-t="wtd">Working time</button>
+      <button data-t="files">Files &amp; upload</button>
+    </div>
+    <div id="view"></div>
+  </div>
+</main>
+<script>
+  const $=(id)=>document.getElementById(id);
+  // The standalone service can be mounted at / or behind /tacho. Build API
+  // URLs from the page location so old and new reverse-proxy layouts work.
+  const pagePath=window.location.pathname.replace(/\/+$/,'');
+  const pagePrefix=pagePath==='\/hours'?'':pagePath.slice(0,pagePath.lastIndexOf('/'));
+  const apiUrl=(path)=>`${pagePrefix}${path}`;
+  const api=(path,options)=>fetch(apiUrl(path),options);
+  let tab='calendar';
+  const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const hrs=m=>m==null?'':Math.floor(m/60)+'h'+String(m%60).padStart(2,'0');
+  const dt=s=>s?new Date(s).toLocaleString('en-GB',{timeZone:'Europe/London'}):'';
+  const dd=s=>s?new Date(s).toLocaleDateString('en-GB',{timeZone:'Europe/London'}):'—';
+
+  async function jsonResponse(response){
+    const text=await response.text();
+    let data;
+    try{ data=text?JSON.parse(text):{}; }catch{ data={detail:text||`Request failed (${response.status})`}; }
+    return {response,data};
+  }
+  function errorText(data,fallback){
+    return (data.detail&&data.detail.message)||data.detail||data.message||fallback;
+  }
+
+  async function kpis(){
+    const {response,data}=await jsonResponse(await api('/api/tacho/summary',{cache:'no-store'}));
+    if(!response.ok) throw new Error(errorText(data,`Could not load status (${response.status}).`));
+    const s=data;
+    $('kpis').innerHTML=`
+      <div class="kpi"><b style="color:var(--bad)">${s.open_serious}</b><span>Serious infringements</span></div>
+      <div class="kpi"><b>${s.open_infringements}</b><span>Open infringements</span></div>
+      <div class="kpi"><b style="color:${(s.drivers_overdue+s.vehicles_overdue)?'var(--warn)':'var(--ok)'}">${s.drivers_overdue+s.vehicles_overdue}</b><span>Downloads overdue</span></div>
+      <div class="kpi"><b>${s.archived_files}</b><span>Archived files</span></div>`;
+  }
+
+  // --- Calendar: the whole depot, a row per driver, a cell per day ----------
+  let calWeeks=2, calEnd='';
+  const DAYNAMES=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const calDay=iso=>{const [y,m,d]=iso.split('-').map(Number);return new Date(Date.UTC(y,m-1,d));};
+
+  function calCell(c,today){
+    // The empty cell is the one that matters: a day with no record is either a
+    // card not handed in or a driver who was not there, and the office has to
+    // know which. So it is drawn as a gap, not as a quiet blank.
+    const future=c.date>today;
+    let cls='cal-cell cal-'+c.state+(future?' cal-future':'');
+    if(c.infringements)cls+=' cal-inf cal-'+(c.worst||'serious');
+    const bits=[];
+    if(c.state==='worked'){
+      bits.push(`${hrs(c.working)}`);
+      if(c.start)bits.push(`${c.start}–${c.end||''}`);
+      if(c.shift!=null)bits.push(`shift ${hrs(c.shift)}`);
+      if(c.night)bits.push('night work');
+    } else if(c.state==='rested'){ bits.push('Rest — card shows no work'); }
+    else if(future){ bits.push('Not yet'); }
+    else { bits.push('No record — card not downloaded, or not at work'); }
+    if(c.infringements)bits.push(`${c.infringements} infringement${c.infringements===1?'':'s'}`);
+    const label=c.state==='worked'?hrs(c.working):(c.state==='rested'?'R':(future?'':'?'));
+    const mark=c.infringements?`<i class="cal-dot">${c.infringements}</i>`:'';
+    return `<td class="${cls}" title="${esc(calDay(c.date).toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'short',timeZone:'UTC'}))} — ${esc(bits.join(' · '))}">
+      <span class="cal-v">${label}</span>${mark}</td>`;
+  }
+
+  async function renderCalendar(){
+    const q=new URLSearchParams({weeks:String(calWeeks)});
+    if(calEnd)q.set('end',calEnd);
+    const {response,data}=await jsonResponse(await api('/api/tacho/calendar?'+q,{cache:'no-store'}));
+    if(!response.ok){ $('view').innerHTML=`<div class="card"><div class="empty">${esc(errorText(data,'Could not build the calendar.'))}</div></div>`; return; }
+
+    const dates=(data.drivers[0]?.cells||[]).map(c=>c.date);
+    const controls=`<div class="row report-controls" style="margin-bottom:10px">
+      <div><label>Show</label><select id="cw">
+        ${[1,2,4,6].map(w=>`<option value="${w}"${w===calWeeks?' selected':''}>${w} week${w===1?'':'s'}</option>`).join('')}
+      </select></div>
+      <div><label>Week ending</label><input type="date" id="ce" value="${esc(calEnd||data.to)}"></div>
+      <div style="align-self:flex-end"><button class="btn small" id="cgo">Show</button>
+      <button class="btn small" id="cnow">This week</button></div>
+      <div class="note" style="align-self:center">Hover a cell for the day's detail. A <b>?</b> is a day with
+        no record at all — the one to chase.</div>
+    </div>`;
+
+    if(!data.drivers.length){
+      $('view').innerHTML=`<div class="card">${controls}<div class="empty">No driver-card data in this period.</div></div>`;
+      wireCalendar(); return;
+    }
+
+    const t=data.totals;
+    const summary=`<div class="cal-summary">
+      <span><b>${t.drivers}</b> driver${t.drivers===1?'':'s'}</span>
+      <span class="${t.without_a_record?'cal-warn':''}"><b>${t.without_a_record}</b> with a missing record</span>
+      <span class="${t.infringements?'cal-bad':''}"><b>${t.infringements}</b> infringement${t.infringements===1?'':'s'}</span>
+      <span><b>${t.worked_days}</b> day${t.worked_days===1?'':'s'} worked</span>
+    </div>`;
+
+    let head='<tr><th class="cal-name">Driver</th>';
+    dates.forEach(d=>{
+      const day=calDay(d), dow=DAYNAMES[(day.getUTCDay()+6)%7];
+      const weekend=day.getUTCDay()===0||day.getUTCDay()===6;
+      head+=`<th class="cal-h${weekend?' cal-wknd':''}${d===data.today?' cal-today':''}">
+        <span>${dow}</span><b>${day.getUTCDate()}</b></th>`;
+    });
+    head+='<th class="cal-tot">Left this<br>week</th><th class="cal-tot">Last<br>download</th></tr>';
+
+    let body='';
+    data.drivers.forEach(dr=>{
+      // What the driver may still work: the hard weekly limit, unless holding
+      // the rolling average is tighter - which is the figure a planner cannot
+      // work out in their head.
+      const tight=dr.average_headroom!=null&&dr.average_headroom<dr.available_this_week;
+      const left=tight?dr.average_headroom:dr.available_this_week;
+      const leftText=left<0?`${hrs(-left)} over`:hrs(left);
+      body+=`<tr><th class="cal-name">
+          <span class="cal-driver">${esc(dr.name)}</span>
+          <span class="note">${dr.worked_days} worked${dr.days_without_a_record?` · <b class="cal-warn">${dr.days_without_a_record} missing</b>`:''}${dr.average!=null?` · avg ${hrs(dr.average)}`:''}</span>
+        </th>`;
+      dr.cells.forEach(c=>{ body+=calCell(c,data.today); });
+      body+=`<td class="cal-tot ${left<0?'cal-bad':(tight?'cal-warn':'')}" title="${esc(tight?`Limited by ${dr.limited_by}`:'Limited by the 60-hour week')}">
+          ${leftText}<span class="note">${tight?'average':'60h week'}</span></td>
+        <td class="cal-tot ${dr.days_since_download==null||dr.days_since_download>28?'cal-warn':''}">
+          ${dr.last_download?dd(dr.last_download):'never'}
+          <span class="note">${dr.days_since_download==null?'':dr.days_since_download+'d ago'}</span></td></tr>`;
+    });
+
+    $('view').innerHTML=`<div class="card">${controls}${summary}
+      <div class="cal-wrap"><table class="cal">${head}${body}</table></div>
+      <div class="cal-key">
+        <span><i class="cal-cell cal-worked"></i> worked</span>
+        <span><i class="cal-cell cal-rested"></i> rest on the card</span>
+        <span><i class="cal-cell cal-no_data"></i> no record</span>
+        <span><i class="cal-cell cal-inf cal-serious"></i> infringement</span>
+      </div></div>`;
+    wireCalendar();
+  }
+
+  function wireCalendar(){
+    $('cgo').onclick=()=>{ calWeeks=+$('cw').value; calEnd=$('ce').value; renderCalendar(); };
+    $('cnow').onclick=()=>{ calEnd=''; renderCalendar(); };
+    $('cw').onchange=()=>{ calWeeks=+$('cw').value; calEnd=$('ce').value; renderCalendar(); };
+  }
+
+  async function renderCompliance(){
+    const {data}=await jsonResponse(await api('/api/tacho/compliance',{cache:'no-store'}));
+    const c=data;
+    const tbl=(title,rows,unit)=>{
+      let h=`<div class="card"><h3 style="margin:0 0 8px">${title} <span class="note">(window ${unit} days)</span></h3>`;
+      if(!rows.length){ return h+'<div class="empty">Nothing to show.</div></div>'; }
+      h+='<table><tr><th>Ref</th><th>Last download</th><th>Days</th><th>Status</th></tr>';
+      rows.forEach(r=>{ h+=`<tr><td>${esc(r.label)}</td><td>${dd(r.last_download)}</td>
+        <td>${r.days_since==null?'—':r.days_since}</td>
+        <td><span class="tag ${r.status}">${r.status.replace('_',' ')}</span></td></tr>`; });
+      return h+'</table></div>';
+    };
+    $('view').innerHTML=tbl('Driver cards',c.drivers,c.windows.driver_days)+tbl('Vehicle units',c.vehicles,c.windows.vehicle_days);
+  }
+
+  let sevFilter='all', driverFilter='all', vehicleFilter='all';
+  let timelineDriver='', timelineFrom='', timelineTo='';
+  const timelineColours={drive:'#ef1717',work:'#1d9b3a',available:'#f1cf35',rest:'#3f46c9'};
+  const timelineNames={drive:'Driving',work:'Work',available:'Availability',rest:'Rest'};
+  const localDay=s=>new Date(s).toLocaleDateString('en-CA',{timeZone:'Europe/London'});
+  const localMinutes=s=>{const p=new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/London',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).formatToParts(new Date(s));const v=Object.fromEntries(p.map(x=>[x.type,x.value]));return (+v.hour||0)*60+(+v.minute||0)+(+v.second||0)/60;};
+  const nextDay=d=>{const [y,m,day]=d.split('-').map(Number);const x=new Date(Date.UTC(y,m-1,day+1));return x.toISOString().slice(0,10);};
+  const timelineDateLabel=d=>{const [y,m,day]=d.split('-').map(Number);return new Date(Date.UTC(y,m-1,day)).toLocaleDateString('en-GB',{weekday:'long',day:'2-digit',month:'2-digit',year:'numeric',timeZone:'UTC'});};
+  function timelineFragments(rows){
+    const out=[];
+    rows.forEach(row=>{
+      let day=localDay(row.start), endDay=localDay(row.end), guard=0;
+      while(day<=endDay && guard++<370){
+        const start=day===localDay(row.start)?localMinutes(row.start):0;
+        const end=day===endDay?localMinutes(row.end):1440;
+        if(end>start)out.push({...row,day,startMinute:start,endMinute:end});
+        if(day===endDay)break;
+        day=nextDay(day);
+      }
+    });
+    return out;
+  }
+  async function renderTimeline(){
+    const files=await (await api('/api/tacho/files',{cache:'no-store'})).json();
+    const drivers=[...new Set(files.filter(f=>f.file_kind==='driver_card'&&f.driver_ref).map(f=>f.driver_ref))].sort();
+    if(!timelineDriver && drivers.length===1)timelineDriver=drivers[0];
+    const q=new URLSearchParams(); if(timelineDriver)q.set('driver_ref',timelineDriver);
+    if(timelineFrom)q.set('start',timelineFrom+'T00:00:00');
+    if(timelineTo)q.set('end',timelineTo+'T23:59:59');
+    const pdfUrl=apiUrl('/api/tacho/timeline.pdf?'+q.toString());
+    let h=`<div class="card"><div class="row infringement-filters">
+      <div><label>Driver</label><select id="tl-driver"><option value="">Select driver</option>${drivers.map(d=>`<option value="${esc(d)}"${d===timelineDriver?' selected':''}>${esc(d)}</option>`).join('')}</select></div>
+      <div><label>From</label><input type="date" id="tl-from" value="${timelineFrom}"></div>
+      <div><label>To</label><input type="date" id="tl-to" value="${timelineTo}"></div>
+      <div><button class="btn small" id="tl-show">Show timeline</button> <a class="btn small timeline-action" href="${pdfUrl}" style="text-decoration:none">Download timeline PDF</a></div>
+    </div><div class="timeline-legend"><span><i style="background:${timelineColours.drive}"></i>Driving</span><span><i style="background:${timelineColours.work}"></i>Work</span><span><i style="background:${timelineColours.available}"></i>Availability</span><span><i style="background:${timelineColours.rest}"></i>Rest</span></div><div class="note">Timeline data is taken from driver-card downloads. The registration shown under each driver is the vehicle recorded on the card for that activity.</div></div><div id="timeline-body" class="card"><div class="empty">Choose a driver and date range, then press Show timeline.</div></div>`;
+    $('view').innerHTML=h;
+    $('tl-show').onclick=()=>{timelineDriver=$('tl-driver').value;timelineFrom=$('tl-from').value;timelineTo=$('tl-to').value;if(timelineFrom&&timelineTo&&timelineFrom>timelineTo){$('timeline-body').innerHTML='<div class="empty">From date must be before the To date.</div>';return;}renderTimeline();};
+    if(!timelineDriver){$('timeline-body').innerHTML='<div class="empty">Choose a driver and date range, then press Show timeline.</div>';return;}
+    const res=await api('/api/tacho/timeline?'+q,{cache:'no-store'}); const rows=await res.json();
+    if(!rows.length){$('timeline-body').innerHTML='<div class="empty">No driver-card activities match these filters.</div>';return;}
+    const fragments=timelineFragments(rows), byDay={}; fragments.forEach((r,i)=>(byDay[r.day]??=[]).push({...r,index:i}));
+    let b='<h3 style="margin-top:0">Daily driver timeline</h3><div class="timeline-chart">';
+    Object.keys(byDay).sort().forEach(day=>{
+      const dayRows=byDay[day];
+      b+=`<section class="timeline-day"><div class="timeline-day-head"><strong>${timelineDateLabel(day)}</strong><span>Daily values 00:00 to 24:00 local time</span></div>`;
+      const laneNames=[...new Set(dayRows.map(r=>r.driver_ref||'Driver activity'))];
+      laneNames.forEach(lane=>{const regs=[...new Set(dayRows.filter(r=>(r.driver_ref||'Driver activity')===lane).map(r=>r.vehicle_ref).filter(Boolean))];b+=`<div class="timeline-lane"><div class="timeline-lane-label" title="${esc(lane)}"><strong>${esc(lane)}</strong><small>${esc(regs.join(', ')||'Registration unavailable')}</small></div><div class="timeline-track"><div class="timeline-grid">${Array.from({length:25},(_,hour)=>`<span>${hour<24?`<b>${hour}</b>`:''}</span>`).join('')}</div>`;
+        dayRows.filter(r=>(r.driver_ref||'Driver activity')===lane).forEach(r=>{const kind=(r.activity||'').toLowerCase(),left=(r.startMinute/1440*100).toFixed(4),width=((r.endMinute-r.startMinute)/1440*100).toFixed(4);b+=`<button class="timeline-block ${kind}" data-tl="${r.index}" title="${timelineNames[kind]||r.activity} ${Math.floor(r.startMinute/60).toString().padStart(2,'0')}:${Math.floor(r.startMinute%60).toString().padStart(2,'0')} – ${Math.floor(r.endMinute/60).toString().padStart(2,'0')}:${Math.floor(r.endMinute%60).toString().padStart(2,'0')}" style="left:${left}%;width:${width}%"></button>`;});
+        b+='</div></div>';});
+      b+='</section>';});
+    b+='</div><div id="timeline-detail" class="timeline-detail" style="margin-top:14px">Select a coloured activity for details.</div>';
+    $('timeline-body').innerHTML=b;
+    $('timeline-body').querySelectorAll('[data-tl]').forEach(btn=>btn.onclick=()=>{const r=fragments[Number(btn.dataset.tl)],kind=(r.activity||'').toLowerCase();$('timeline-detail').innerHTML=`<b>${timelineNames[kind]||esc(r.activity)}</b> · ${dt(r.start)} – ${dt(r.end)}<br>Driver: ${esc(r.driver_ref||'—')} · Vehicle: ${esc(r.vehicle_ref||'—')} · Source: ${esc(r.source)} · Confidence: ${esc(r.confidence)}`;});
+  }
+  let statusFilter='open', debriefActions=null;
+  async function renderInfringements(){
+    const {data}=await jsonResponse(await api('/api/tacho/infringements?status='+statusFilter,{cache:'no-store'}));
+    const all=Array.isArray(data)?data:[];
+    const statusControl=`<div><label>Status</label><select id="if-status">${[['open','Open'],['acknowledged','Dealt with'],['all','All']].map(([v,l])=>`<option value="${v}"${statusFilter===v?' selected':''}>${l}</option>`).join('')}</select></div>`;
+    if(!all.length){ $('view').innerHTML=`<div class="card"><div class="row infringement-filters">${statusControl}</div><div class="empty">${statusFilter==='open'?'No open infringements. 🎉':'Nothing here.'}</div></div>`;
+      $('if-status').onchange=e=>{ statusFilter=e.target.value; renderInfringements(); }; return; }
+    const drivers=[...new Set(all.map(r=>r.driver_ref).filter(Boolean))].sort();
+    const vehicles=[...new Set(all.map(r=>r.vehicle_ref).filter(Boolean))].sort();
+    const selected=all.filter(r=>(driverFilter==='all'||r.driver_ref===driverFilter)
+      &&(vehicleFilter==='all'||(r.vehicle_ref||'unassigned')===vehicleFilter));
+    const counts={all:selected.length,
+      serious:selected.filter(r=>r.severity!=='minor').length,
+      minor:selected.filter(r=>r.severity==='minor').length};
+    const rows=sevFilter==='all'?selected:selected.filter(r=>sevFilter==='serious'?r.severity!=='minor':r.severity==='minor');
+    const option=(value,label,chosen)=>`<option value="${esc(value)}"${chosen===value?' selected':''}>${esc(label)}</option>`;
+    let h=`<div class="card"><div class="row infringement-filters" style="margin-bottom:10px">
+      ${statusControl}
+      <div><label>Driver</label><select id="if-driver">${option('all','All drivers',driverFilter)}${drivers.map(d=>option(d,d,driverFilter)).join('')}</select></div>
+      <div><label>Vehicle</label><select id="if-vehicle">${option('all','All vehicles',vehicleFilter)}${vehicles.map(v=>option(v,v,vehicleFilter)).join('')}${option('unassigned','Unassigned',vehicleFilter)}</select></div>
+      <div><label>Severity</label><button class="btn small" data-sev="all"${sevFilter==='all'?' style="background:var(--acc);color:var(--on-acc)"':''}>All (${counts.all})</button>
+      <button class="btn small" data-sev="serious"${sevFilter==='serious'?' style="background:var(--acc);color:var(--on-acc)"':''}>Serious &amp; above (${counts.serious})</button>
+      <button class="btn small" data-sev="minor"${sevFilter==='minor'?' style="background:var(--acc);color:var(--on-acc)"':''}>Minor (${counts.minor})</button></div>
+      <div class="note" style="align-self:center">Vehicle is taken from the assigned source download. Unassigned items have no vehicle link.</div>
+    </div>`;
+    if(!rows.length){ h+='<div class="empty">Nothing matches these filters.</div>'; }
+    else h+='<div class="report-table-wrap"><table><tr><th>Driver</th><th>Vehicle</th><th>Infringement</th><th>When</th><th>Actual</th><th>Limit</th><th>Driver sign-off</th><th>Debrief</th><th></th></tr>';
+    rows.forEach(r=>{ const v=r.review||{}; h+=`<tr>
+      <td>${esc(r.driver_ref)}</td><td>${esc(r.vehicle_ref||'Unassigned')}</td>
+      <td><span class="sev ${r.severity}">${r.severity.replace('_',' ')}</span><br>${esc(r.title)}<div class="note">${esc(r.detail||'')}</div></td>
+      <td>${dt(r.period_start)}</td><td>${hrs(r.actual_minutes)}</td><td>${hrs(r.limit_minutes)}</td>
+      <td>${v.driver_signed_at?`<span class="signed">✍ Signed ${dt(v.driver_signed_at)}</span>${v.has_signature?` <a href="${apiUrl('/api/tacho/infringements/'+r.id+'/signature')}" target="_blank" style="color:var(--acc);font-size:12px">view</a>`:''}${v.driver_comment?`<div class="note">“${esc(v.driver_comment)}”</div>`:''}`:'<span class="awaiting">Awaiting driver</span>'}</td>
+      <td>${v.debrief_action?`<b style="font-size:13px">${esc(v.debrief_action_label)}</b><div class="note">${esc(v.debriefed_by||'')} · ${dt(v.debriefed_at)}${v.debrief_notes?'<br>'+esc(v.debrief_notes):''}</div>`:''}
+        <button class="btn small" data-debrief="${r.id}" style="margin-top:4px">${v.debrief_action?'Change':'Record debrief'}</button></td>
+      <td>${r.status==='open'?`<button class="btn small" data-ack="${r.id}">Acknowledge</button> `:''}${r.status!=='dismissed'?`<button class="btn small" data-dis="${r.id}">Dismiss</button>`:'<span class="note">Dismissed</span>'}</td>
+    </tr>`; });
+    h+=(rows.length?'</table></div>':'')+'</div>';
+    $('view').innerHTML=h;
+    $('view').querySelector('#if-status').onchange=e=>{ statusFilter=e.target.value; renderInfringements(); };
+    $('view').querySelectorAll('[data-debrief]').forEach(b=>b.onclick=()=>openDebrief(rows.find(r=>r.id===b.dataset.debrief)));
+    $('view').querySelector('#if-driver').onchange=e=>{ driverFilter=e.target.value; renderInfringements(); };
+    $('view').querySelector('#if-vehicle').onchange=e=>{ vehicleFilter=e.target.value; renderInfringements(); };
+    $('view').querySelectorAll('[data-sev]').forEach(b=>b.onclick=()=>{ sevFilter=b.dataset.sev; renderInfringements(); });
+    $('view').querySelectorAll('[data-ack]').forEach(b=>b.onclick=()=>setStatus(b.dataset.ack,'acknowledged'));
+    $('view').querySelectorAll('[data-dis]').forEach(b=>b.onclick=()=>setStatus(b.dataset.dis,'dismissed'));
+  }
+  async function openDebrief(r){
+    if(!r) return;
+    if(!debriefActions){ const res=await jsonResponse(await api('/api/tacho/debrief-actions',{cache:'no-store'})); debriefActions=Array.isArray(res.data)?res.data:[]; }
+    const v=r.review||{};
+    const m=document.createElement('div'); m.className='modal';
+    m.innerHTML=`<div class="box"><h3>Debrief: ${esc(r.title)}</h3>
+      <div class="note">${esc(r.driver_ref)} · ${dt(r.period_start)}${v.driver_signed_at?' · driver signed '+dt(v.driver_signed_at):' · the driver has not signed yet'}</div>
+      <label>What was done</label><select id="dbAction"><option value="">Choose…</option>${debriefActions.map(a=>`<option value="${a.code}"${v.debrief_action===a.code?' selected':''}>${esc(a.label)}</option>`).join('')}</select>
+      <label>Notes</label><textarea id="dbNotes" maxlength="4000" placeholder="What was discussed, any follow-up">${esc(v.debrief_notes||'')}</textarea>
+      <div class="msg" id="dbMsg"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button class="btn small" id="dbCancel">Cancel</button><button class="btn" id="dbSave">Save debrief</button></div></div>`;
+    document.body.appendChild(m);
+    const close=()=>m.remove();
+    m.onclick=e=>{ if(e.target===m) close(); };
+    m.querySelector('#dbCancel').onclick=close;
+    m.querySelector('#dbSave').onclick=async()=>{
+      const action=m.querySelector('#dbAction').value;
+      const msg=m.querySelector('#dbMsg');
+      if(!action){ msg.className='msg bad'; msg.textContent='Choose what was done.'; return; }
+      const {response,data}=await jsonResponse(await api('/api/tacho/infringements/'+r.id+'/debrief',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action,notes:m.querySelector('#dbNotes').value||null})}));
+      if(!response.ok){ msg.className='msg bad'; msg.textContent=errorText(data,'Could not save.'); return; }
+      close(); kpis(); renderInfringements();
+    };
+  }
+  async function setStatus(id,status){
+    await api('/api/tacho/infringements/'+id+'/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
+    kpis(); renderInfringements();
+  }
+
+  function updateUploadKind(){
+    const vu=$('kind').value==='vehicle_unit';
+    $('vehicle-wrap')?.classList.add('hidden');
+    $('upload-help').textContent=vu
+      ? 'Vehicle-unit files are assigned automatically to this account. The parser reads the VU registration, VIN and tachograph serial, then matches or creates the vehicle in your fleet.'
+      : 'Select one or more driver-card files. The tachograph-go parser identifies the driver and assigns the upload to this account.';
+  }
+
+  async function renderFiles(){
+    let h=`<div class="card"><h3 style="margin:0 0 8px">Upload a download file (.ddd)</h3>
+      <div class="row">
+        <div><label>Files</label><input type="file" id="f" multiple accept=".ddd,.tgd,.v1b,.c1b"></div>
+        <div><label>Type</label><select id="kind"><option value="driver_card">Driver card</option><option value="vehicle_unit">Vehicle unit</option></select></div>
+        <div><label>Account</label><input value="This account" disabled></div>
+        <div><label>Driver ref (optional)</label><input id="ref" placeholder="optional card number or name"></div>
+        <div><button class="btn" id="up">Upload &amp; analyse</button></div>
+      </div>
+      <div class="note" id="upload-help">Select one or more files. Uploads are assigned automatically to the company registered to this account.</div>
+      <div class="msg" id="upmsg"></div>
+      <div class="note">Files are archived and retained for 12 months. Each file gets its own result below, so one bad file does not hide successful uploads.</div>
+      <div class="row" style="margin-top:10px">
+        <div><button class="btn small" id="re">Re-analyse archived cards</button></div>
+        <div class="note" style="align-self:center">Rebuilds the infringement list from archived files. Open items are replaced; reviewed items are kept.</div>
+      </div>
+      <div class="msg" id="remsg"></div>
+    </div><div class="card" id="filelist"></div>`;
+    $('view').innerHTML=h;
+    $('up').onclick=doUpload;
+    $('kind').onchange=updateUploadKind;
+    $('re').onclick=doReanalyse;
+    updateUploadKind(); listFiles();
+  }
+  async function doReanalyse(){
+    const m=$('remsg'); $('re').disabled=true;
+    m.className='msg'; m.textContent='Re-analysing…';
+    try{
+      const {response,data}=await jsonResponse(await api('/api/tacho/reanalyse',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}));
+      if(!response.ok){ m.className='msg bad'; m.textContent=errorText(data,`Re-analysis failed (${response.status}).`); }
+      else{ m.className='msg ok';
+        m.textContent=`${data.files} file(s) re-analysed: ${data.removed} stale item(s) replaced by ${data.added} new, reviewed item(s) kept.`
+          +(data.errors&&data.errors.length?` ${data.errors.length} file(s) could not be read.`:''); }
+      kpis(); listFiles();
+    }catch(e){ m.className='msg bad'; m.textContent=e.message||'Network error.'; }
+    $('re').disabled=false;
+  }
+  async function listFiles(){
+    const {response,data}=await jsonResponse(await api('/api/tacho/files',{cache:'no-store'}));
+    if(!response.ok){ $('filelist').innerHTML='<div class="msg bad">'+esc(errorText(data,`Could not load files (${response.status}).`))+'</div>'; return; }
+    const rows=Array.isArray(data)?data:[];
+    let h='<h3 style="margin:0 0 8px">Archive</h3>';
+    if(!rows.length){ $('filelist').innerHTML=h+'<div class="empty">No files yet.</div>'; return; }
+    h+='<table><tr><th>File</th><th>Type</th><th>Ref</th><th>Parsed</th><th>Uploaded</th><th>Retain to</th></tr>';
+    rows.forEach(f=>{ h+=`<tr><td>${esc(f.filename)}</td><td>${f.file_kind}</td><td>${esc(f.driver_ref||f.vehicle_ref||'')}</td>
+      <td>${f.parsed?'✓':(f.parse_error?'<span style="color:var(--warn)">unparsed</span>':'—')}</td>
+      <td>${dd(f.created_at)}</td><td>${dd(f.retain_until)}</td></tr>`; });
+    $('filelist').innerHTML=h+'</table>';
+  }
+  async function readFileBase64(file){
+    return await new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result.split(',')[1]); r.onerror=rej; r.readAsDataURL(file); });
+  }
+  async function doUpload(){
+    const files=[...$('f').files]; const m=$('upmsg'); const kind=$('kind').value;
+    if(!files.length){ m.className='msg bad'; m.textContent='Choose at least one file.'; return; }
+    $('up').disabled=true; m.className='msg'; m.textContent=`Reading ${files.length} file(s)…`;
+    try{
+      const payload=await Promise.all(files.map(async file=>({filename:file.name,content_base64:await readFileBase64(file),file_kind:kind,
+        driver_ref:kind==='driver_card'?($('ref').value||null):null})));
+      const res=await api('/api/tacho/upload-batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      const batch=await res.json();
+      if(!res.ok){ m.className='msg bad'; m.textContent=(batch.detail&&batch.detail.message)||batch.detail||'Upload failed.'; }
+      else{
+        const results=batch.files||[]; const parsed=results.filter(d=>d.parsed).length;
+        const failures=results.filter(d=>d.error||d.parse_error).length;
+        const details=results.map(d=>{
+          const name=esc(d.filename||d.file_id||'file');
+          if(d.error)return `<div>❌ ${name}: ${esc(String(d.error))}</div>`;
+          if(d.already_analyzed)return `<div>↺ ${name}: already analysed</div>`;
+          if(d.file_kind==='vehicle_unit'&&d.parsed)return `<div>✅ ${name}: VU parsed (${d.vehicle_ref||'registration not present'})${d.identity_mismatch?' — registration mismatch':''}</div>`;
+          if(d.parsed)return `<div>✅ ${name}: driver card parsed, ${d.infringements_found||0} infringement(s)</div>`;
+          return `<div>⚠ ${name}: archived but not parsed — ${esc(d.parse_error||'unknown error')}</div>`;
+        }).join('');
+        m.className=failures?'msg bad':'msg ok'; m.innerHTML=`${parsed}/${results.length} file(s) parsed.${failures?' '+failures+' file(s) need attention.':''}<div style="margin-top:6px">${details}</div>`;
+      }
+      kpis(); listFiles();
+    }catch(e){ m.className='msg bad'; m.textContent='Network error while uploading the batch.'; }
+    $('up').disabled=false;
+  }
+
+  let repFrom='', repTo='', repDriver='';
+  async function renderReport(){
+    const files=await (await api('/api/tacho/files',{cache:'no-store'})).json();
+    const drivers=[...new Set(files.filter(f=>f.file_kind==='driver_card'&&f.driver_ref).map(f=>f.driver_ref))].sort();
+    if(!repDriver && drivers.length===1)repDriver=drivers[0];
+    const q=new URLSearchParams();
+    if(repFrom)q.set('start',repFrom); if(repTo)q.set('end',repTo); if(repDriver)q.set('driver_ref',repDriver);
+    const driverControl=drivers.length>1?`<div><label>Driver</label><select id="rd"><option value="">Select driver</option>${drivers.map(d=>`<option value="${esc(d)}"${d===repDriver?' selected':''}>${esc(d)}</option>`).join('')}</select></div>`:'';
+    let h=`<div class="card"><div class="row report-controls" style="margin-bottom:10px">
+      ${driverControl}
+      <div><label>From</label><input type="date" id="rf" value="${repFrom}"></div>
+      <div><label>To</label><input type="date" id="rt" value="${repTo}"></div>
+      <div style="align-self:flex-end"><button class="btn small" id="rgo">Show</button>
+      <a class="btn small" id="rpdf" href="${apiUrl('/api/tacho/report.pdf?'+q)}" style="text-decoration:none">Download PDF</a>
+      <button class="btn small" id="rmail" title="Email this report — the same dates shown here — to the address your account is registered with">Email report</button></div>
+      <div class="note" style="align-self:center">Leave the dates blank for everything the card holds.
+        <a href="report-settings" style="color:var(--acc)">Choose which infringements appear</a></div>
+    </div><div id="rbody" class="empty">Loading…</div></div>`;
+    $('view').innerHTML=h;
+    $('rgo').onclick=()=>{ repFrom=$('rf').value; repTo=$('rt').value; repDriver=$('rd')?.value||repDriver; renderReport(); };
+    // Emails the same report the button above downloads. With no dates set it
+    // sends last week, which is what the Monday job sends.
+    $('rmail').onclick=async()=>{
+      const button=$('rmail'), was=button.textContent;
+      button.disabled=true; button.textContent='Sending…';
+      try{
+        const body={};
+        if($('rf').value)body.start=$('rf').value;
+        if($('rt').value)body.end=$('rt').value;
+        const chosen=$('rd')?.value||repDriver; if(chosen)body.driver_ref=chosen;
+        const {response,data}=await jsonResponse(await api('/api/tacho/report/send',
+          {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}));
+        if(!response.ok){ alert(errorText(data,'The report could not be emailed.')); }
+        else{
+          // Say what actually went, so a one-page email is never a surprise.
+          const span=data.period?` covering ${dd(data.period.start)} to ${dd(data.period.end)}`:'';
+          const wk=data.weeks?` (${data.weeks} week${data.weeks===1?'':'s'})`:'';
+          alert(`Sent to ${data.sent_to}${span}${wk}: ${data.attached} report(s), ${data.infringements} infringement(s).`);
+        }
+      }catch(e){ alert(e.message||'Network error.'); }
+      button.disabled=false; button.textContent=was;
+    };
+    if(drivers.length>1 && !repDriver){
+      $('rbody').textContent='Select a driver above, then press Show to load the report.';
+      $('rbody').className='note report-select-message';
+      return;
+    }
+    let d;
+    try{ const {response,data}=await jsonResponse(await api('/api/tacho/report?'+q,{cache:'no-store'}));
+         d=data;
+         if(!response.ok){ $('rbody').textContent=errorText(d,'Could not build the report.'); return; }
+    }catch(e){ $('rbody').textContent=e.message||'Network error.'; return; }
+    const cols=['Date','Reg','Finish odo','Start odo','Dist','Start duty','Drive start','End duty',
+                'Daily rest','Drive','Work','POA','Break','Shift',
+                'Shift duty (inc. POA)','WTD active (excl. POA)','Fort drive','Prev rest'];
+    let b=`<div class="timeline-note"><b>${esc(d.driver.name||d.driver.ref||'Driver')}</b>${d.driver.card_number?' · card '+esc(d.driver.card_number):''}</div>`;
+    b+=`<div class="note" style="margin-bottom:10px">Card data covers ${dd(d.period.data_from)} to ${dd(d.period.data_to)} · times in ${esc(d.period.timezone)}</div>`;
+    d.weeks.forEach(w=>{
+      b+=`<h3 class="report-heading" style="margin:16px 0 6px"><span>Week ${dd(w.start)} – ${dd(w.end)}</span><span class="note">Swipe or scroll horizontally to see all columns</span></h3><div class="report-table-wrap"><table class="report-table" data-no-stack style="font-size:12px"><tr>${cols.map(c=>'<th>'+c+'</th>').join('')}</tr>`;
+      w.days.forEach(r=>{
+        if(r.no_data||r.rest_day){
+          b+=`<tr><td>${dd(r.date)}</td><td colspan="15" class="note">${r.no_data?'No data':'Rest day'}</td>
+              <td>${hrs(r.fortnight_drive)}</td><td></td></tr>`; return; }
+        b+=`<tr><td>${dd(r.date)}</td><td>${esc(r.registration)}</td>
+          <td>${r.odometer_end?r.odometer_end.toLocaleString():''}</td>
+          <td>${r.odometer_start?r.odometer_start.toLocaleString():''}</td>
+          <td>${r.distance||''}</td><td>${r.start_duty}</td><td>${r.drive_start}</td><td>${r.end_duty}</td>
+          <td>${hrs(r.daily_rest)}</td><td>${hrs(r.drive)}</td><td>${hrs(r.work)}</td><td>${hrs(r.poa)}</td>
+          <td>${hrs(r.break)}</td><td>${hrs(r.shift)}</td>
+          <td>${hrs(r.shift_duty??r.wtd)}</td><td>${hrs(r.wtd_active)}</td>
+          <td>${hrs(r.fortnight_drive)}</td><td>${hrs(r.previous_rest)}</td></tr>`; });
+      const t=w.totals;
+      b+=`<tr style="font-weight:700"><td colspan="4">Week's total</td><td>${t.distance||0}</td><td colspan="3"></td>
+        <td>${hrs(t.daily_rest)}</td><td>${hrs(t.drive)}</td><td>${hrs(t.work)}</td><td>${hrs(t.poa)}</td>
+        <td>${hrs(t['break'])}</td><td>${hrs(t.shift)}</td>
+        <td>${hrs(t.shift_duty??t.wtd)}</td><td>${hrs(t.wtd_active)}</td><td colspan="2"></td></tr></table></div>`;
+      const sect=(name,items,empty)=>{
+        b+=`<div class="note" style="margin:10px 0 4px;font-weight:700">${name}</div>`;
+        if(!items.length){ b+=`<div class="note">${empty}</div>`; return; }
+        items.forEach(i=>{ const v=i.review; b+=`<div class="note">${dd(i.date)} ${i.time||''} — <span class="sev ${i.severity||''}">${(i.severity||'').replace('_',' ')}</span>
+          <b>${esc(i.title||i.name)}</b> ${esc(i.detail||'')}
+          ${v&&v.driver_signed_at?`<span class="signed"> · ✍ driver signed ${dd(v.driver_signed_at.slice(0,10))}</span>`:(v?'<span class="awaiting"> · not signed yet</span>':'')}
+          ${v&&v.debrief_action_label?` · debrief: ${esc(v.debrief_action_label)}`:''}</div>`; });
+      };
+      sect('Working time infringements',w.working_time_infringements,'No messages found');
+      sect('Infringements',w.infringements,'No messages found');
+      sect('Faults',w.faults,'No messages found');
+    });
+    $('rbody').className=''; $('rbody').innerHTML=b||'<div class="empty">Nothing in this period.</div>';
+  }
+  let wtdWeeks=26, wtdRef=17, wtdOpen=null;
+  async function renderWtd(){
+    const monthAgo=new Date(Date.now()-30*864e5).toISOString().slice(0,10), todayIso=new Date().toISOString().slice(0,10);
+    $('view').innerHTML=`<div class="card"><div class="row report-controls" style="margin-bottom:10px">
+        <div><label>Weeks shown</label><select id="wWeeks">${[13,26,52].map(n=>`<option value="${n}"${n===wtdWeeks?' selected':''}>${n}</option>`).join('')}</select></div>
+        <div><label>Reference period</label><select id="wRef">${[17,26].map(n=>`<option value="${n}"${n===wtdRef?' selected':''}>${n} weeks</option>`).join('')}</select></div>
+        <div class="note" style="align-self:center;max-width:520px">Working time is driving plus other work (availability doesn't count). Limits: 60 hours in any week, 48 hours on average over the reference period, and 10 hours in 24 on days with night work (00:00–04:00). Weeks with no card data (leave, sickness) aren't included in the average.</div>
+      </div>
+      <div class="row report-controls" style="margin-bottom:10px">
+        <div><label>Daily hours from</label><input type="date" id="hFrom" value="${monthAgo}"></div>
+        <div><label>to</label><input type="date" id="hTo" value="${todayIso}"></div>
+        <div style="align-self:flex-end"><a class="btn small" id="hCsv" style="text-decoration:none">Download daily hours (CSV)</a></div>
+        <div class="note" style="align-self:center">For payroll: card hours per day with app shift times.</div>
+      </div><div id="wbody" class="empty">Loading…</div></div>`;
+    const csvLink=()=>{ $('hCsv').href=apiUrl('/api/tacho/hours.csv?start='+$('hFrom').value+'&end='+$('hTo').value); };
+    $('hFrom').onchange=csvLink; $('hTo').onchange=csvLink; csvLink();
+    $('wWeeks').onchange=e=>{ wtdWeeks=Number(e.target.value); renderWtd(); };
+    $('wRef').onchange=e=>{ wtdRef=Number(e.target.value); renderWtd(); };
+    const {response,data}=await jsonResponse(await api('/api/tacho/wtd?weeks='+wtdWeeks+'&reference_weeks='+wtdRef,{cache:'no-store'}));
+    if(!response.ok){ $('wbody').textContent=errorText(data,'Could not build the working time report.'); return; }
+    if(!data.drivers.length){ $('wbody').textContent='No driver card data in this period.'; return; }
+    const hm=m=>m==null?'—':`${Math.floor(m/60)}:${String(m%60).padStart(2,'0')}`;
+    const over=(m,limit)=>m!=null&&m>limit?` style="color:var(--bad);font-weight:700"`:'';
+    let b='<div class="report-table-wrap"><table><tr><th>Driver</th><th>Latest average</th><th>Longest week</th><th>Weeks over 60h</th><th>Night work over 10h</th><th>Break infringements</th><th>Card data</th><th></th></tr>';
+    data.drivers.forEach((d,i)=>{
+      const w60=d.weeks.filter(w=>w.flags.some(f=>f.code==='week_over_60h')).length;
+      const n10=d.weeks.reduce((a,w)=>a+w.night_over_10h.length,0);
+      const brk=d.weeks.reduce((a,w)=>a+w.break_infringements,0);
+      b+=`<tr><td>${esc(d.driver_ref)}</td><td${over(d.latest_average_minutes,data.limits.average_minutes)}>${hm(d.latest_average_minutes)}</td>
+        <td${over(d.max_week_minutes,data.limits.week_minutes)}>${hm(d.max_week_minutes)}</td>
+        <td${w60?' style="color:var(--bad);font-weight:700"':''}>${w60}</td><td${n10?' style="color:var(--bad);font-weight:700"':''}>${n10}</td>
+        <td${brk?' style="color:var(--warn);font-weight:700"':''}>${brk}</td><td class="note">${d.data_from?dd(d.data_from)+' – '+dd(d.data_to):'—'}</td>
+        <td><button class="btn small" data-w="${i}">${wtdOpen===d.driver_ref?'Hide weeks':'Weeks'}</button></td></tr>`;
+      if(wtdOpen===d.driver_ref){
+        b+=`<tr><td colspan="8"><table class="report-table" data-no-stack style="min-width:760px;font-size:12px"><tr><th>Week starting</th><th>Working time</th><th>Driving</th><th>Other work</th><th>Availability</th><th>${data.reference_weeks}-week average</th><th>Night work days</th><th>Break infringements</th><th>Checks</th></tr>`+
+          d.weeks.map(w=>`<tr><td>${dd(w.week_start)}</td>${w.has_data?`<td${over(w.working_minutes,data.limits.week_minutes)}>${hm(w.working_minutes)}</td><td>${hm(w.drive_minutes)}</td><td>${hm(w.work_minutes)}</td><td>${hm(w.poa_minutes)}</td>`:'<td colspan="4" class="note">No card data</td>'}
+            <td${over(w.average_minutes,data.limits.average_minutes)}>${hm(w.average_minutes)} <span class="note">(${w.weeks_in_average} wk)</span></td>
+            <td>${w.night_work_days||''}${w.night_over_10h.length?` <span style="color:var(--bad)">${w.night_over_10h.map(n=>dd(n.date)+' '+hm(n.working_minutes)).join(', ')}</span>`:''}</td>
+            <td>${w.break_infringements||''}</td><td>${w.flags.map(f=>`<div style="color:var(--bad)">${esc(f.label)}</div>`).join('')}</td></tr>`).join('')+'</table></td></tr>';
+      }
+    });
+    $('wbody').className=''; $('wbody').innerHTML=b+'</table></div>';
+    $('wbody').querySelectorAll('[data-w]').forEach(btn=>btn.onclick=()=>{ const ref=data.drivers[Number(btn.dataset.w)].driver_ref; wtdOpen=wtdOpen===ref?null:ref; renderWtd(); });
+  }
+  function render(){ if(tab==='calendar')renderCalendar(); else if(tab==='compliance')renderCompliance(); else if(tab==='wtd')renderWtd(); else if(tab==='infringements')renderInfringements(); else if(tab==='timeline')renderTimeline(); else if(tab==='report')renderReport(); else renderFiles(); }
+  document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
+    tab=b.dataset.t; document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); render();
+  });
+  async function init(){
+    let s; try{ const result=await jsonResponse(await api('/api/license/status',{cache:'no-store'})); s=result.data; }catch{}
+    if(!s||!s.licensed){ $('lock').classList.remove('hidden'); return; }
+    $('app').classList.remove('hidden'); await kpis(); render();
+  }
+  init();
+</script>
+</body>
+</html>

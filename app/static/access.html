@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0b1220" />
+<title>${title} — Site access</title>
+<link rel="stylesheet" href="assets/workspace.css" />
+<style>
+  :root { color-scheme: dark; --bg:#0b1220; --card:#131c2e; --line:#22304a; --fg:#e6edf7; --mut:#8aa0c0; --acc:#38bdf8; --ok:#34d399; --warn:#f59e0b; --bad:#f87171; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui,"Segoe UI",Roboto,sans-serif; }
+  .addr { font-family:ui-monospace,"Cascadia Mono",Consolas,monospace; font-size:14px; }
+  .agent { font-size:11.5px; color:var(--mut); overflow-wrap:anywhere; margin-top:6px; display:block; }
+  .note { margin:0 0 16px; font-size:13px; color:var(--mut); max-width:80ch; }
+</style>
+</head>
+<body>
+<header class="wk-head">
+  <a class="back" href="compliance" aria-label="Back to the compliance hub"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M15.4 4.6a1 1 0 0 1 0 1.4L9.4 12l6 6a1 1 0 0 1-1.4 1.4l-6.7-6.7a1 1 0 0 1 0-1.4L14 4.6a1 1 0 0 1 1.4 0z"/></svg></a>
+  <hgroup>
+    <h1>Site access</h1>
+    <p>Every device and address that has reached this site</p>
+  </hgroup>
+  <button class="wk-btn" type="button" id="refreshBtn">Refresh</button>
+</header>
+
+<main class="wk-main">
+  <div class="wk-stats" id="stats"></div>
+
+  <div class="wk-search">
+    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M10 2a8 8 0 1 0 4.9 14.3l4.4 4.4a1 1 0 0 0 1.4-1.4l-4.4-4.4A8 8 0 0 0 10 2zm0 2a6 6 0 1 1 0 12 6 6 0 0 1 0-12z"/></svg>
+    <input id="q" type="search" placeholder="Search address, account or device" autocomplete="off" aria-label="Search" />
+  </div>
+
+  <div class="wk-chips" id="chips">
+    <button class="wk-chip on" type="button" data-days="14">Last 14 days</button>
+    <button class="wk-chip" type="button" data-days="30">30 days</button>
+    <button class="wk-chip" type="button" data-days="90">90 days</button>
+    <button class="wk-chip" type="button" id="robotsChip">Include crawlers</button>
+  </div>
+
+  <p class="wk-count" id="count"></p>
+  <div class="wk-list" id="list"></div>
+
+  <p class="note" id="footnote"></p>
+</main>
+
+<script>
+// Same-origin: works at /tacho/<page> behind Apache and at :8000/<page> directly.
+const API = location.pathname.replace(/\/[^\/]*$/, '') + '/api/access';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+let data = null, days = 14, robots = false, query = '';
+
+const when = (iso) => {
+  if (!iso) return '—';
+  const moment = new Date(iso);
+  return moment.toLocaleString('en-GB', {
+    timeZone: 'Europe/London', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+  });
+};
+
+async function load() {
+  $('list').innerHTML = '<p class="wk-empty">Reading the access log…</p>';
+  const response = await fetch(`${API}?days=${days}&include_robots=${robots}`);
+  if (!response.ok) {
+    $('list').innerHTML = '<p class="wk-empty">The access record could not be read.</p>';
+    return;
+  }
+  data = await response.json();
+  render();
+}
+
+function render() {
+  if (!data) return;
+  if (!data.allowed) {
+    $('stats').innerHTML = '';
+    $('list').innerHTML = '<p class="wk-empty">Only an administrator can see who has been using the site.</p>';
+    return;
+  }
+  const s = data.summary;
+  $('stats').innerHTML = [
+    ['Devices', s.devices, ''],
+    ['Addresses', s.addresses, ''],
+    ['Accounts seen', s.accounts, ''],
+    ['Sign-ins', s.sign_ins, 'ok'],
+    ['Refused', s.refused, s.refused ? 'bad' : ''],
+  ].map(([k, v, kind]) => `<div class="wk-stat ${v ? kind : ''}"><span class="k">${k}</span><span class="v">${v}</span></div>`).join('');
+
+  const needle = query.toLowerCase();
+  const rows = data.rows.filter((r) => !needle
+    || [r.address, r.account, r.device, r.browser, r.agent].some((v) => (v || '').toLowerCase().includes(needle)));
+
+  $('count').textContent = `${rows.length} device${rows.length === 1 ? '' : 's'}`
+    + (query ? ` matching “${query}”` : '') + ` over ${data.days} days`;
+
+  if (!rows.length) {
+    $('list').innerHTML = '<p class="wk-empty">Nothing matches that.</p>';
+  } else {
+    $('list').innerHTML = rows.map((r) => {
+      const rail = r.robot ? 'mut' : (r.refused ? 'bad' : (r.sign_ins ? 'ok' : 'info'));
+      return `<div class="wk-item" data-rail="${rail}" style="cursor:default">
+        <span class="wk-top">
+          <span class="wk-title addr">${esc(r.address)}</span>
+          ${r.account ? `<span class="wk-badge ok">${esc(r.account)}</span>` : ''}
+          ${r.robot ? '<span class="wk-badge">crawler</span>' : ''}
+          <span class="wk-spacer"></span>
+          <span class="wk-badge ${r.refused ? 'bad' : ''}">${esc(r.device)} · ${esc(r.browser)}</span>
+        </span>
+        <span class="wk-meta">
+          <span>Last seen <b>${when(r.last_seen)}</b></span>
+          <span>First <b>${when(r.first_seen)}</b></span>
+          <span><b>${r.days}</b> day${r.days === 1 ? '' : 's'}</span>
+          <span><b>${r.requests.toLocaleString('en-GB')}</b> requests</span>
+          ${r.sign_ins ? `<span><b>${r.sign_ins}</b> sign-in${r.sign_ins === 1 ? '' : 's'}</span>` : ''}
+          ${r.refused ? `<span style="color:var(--bad)"><b>${r.refused}</b> refused</span>` : ''}
+          ${r.used ? `<span>Used <b>${esc(r.used)}</b></span>` : ''}
+        </span>
+        <span class="agent">${esc(r.agent)}</span>
+      </div>`;
+    }).join('');
+  }
+
+  const c = data.collected || {};
+  $('footnote').textContent = `Built from the web server's own access log, read up to the moment this page loaded`
+    + (c.lines ? ` (${c.lines.toLocaleString('en-GB')} new lines this time).` : '.')
+    + ` Crawlers and scanners are counted separately: ${s.robots.toLocaleString('en-GB')} in this period.`
+    + ' Addresses and devices are personal data — keep this page to administrators.';
+}
+
+$('chips').addEventListener('click', (e) => {
+  const chip = e.target.closest('.wk-chip');
+  if (!chip) return;
+  if (chip.id === 'robotsChip') {
+    robots = !robots;
+    chip.classList.toggle('on', robots);
+  } else {
+    days = Number(chip.dataset.days);
+    [...$('chips').children].forEach((c) => { if (c.dataset.days) c.classList.toggle('on', c === chip); });
+  }
+  load();
+});
+$('q').addEventListener('input', (e) => { query = e.target.value.trim(); render(); });
+$('refreshBtn').addEventListener('click', load);
+
+load();
+</script>
+</body>
+</html>
