@@ -261,11 +261,20 @@ const AddVehiclePage = () => {
                     update(label.key, 'device_id', e.target.value.replace(/\D/g, ''))
                   }
                   disabled={label.state === 'created'}
-                  error={Boolean(label.device_id) && !/^\d{12}$/.test(label.device_id)}
+                  /* Device IDs are not a fixed width: this fleet runs 10, 12 and
+                     13 digits (0442795046, 044270960003, 0442607280035). The old
+                     rule demanded exactly 12 and turned every 10-digit camera red
+                     for being correct. */
+                  error={Boolean(label.device_id) && !/^\d{10,13}$/.test(label.device_id)}
+                  /* Three states, not two. Saying "not readable" while the field
+                     holds a number the operator has just typed is both wrong and
+                     alarming. */
                   helperText={
-                    label.device_id_source === 'text'
-                      ? 'Read from the printed ID line — check it against the photo'
-                      : 'Not readable on this photo — type the number after ID: on the label'
+                    !label.device_id
+                      ? 'Not readable on this photo — type the number after ID: on the label'
+                      : label.device_id_source === 'text'
+                        ? 'Read from the printed ID line — check it against the photo'
+                        : 'Typed in — check it against the label'
                   }
                 />
               )}

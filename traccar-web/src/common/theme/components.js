@@ -15,6 +15,18 @@ export default {
         MozOsxFontSmoothing: 'grayscale',
         fontFeatureSettings: '"cv02", "cv03", "cv04", "cv11"',
       },
+      // Printing: the app is a fixed-height shell with scrollboxes inside it,
+      // which prints one screen or none at all. On paper it has to be an
+      // ordinary flowing document, with table headings repeated on each sheet
+      // and no row split down the middle.
+      '@media print': {
+        'html, body, #root': {
+          height: 'auto !important',
+          overflow: 'visible !important',
+        },
+        thead: { display: 'table-header-group' },
+        tr: { breakInside: 'avoid' },
+      },
       '*::-webkit-scrollbar': {
         width: 8,
         height: 8,

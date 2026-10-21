@@ -18,6 +18,7 @@ import {
   ListItemButton,
   Chip,
   Slider,
+  LinearProgress,
 } from '@mui/material';
 import { makeStyles } from 'tss-react/mui';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -244,6 +245,8 @@ const clockOf = (seconds) => {
   return h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
 };
 
+const formatMb = (bytes) => `${Math.round((bytes || 0) / (1024 * 1024))} MB`;
+
 // How often a stalled tile is restarted from the DVR before it gives up, and
 // how long a tile may show nothing before it counts as stalled.
 const GRID_RESTART_LIMIT = 3;
@@ -463,6 +466,9 @@ const Cmsv9VideoPage = () => {
   const [loadingTimeline, setLoadingTimeline] = useState(false);
   const [trimStart, setTrimStart] = useState(null);
   const [trimEnd, setTrimEnd] = useState(null);
+  // Fetching a clip off a vehicle: what we are fetching, and how far it has got.
+  const [clipJob, setClipJob] = useState(null);
+  const clipJobRef = useRef(null);
 
   const channels = useMemo(() => {
     const n = config?.channels || Number(defaultChannels) || 4;
@@ -880,25 +886,89 @@ const Cmsv9VideoPage = () => {
     }
   }, [tab, timelineDate, channel, cmsv9DeviceId]);
 
+  // Footage does not arrive as a file. The camera plays it back off its own SD
+  // card in real time over the vehicle's mobile connection, so a ten minute
+  // clip takes ten minutes and costs the SIM about 220 MB. Worse, the relay
+  // gives every playback of a channel the same name, so two requests for the
+  // same camera fight over one stream and both end after a few seconds - a
+  // browser asking twice for one download was enough to cause it.
+  //
+  // So a clip is fetched once, on the server, and kept. This asks for that
+  // fetch and waits for it, reporting progress; afterwards the same clip is
+  // served from disk, instantly and without touching the vehicle again.
+  const clipUrl = useCallback(
+    (startStr, endStr, share) =>
+      `/api/cmsv9/download/${deviceId}/${channel}` +
+      `?startTime=${encodeURIComponent(startStr)}` +
+      `&endTime=${encodeURIComponent(endStr)}` +
+      (share ? '&format=share&disposition=attachment' : ''),
+    [deviceId, channel],
+  );
+
+  const fetchClip = useCallback(
+    async (startStr, endStr, share, label) => {
+      const query =
+        `?startTime=${encodeURIComponent(startStr)}` +
+        `&endTime=${encodeURIComponent(endStr)}` +
+        (share ? '&format=share' : '');
+      const base = `/api/cmsv9/clip/${deviceId}/${channel}${query}`;
+      const token = {};
+      clipJobRef.current = token;
+      try {
+        const started = await fetch(base, { method: 'POST' });
+        if (!started.ok) {
+          // The server answers a rejected request with a Java exception and its
+          // stack; the sentence on the first line is the part worth showing.
+          const body = await started.text();
+          const first = (body || '').split('\n')[0].replace(/^[\w.]+Exception:\s*/, '');
+          throw new Error(first || 'The clip could not be requested.');
+        }
+        let state = await started.json();
+        setClipJob({ label, share, ...state });
+        // Nothing to wait for when the server already has it.
+        while (!state.ready) {
+          await new Promise((resolve) => {
+            setTimeout(resolve, 2000);
+          });
+          if (clipJobRef.current !== token) return null;
+          const poll = await fetch(base);
+          if (!poll.ok) throw new Error('Lost contact with the server while fetching the clip.');
+          state = await poll.json();
+          setClipJob({ label, share, ...state });
+          if (!state.ready && !state.working) {
+            throw new Error('The camera stopped sending that footage. It may be offline.');
+          }
+        }
+        setClipJob(null);
+        return clipUrl(startStr, endStr, share);
+      } catch (e) {
+        if (clipJobRef.current === token) {
+          setClipJob(null);
+          setPlayerMsg(e.message);
+        }
+        return null;
+      } finally {
+        if (clipJobRef.current === token) clipJobRef.current = null;
+      }
+    },
+    [deviceId, channel, clipUrl],
+  );
+
   // Reviewing a clip is a different job from watching a live picture, and it
-  // needs a different player. The relay pushes recorded footage as a live FLV
-  // stream, so Jessibuca can only ever show it at normal speed with no way to
-  // move about in it. The same clip fetched as MP4 plays in the browser's own
-  // video element, which brings real seeking and any speed we ask for.
+  // needs a different player: a complete MP4 in the browser's own video element
+  // gives real seeking and any speed we ask for, which a pushed FLV cannot.
   const reviewClip = useCallback(
-    (startStr, endStr) => {
+    async (startStr, endStr) => {
       cancelledRef.current = true;
       stopPlayback();
       setPlaybackActive(false);
       setLiveError(false);
       setReviewRate(1);
-      setReviewUrl(
-        `/api/cmsv9/download/${deviceId}/${channel}` +
-          `?startTime=${encodeURIComponent(startStr)}` +
-          `&endTime=${encodeURIComponent(endStr)}`,
-      );
+      setReviewUrl('');
+      const url = await fetchClip(startStr, endStr, false, 'Preview');
+      if (url) setReviewUrl(url);
     },
-    [deviceId, channel, stopPlayback],
+    [fetchClip, stopPlayback],
   );
 
   // Start the clip without waiting for the play arrow.
@@ -927,14 +997,18 @@ const Cmsv9VideoPage = () => {
 
   // format=share re-encodes to H.264 with the index at the front. Without it
   // the file is the camera's own H.265 in a fragmented container: fine in VLC
-  // or on a PC, but WhatsApp and the phone galleries refuse it.
+  // or on a PC, but WhatsApp and the phone galleries refuse it. The re-encode
+  // is done from the copy the server already holds, so previewing a clip and
+  // then downloading it costs one trip to the vehicle, not two.
+  //
+  // The save happens only once the server has the whole clip, so the browser's
+  // download manager gets a complete file with a length it can resume - it is
+  // free to ask again, which it does, and that ask no longer reaches the
+  // vehicle.
   const downloadSegment = useCallback(
-    (startStr, endStr) => {
-      const url =
-        `/api/cmsv9/download/${deviceId}/${channel}` +
-        `?startTime=${encodeURIComponent(startStr)}` +
-        `&endTime=${encodeURIComponent(endStr)}` +
-        '&format=share';
+    async (startStr, endStr) => {
+      const url = await fetchClip(startStr, endStr, true, 'Download');
+      if (!url) return;
       const a = document.createElement('a');
       a.href = url;
       a.download = '';
@@ -942,7 +1016,7 @@ const Cmsv9VideoPage = () => {
       a.click();
       a.remove();
     },
-    [deviceId, channel],
+    [fetchClip],
   );
 
   const playRecording = useCallback(
@@ -1488,8 +1562,35 @@ const Cmsv9VideoPage = () => {
                 </Box>
                 <Typography variant="caption" color="textSecondary">
                   Select a segment to set the range, then press Preview to watch it or Download for
-                  the exact clip. The list below grabs whole segments.
+                  the exact clip. The list below grabs whole segments. The camera plays footage back
+                  in real time over the vehicle&apos;s mobile data — about a minute and 22 MB per
+                  minute of footage — so a clip takes as long as it lasts the first time. After that
+                  it is kept here, and watching or downloading it again is instant and free.
                 </Typography>
+                {clipJob && (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <CircularProgress size={16} />
+                      <Typography variant="caption">
+                        {`Fetching ${clockOf(clipJob.seconds)} of footage from the vehicle`}
+                        {clipJob.elapsedSeconds > 0 &&
+                          ` — ${clockOf(Math.min(clipJob.elapsedSeconds, clipJob.seconds))} of ${clockOf(
+                            clipJob.seconds,
+                          )}`}
+                        {clipJob.bytes > 0 && ` · ${formatMb(clipJob.bytes)}`}
+                        {clipJob.share && ' · a shareable copy will be made from it'}
+                      </Typography>
+                    </Box>
+                    <LinearProgress
+                      variant={clipJob.seconds ? 'determinate' : 'indeterminate'}
+                      value={
+                        clipJob.seconds
+                          ? Math.min(100, ((clipJob.elapsedSeconds || 0) / clipJob.seconds) * 100)
+                          : 0
+                      }
+                    />
+                  </Box>
+                )}
               </Box>
               {trimStart && trimEnd && (
                 <Box sx={{ px: 2, pb: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -1517,6 +1618,7 @@ const Cmsv9VideoPage = () => {
                       size="small"
                       variant="outlined"
                       startIcon={<PlayArrowIcon />}
+                      disabled={Boolean(clipJob)}
                       onClick={() =>
                         reviewClip(
                           trimStart.format('YYYY-MM-DD HH:mm:ss'),
@@ -1546,6 +1648,7 @@ const Cmsv9VideoPage = () => {
                       size="small"
                       variant="contained"
                       startIcon={<DownloadIcon />}
+                      disabled={Boolean(clipJob)}
                       onClick={() =>
                         downloadSegment(
                           trimStart.format('YYYY-MM-DD HH:mm:ss'),
@@ -1580,6 +1683,7 @@ const Cmsv9VideoPage = () => {
                           edge="end"
                           color="primary"
                           title="Download this clip"
+                          disabled={Boolean(clipJob)}
                           onClick={() => downloadSegment(startStr, endStr)}
                         >
                           <DownloadIcon />

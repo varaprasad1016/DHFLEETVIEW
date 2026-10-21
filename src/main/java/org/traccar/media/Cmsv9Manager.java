@@ -111,17 +111,36 @@ public class Cmsv9Manager {
 
     // --- FLV URL construction ---
 
+    /**
+     * A stream address for the browser: the site's own origin, not the media
+     * server's port.
+     *
+     * ZLMediaKit serves video on 4022, over TLS only. A browser on a network
+     * that allows 443 and little else - an office, a depot - cannot open that,
+     * which is why the cameras played on a phone and not on a desk. Apache
+     * proxies /live to 4022, so the page fetches video from where it was
+     * served. Relative on purpose: the white-label build then works under its
+     * own hostname with nothing to configure.
+     *
+     * Server-side fetches keep the absolute form (see openStreamOnHost and the
+     * media-list call) - from here 4022 is reachable, and a hop through Apache
+     * would be waste.
+     */
     public String buildLiveFlvUrl(String terminal, int channel) {
-        String host = apiUri("").getHost();
-        int port = getMediaPort();
-        return "https://" + host + ":" + port + "/live/" + liveStreamName(terminal, channel) + ".live.flv";
+        return "/live/" + liveStreamName(terminal, channel) + ".live.flv";
     }
 
     public String buildPlaybackFlvUrl(String terminal, int channel) {
-        String host = apiUri("").getHost();
-        int port = getMediaPort();
-        return "https://" + host + ":" + port
-                + "/live/" + canonicalTerminal(terminal) + "_channel_" + channel + "_playback.live.flv";
+        return "/live/" + canonicalTerminal(terminal) + "_channel_" + channel + "_playback.live.flv";
+    }
+
+    /** The same, for an address CNMS hands us: keep the path, drop host and port. */
+    public String forBrowser(String url) {
+        if (url == null) {
+            return null;
+        }
+        int idx = url.indexOf("/live/");
+        return idx > 0 ? url.substring(idx) : url;
     }
 
     public String rtmpToFlv(String rtmpUrl) {
@@ -648,115 +667,13 @@ public class Cmsv9Manager {
         return new java.io.File(ffmpegPath()).isFile();
     }
 
+    /** The ffmpeg to run, for anything that needs to assemble footage. */
+    public String ffmpegCommand() {
+        return ffmpegPath();
+    }
+
     private String ffmpegPath() {
         return "tools/ffmpeg.exe";
-    }
-
-    /**
-     * Plays a recorded segment and remuxes the H.265 FLV into a fragmented MP4
-     * on the fly (ffmpeg -c copy for video, no re-encode, nothing written to
-     * disk; audio transcoded to AAC so the file is broadly playable). Closing
-     * the returned stream tears down the ffmpeg process. Returns null if
-     * playback is unavailable.
-     */
-    public InputStream openPlaybackMp4(
-            String terminal, int channel, String startTime, String endTime) throws Exception {
-        InputStream flv = openPlaybackStream(terminal, channel, startTime, endTime);
-        if (flv == null) {
-            return null;
-        }
-        ProcessBuilder pb = new ProcessBuilder(
-                ffmpegPath(),
-                "-hide_banner", "-loglevel", "error",
-                "-i", "pipe:0",
-                "-c:v", "copy",
-                "-c:a", "aac",
-                "-movflags", "frag_keyframe+empty_moov+default_base_moof",
-                "-f", "mp4",
-                "pipe:1");
-        pb.redirectError(ProcessBuilder.Redirect.DISCARD);
-        Process process = pb.start();
-        Thread feeder = new Thread(() -> {
-            try (InputStream in = flv; java.io.OutputStream out = process.getOutputStream()) {
-                in.transferTo(out);
-            } catch (java.io.IOException e) {
-                // downstream closed or playback ended
-            }
-        }, "cmsv9-ffmpeg-feed");
-        feeder.setDaemon(true);
-        feeder.start();
-        return new java.io.FilterInputStream(process.getInputStream()) {
-            @Override
-            public void close() throws java.io.IOException {
-                super.close();
-                process.destroy();
-            }
-        };
-    }
-
-    /**
-     * Plays a recorded segment and writes a file that phones and messaging
-     * apps will actually accept.
-     *
-     * The streaming version above passes the camera's H.265 through untouched
-     * into a fragmented MP4. That plays in VLC and on a PC, but WhatsApp and
-     * the like refuse it on two counts: they want H.264, and a fragmented file
-     * has no index at the front for them to read. So here the video is
-     * re-encoded to H.264 in yuv420p and the index is moved to the front with
-     * faststart.
-     *
-     * Faststart needs to seek in its output, which a pipe cannot do, so this
-     * one goes to a temporary file and is served once ffmpeg has finished.
-     * That means waiting for the whole clip - but the camera plays it back off
-     * its card in real time anyway, so the wait is the clip's own length
-     * either way. The file deletes itself when the download closes.
-     */
-    public InputStream openPlaybackShareableMp4(
-            String terminal, int channel, String startTime, String endTime) throws Exception {
-        InputStream flv = openPlaybackStream(terminal, channel, startTime, endTime);
-        if (flv == null) {
-            return null;
-        }
-        java.nio.file.Path temp = java.nio.file.Files.createTempFile("dhfv-clip-", ".mp4");
-        ProcessBuilder pb = new ProcessBuilder(
-                ffmpegPath(),
-                "-hide_banner", "-loglevel", "error",
-                "-i", "pipe:0",
-                // H.264 Main in yuv420p is the combination every phone decodes.
-                "-c:v", "libx264", "-profile:v", "main", "-level", "4.0",
-                "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", "23",
-                "-c:a", "aac", "-b:a", "96k",
-                // The index at the front, and no fragments.
-                "-movflags", "+faststart",
-                "-f", "mp4",
-                "-y", temp.toString());
-        pb.redirectError(ProcessBuilder.Redirect.DISCARD);
-        Process process = pb.start();
-        Thread feeder = new Thread(() -> {
-            try (InputStream in = flv; java.io.OutputStream out = process.getOutputStream()) {
-                in.transferTo(out);
-            } catch (java.io.IOException e) {
-                // downstream closed or playback ended
-            }
-        }, "cmsv9-ffmpeg-share");
-        feeder.setDaemon(true);
-        feeder.start();
-
-        int exit = process.waitFor();
-        if (exit != 0 || !java.nio.file.Files.isRegularFile(temp)
-                || java.nio.file.Files.size(temp) == 0) {
-            LOG.error("shareable clip conversion failed for {} ch{} (ffmpeg exit {})",
-                    terminal, channel, exit);
-            java.nio.file.Files.deleteIfExists(temp);
-            return null;
-        }
-        return new java.io.FilterInputStream(java.nio.file.Files.newInputStream(temp)) {
-            @Override
-            public void close() throws java.io.IOException {
-                super.close();
-                java.nio.file.Files.deleteIfExists(temp);
-            }
-        };
     }
 
     private InputStream openUrl(String url) throws Exception {

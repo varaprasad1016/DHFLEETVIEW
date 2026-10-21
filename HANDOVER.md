@@ -1,6 +1,6 @@
 # Handover — DH FleetView / Infomac
 
-Updated 6 October 2026. For an agent picking this up cold.
+Updated 14 October 2026. For an agent picking this up cold.
 `PROJECT_STRUCTURE_FOR_AI.md` has the layout; this file is **current state and
 live problems**.
 
@@ -11,173 +11,239 @@ live problems**.
 - **Never push local commit `623075c0`** to a remote without asking first.
 - Keep data (DBs, files, logs, backups, deploy copies, temp) on **D:**, not C:.
 - **Never print secrets**: DB passwords, the updater private key, `DVR_SMS_KEY`,
-  `cmsv9.mediaSecret`, the frp token, `TRACCAR_API_TOKEN`, SMTP or Caburn
-  credentials. Refer to them by name and location. Refuse to transcribe
-  passwords into files.
-- Do not add Traccar FMC650 forwarding config until the first FMC650 is fitted.
+  `cmsv9.mediaSecret`, the frp token, `TRACCAR_API_TOKEN`, SMTP, Caburn or
+  TachoSync credentials. Refer to them by name and location.
+  Writing a key the user supplies into `.env` on their own server, at their
+  request, is normal administration and was done for `TACHOSYNC_API_KEY` on
+  14 Oct when they could not RDP in. Transcribing passwords out of screenshots
+  is still refused.
+- Confirm before restarting Traccar, rebooting a tracker (`cpureset`), or
+  changing security settings. The user has approved each of these individually;
+  none of those approvals carries to the next occasion.
 
 ---
 
-## 2. The two live blockers
+## 2. The live blockers
 
 ### A. iOS app rejected — awaiting your reply to Apple
 
 Submission `637517d1-2a6d-499c-ac8d-0f76a291bf8c`, build **1.0.5 (113)**,
 rejected 30 Sept on three guidelines. **Two are fixed; one needs the user to
-send a reply.**
+send a reply.** Unchanged since 6 October.
 
 | Guideline | State |
 |---|---|
-| **3.1.1** registration = external purchase route | **Fixed.** Server flag `registration` set to false. The Register link is gone from web and app. No rebuild needed. |
+| **3.1.1** registration = external purchase route | **Fixed.** Server flag `registration` set to false. |
 | **1.5** Support URL not a support page | **Fixed.** `https://dhfleetview.co.uk/support.html` is live. |
 | **2.1** Information needed (7 business questions) | **Reply drafted**, not sent — `handover/appstore-2.1-reply.md`. |
 
-Before the user sends it they must: confirm the £10 / £20 per-vehicle-per-month
-figures (taken from `config.py` `rate_live` / `rate_tacho`), decide whether the
-support contact should move from `admin@` to `support@`, optionally supply a
-phone number for the page, and **change the Support URL in App Store Connect**
-to the `/support.html` address.
+Before sending: confirm the £10 / £20 per-vehicle-per-month figures, decide
+whether support contact moves from `admin@` to `support@`, and **change the
+Support URL in App Store Connect**. No new build needed.
 
-No new build is required for any of this — all server-side or metadata, so build
-113 stays in review.
+### B. Tachograph DDD download — now outsourced to TachoSync, stuck on one step
 
-**Note:** the unused `NSLocationAlwaysAndWhenInUseUsageDescription` was suspected
-as the cause of the delay. **Apple did not raise it.** Still worth removing in
-1.0.6 (the app has no `UIBackgroundModes` and no code requesting Always
-location), but it is not blocking.
+**This changed completely on 13–14 October. Read this before touching anything
+tacho.**
 
-### B. FMC650 tachograph download does not exist in working form
+The first FMC650 is **fitted and working** on **PJ19FBK** (IMEI
+`860848081764038`, firmware `03.01.01.Rev.15`, hardware FMC650 HW:17).
 
-The user has a unit ready to fit. **Tracking will work; tachograph download will
-not**, and this is not a settings problem.
+**Live tachograph data works** and is in the app: driver name, working state,
+driving-until-break, left today/week/fortnight, rest figures. It arrives as
+unmapped `io<AVL ID>` position attributes and is decoded client-side. Nothing
+about the download blocker affects it.
 
-`TachographManager.java` **fails to compile on every branch** — `main`,
-`tachograph-server`, `compliance-suite-2`, `tacho-live-fmc650`. Verified by
-compiling `main` on its own:
+**The DDD file download does not work from our own server, and cannot.**
+Teltonika's WEB Tacho server half is proprietary. Established by observation:
+
+- The unit connects to whatever `201`/`202` point at, announces a Codec 12
+  type-**0x10** message containing `STATUS`, then heartbeats a single `0xEF`
+  byte every 30 s for 3 minutes and hangs up.
+- It ignores anything it does not recognise — five ASCII verbs and five binary
+  "EF request" framings produced **no change in behaviour at all**.
+- Type 0x10 is not in the public Codec 12 spec (which documents only 0x05
+  command / 0x06 response), and the FMC650 command list has no download command:
+  only `tachocheck` and `tacho_connect`.
+- Teltonika's own WEB Tacho page describes a hosted service — device to
+  `ddd.teltonika.lt:29000`, company card PC to `:29002`, their server brokering
+  the card authentication into the tachograph. There is no self-host route.
+
+**So the unit now points at Teltonika's TachoSync service** and we fetch the
+finished files back through their REST API (section 9).
 
 ```
-:827  method cancelJob(long,long) is already defined
-:504  cannot find symbol: queueForwarding(TachographFile, TachographDownloadJob)
-:962  cannot find symbol: bridge
+200 = 1                 WEB Tacho enabled
+201 = tacho.teltonika.lt
+202 = 29000
+203 = 5                 start delay, minutes
 ```
 
-Cause: commit **`1a66b648` "Merge branch 'main' into tachograph-server"** resolved
-a conflict by keeping both versions of `cancelJob` (they are genuinely different
-implementations) and dropping two referenced members. Before it, `18c5f8bb` had
-one definition.
+**Where it is stuck (14 Oct):** TachoSync's download history shows attempts
+reaching the **Authentication** stage and stopping with *"Card reading error.
+Please reinsert the company card, reconnect the card reader, or restart the
+service."* The user has since installed TachoSync's own card reader and it shows
+**Online** on their side — but the unit then refused new attempts with:
 
-So the feature has **never been built or deployed**, despite
-`docs/tachograph/FMC650-INTEGRATION.md` reading like a working commissioning
-guide. The deployed jar contains only `MockAuthenticationProvider` and
-`SimulatedTachographDeviceClient`; `conf/traccar.xml` has `tacho.simulator=true`.
+```
+"Conditions not correct  Ignition: 1, task already running: 1, enabled: 1, domain: 1"
+```
 
-**The port is already done and waiting** in a worktree:
-`D:\DHFleetViewData\worktrees\fmc650-merge` (branch `fmc650-tunnel-merge`,
-based on `a9c1d23e`). It contains 45 tachograph files from main, 3 model classes,
-the `com.hierynomus:sshj:0.40.0` dependency added to `build.gradle`, and a
-**merged `Keys.java`** carrying main's 28 `tacho.*` keys plus the 5 `cmsv9.frp*`
-keys from the live branch. Errors are down from dozens to the 4 above.
+A stale WEB Tacho task from the failed attempts is held in the unit. A
+`cpureset` and a `setparam 1000:1800` are **queued** and will apply at its next
+check-in; the vehicle switched off at 11:49 UTC on 14 Oct and now reports only
+hourly (section 5), so it may be up to an hour.
 
-Repairing it means choosing between two `cancelJob` implementations and writing
-`queueForwarding` and the `bridge` field from scratch, on the code path that
-produces legally-required driver records. **The user was asked and chose to park
-it** ("let us hold that for a while"). Do not invent that logic quietly.
+**Our own Tacho Bridge App cannot help here.** It is flespi's card reader,
+forked, and it presents the card to *this* server. TachoSync needs its own
+reader software against their service. Both can run; they are separate paths.
 
-When resumed: rebuild from `18c5f8bb` plus later legitimate changes, then test
-against the built-in simulator (`tacho.simulator=true` runs the real Annex 1B
-protocol with no vehicle) before any hardware.
-
-**A straight `git merge main` is the wrong approach** — it produces 15 conflicts,
-all in the CNMS video files, which is where the hard-won fixes live.
+**Do not resume the old self-hosted download work** (`TachographManager.java`
+still fails to compile on every branch — duplicate `cancelJob`, missing
+`queueForwarding` and `bridge`; port parked in
+`D:\DHFleetViewData\worktrees\fmc650-merge`). It was aimed at a protocol we now
+know is not ours to implement.
 
 ---
 
-## 3. What a Teltonika unit needs for tracking (this does work)
+## 3. What a Teltonika unit needs (this works)
 
-Server side is ready: `protocols.enable = osmand,teltonika`, port **5027**
-listening on `0.0.0.0`, Windows firewall off on all profiles.
+Server side: `protocols.enable = osmand,teltonika`, Windows firewall off.
 
-1. Add the device in DH FleetView with **Identifier = the IMEI**, digits only.
-   The server rejects unknown IMEIs.
-2. On the unit (SMS format is `<login> <password> <command>`, so with no SMS
-   password that is **two leading spaces**):
+**Port is 9007, not 5027.** 5027 is filtered by the IONOS cloud firewall — an
+external check reports it filtered while the listener is up. 9007 is the one
+free port inside 9003–9007, a range already open for CNMS. Borrowed, not owned:
+move back to 5027 when that port is opened, which is one line in `traccar.xml`,
+a restart, and `setparam 2005:5027` per unit.
+
+1. Add the device with **Identifier = the IMEI**, digits only.
+2. Set on the unit:
 
 ```
   setparam 2001:<APN>
   setparam 2004:dhfleetview.co.uk
-  setparam 2005:5027
+  setparam 2005:9007
   setparam 2006:0
-  getparam 2004
-  getinfo
-  cpureset
 ```
 
-`2001` APN, `2004` domain, `2005` port, `2006` protocol (0 = TCP); add
-`2002`/`2003` for APN credentials. **Parameter IDs vary by firmware — confirm
-against the FMC650 manual or use the Configurator for a first unit.** The IMEI
-appears in `tracker-server.log` on first contact.
+**SMS wants the `<login> <password> <command>` form — two leading spaces with no
+password set. GPRS does not.** Over GPRS commands go bare: `getver` works,
+`  getver` returns `#ERROR`. This cost hours on 13 Oct.
 
-The Python tacho-server's Path A / Path B listeners (ports 21756 / 29000,
-`gprs_enabled` / `tachosync_enabled`, both `False`) are a *separate, earlier*
-attempt whose own source marks the DDD framing `# ASSUMED`. Do not commission a
-vehicle on those.
+### Commands over GPRS — no SMS needed
+
+Traccar sends Codec 12 commands to a connected unit, and this works today:
+
+```bash
+POST /api/commands/send
+{"deviceId": <id>, "type": "custom", "attributes": {"data": "getver"}}
+```
+
+HTTP 200 = sent to the live socket; **202 = queued** until the unit next
+connects. The reply comes back in `tracker-server.log` as a `0c0106…` frame —
+decode the hex after the 4-byte length. Useful: `getver`, `getparam <id>`,
+`setparam <id>:<value>`, `tachocheck`, `tacho_connect`, `cpureset`.
+
+### Parameters that matter (FMC650 — numbering differs from FMB1xx)
+
+| ID | Meaning | Ours |
+|---|---|---|
+| 1000 | Open Link Timeout (s) | 1800 queued 14 Oct |
+| 10000 / 10005 | Stopped: min period / send period | 3600 / 3600 |
+| 10050 / 10055 | Moving: min period / send period | 60 / 60 |
+| 10051 / 10052 | Moving: min distance / min angle | 0 / 0 |
+| 200–203 | WEB Tacho enable / domain / port / start delay | see section 2B |
+| 204 | Tachograph ignition source | 0 |
+
+**`10051` min distance was why the unit sent a record every ~5 seconds** — 100 m
+at motorway speed is four seconds, so distance, not the timer, was driving it.
+6,608 records in 24 h before, roughly 400 expected now.
 
 ---
 
 ## 4. Recently resolved — do not re-investigate
 
-- **Live video black on four cameras.** The media server names streams with the
-  device number padded to **11 digits**. The old code built `"0" + terminal`,
-  right only for 10-digit devices; the four `044270960xxx` cameras asked for a
-  13-digit name that could never exist. Fixed in `buildLiveFlvUrl`,
-  `buildPlaybackFlvUrl` and `liveStreamName` via `canonicalTerminal` (`%011d`).
-  The CNMS `mediacontrol` call still sends `"0" + terminal` deliberately — CNMS
-  normalises it and streams register from it.
-- **Traccar wedged on H2** (1 Oct, 11½ hours): a scheduled-task thread stuck in a
-  native H2 write while HTTP still answered 200. Service recovery is now
-  configured (`RESET_PERIOD 86400`, restart 5s/15s/60s,
-  `FAILURE_ACTIONS_ON_NONCRASH_FAILURES=TRUE`) where there was none. **Untested.**
-  The real fix is migrating off H2 to the MySQL already on the box.
-- **Parameter Config** (camera's own settings page) works. CNMS sends an `8300`
-  order `#FRPSET:<host>,<port>,<token>`, waits ~20 s for the camera to open an
-  FRP tunnel, then opens `http://<devID>.<webhost>:<webport>`. Terminal padded to
-  12 digits for the order, unpadded as the subdomain. Order `8300` needs
-  `content` as an object `{msg: ...}`; other orders take a flat string. **Only
-  works when the camera is online** — two "failures" were offline cameras.
-- **`result == 4` / `校验错误` on the CNMS WebSocket is NOT an error.** It is what
-  triggers the order send. "Fixing" it would break live video.
-- **The ZLMediaKit webhooks failing** (`medianotfound`, `medianoview` returning
-  `errCode` where `code` is wanted) are real but **not** a cause of anything —
-  that config predates the problems by months.
-- **Server reboot button removed**; `POST /api/server/reboot` returns 403 instead
-  of `System.exit(130)`. It was an off switch, not a reboot.
+### 12–14 October
+
+- **Fleet "offline", GPS wrong (12 Oct, ~3½ hours).** IONOS had no rule for TCP
+  **9808** (CNMS gateway). Cameras dropped naturally from 04:28 and could not
+  reconnect; the gateway logged nothing because it never saw the attempts. The
+  user opened 9808 and the count went 1 → 13 → 15 in four minutes. **Not** the
+  channel-count change, which was reverted for nothing.
+- **DVR GPS overwrote live tracker fixes every 15 s.** `TaskCnmsSync`'s
+  tracker-preference check read the *session cache*, and a Teltonika unit holds
+  no session between batches, so it always found nothing. It reads the stored
+  position now and never writes a DVR fix older than the one on the device.
+  Counter went `0 tracker-preferred` → `1`, and PJ19FBK stopped flipping between
+  a live fix and a camera fix 50 km away.
+- **Every camera timestamp was an hour ahead through BST.** CNMS serves UK local
+  time; `parseCnmsTime` read it as UTC. Now `Europe/London`. Verified against
+  CNMS's own clock. **Positions stored March–October keep the error.**
+- **Ignition was stuck on for PJ19FBK** — 0 of 10,900 records showed it off. The
+  ignition source was Power Voltage with the 12 V-vehicle default window
+  (13.2–30 V); a 24 V truck sits at 25.5 V parked, permanently inside it. The
+  user set it to **DIN1** and it now follows reality (verified: false at rest,
+  true driving, matching the alternator voltage pattern).
+- **An offline vehicle showed a green "running" engine** — `DeviceRow.jsx`
+  coloured it from the ignition attribute alone, which freezes when a unit goes
+  quiet. Grey when offline now, with the tooltip saying "when last heard from".
+  (`getIgnitionColor` in `vehicleStatus.js` is dead code — fixed to match, but
+  it is not what renders.)
+- **TachoSync init packet parsed the IMEI from the wrong offset.** Our code
+  assumed `Header+ProtoID+IMEI(8)+Settings`; the unit sends Teltonika's standard
+  `length(0x000F) + 15 ASCII digits`. Reading from offset 4 produced
+  `3038343830383137` = "08480817", the middle of the real number — so every
+  hourly check-in was turned away as an unknown unit, silently, for a night.
+
+### Earlier
+
+- **Live video black on four cameras** — stream names pad the device number to
+  **11 digits** (`canonicalTerminal`, `%011d`). The CNMS `mediacontrol` call
+  still sends `"0" + terminal` deliberately.
+- **Traccar wedged on H2** (1 Oct, 11½ h). Service recovery configured;
+  **untested**. Real fix is migrating off H2 to the MySQL already on the box.
+- **Parameter Config** works; needs the camera online. Order `8300` takes
+  `content` as an object.
+- **`result == 4` / `校验错误` on the CNMS WebSocket is NOT an error** — it is
+  what triggers the order send.
+- **Server reboot button removed**; `POST /api/server/reboot` returns 403.
 
 ---
 
 ## 5. Environment traps
 
-- **Server timezone is Central America Standard Time (UTC−6)** — 7 hours behind
-  the user. Log timestamps do not line up with user reports. Clock *sync* is fine
-  (NIST). The scheduler and all report content resolve Europe/London explicitly
-  and are unaffected. Recommended: set the server to UK time, at a quiet moment.
-- **Service worker updates hourly.** `UpdateController.jsx` uses
-  `serviceWorkerUpdateInterval || 3600000`, then shows a toast the user must
-  click. **This has wasted several test cycles.** Always test in a
-  private/incognito window. Configurable without a code change via the Traccar
-  server attribute `serviceWorkerUpdateInterval` (Settings → Server → Attributes).
-- **Anything served from `web/` that the SPA does not route must be added to
-  `navigateFallbackDenylist` in `traccar-web/vite.config.js`**, or the service
-  worker answers with the app shell and the page renders blank. Currently
-  `[/^\/api/, /^\/tacho/, /^\/support/]`.
-- **The mobile app ships from `main`; server work is on `tacho-bridge-app`.**
-  Reading the wrong branch's `Info.plist` caused a wrong diagnosis once.
-- **A Traccar restart drops every logged-in session** (in memory). 401s straight
-  after a restart mean log out and back in.
-- `C:\DHFleetView\web\assets` accumulates orphaned build artefacts (12,779 / 309 MB
-  cleared 29 Sept to `D:\DHFleetViewData\traccar\web-assets-quarantine\`). **Trap:**
-  eight files in `web/` are not build output — `compliance.html`, `shifts.html`,
-  `jobs.html`, `driver-shift.html`, the four under `web/tacho/`, and now
-  `support.html`. A `robocopy /MIR` destroys them. Only clean inside `web\assets\`.
+- **Server timezone is Central America Standard Time (UTC−6).** Log timestamps
+  are 6 hours behind UTC and 7 behind the user. On 13 Oct this was misread as
+  "five hours ago" when the events were two minutes old. The Python logs use
+  local time; Traccar's too.
+- **A heredoc in this environment collapses `\xNN` escapes into raw bytes.**
+  Writing Python through `python - <<'PY'` with `b"\x01"` in a string put a
+  literal control byte in the source and broke the module twice. Build bytes
+  functionally instead: `bytes([1])`, `bytes(4)`.
+- **`schtasks /end` + `/run` fails silently.** Twice the tacho API was "restarted"
+  and the old process was still running, so edits appeared to do nothing. Always
+  confirm with `Get-Process python | Select Id,StartTime`.
+- **The tacho server's own INFO lines go nowhere unless the logger sits under
+  `"tacho"`.** `main.py` raises only that tree; `logging.getLogger(__name__)`
+  produced a listener that looked silent while it was turning units away.
+  Use `logging.getLogger("tacho.<area>")`.
+- **Traccar's online/offline follows the TCP socket, not data freshness.** A unit
+  that connects, sends and disconnects each minute reads as offline most of the
+  time while reporting perfectly. Raise *Open Link Timeout* (param 1000) rather
+  than doubting the data.
+- **Service worker updates hourly** (`serviceWorkerUpdateInterval`). Test in a
+  private window.
+- **Anything served from `web/` that the SPA does not route must be in
+  `navigateFallbackDenylist`** in `traccar-web/vite.config.js`, or the page
+  renders blank. Currently `[/^\/api/, /^\/tacho/, /^\/support/]`.
+- **A Traccar restart drops every logged-in session.**
+- `C:\DHFleetView\web\assets` accumulates orphaned build output — **2,168 files**
+  untracked as of 14 Oct. Eight files in `web/` are *not* build output
+  (`compliance.html`, `shifts.html`, `jobs.html`, `driver-shift.html`, the four
+  under `web/tacho/`, `support.html`): a `robocopy /MIR` destroys them. Only
+  clean inside `web\assets\`.
+- **`C:\tachograph-server` is not a git repository.** All of its work — the
+  listener fixes, the TachoSync client — exists only on disk. Worth fixing.
 
 ---
 
@@ -190,66 +256,145 @@ robocopy C:\DHFleetView\traccar-web\build C:\DHFleetView\web /E     # exit <8 = 
 
 # Java (~20 s restart; the running JVM locks the jar)
 cd /c/DHFleetView && ./gradlew.bat build -x test -x checkstyleMain -x checkstyleTest
-# back up, Stop-Service traccar -Force, copy target\tracker-server.jar
+# back up the jar, Stop-Service traccar, copy target\tracker-server.jar
 #   -> C:\DHFleetView\tracker-server.jar, Start-Service traccar
 ```
 
-- Jar backups `D:\DHFleetViewData\traccar\jar-backups\`
-- DB backups `D:\DHFleetViewData\traccar\db-backups\`
+**Verify what a Java change actually ships** before restarting — compare the
+built jar against the running one entry by entry:
+
+```bash
+unzip -v tracker-server.jar | awk 'NF>7 {print $8, $7}' | sort > running.crc
+unzip -v target/tracker-server.jar | awk 'NF>7 {print $8, $7}' | sort > built.crc
+diff running.crc built.crc        # expect only the classes you touched
+```
+
+- Jar backups `D:\DHFleetViewData\backups\` (and `traccar\jar-backups\`)
 - Traccar log `D:\DHFleetViewData\traccar\logs\tracker-server.log`
 - Tacho API log `D:\DHFleetViewData\tacho\logs\api.log`
-- Tacho API is a **scheduled task**: `schtasks /end /tn tacho-api` then `/run`
+- Tacho API is a **scheduled task**: `schtasks /end /tn tacho-api` then `/run`,
+  then confirm the PID changed
 
 ---
 
 ## 7. Open items
 
-- **Caburn SIM portal rejects our login** — live endpoint answers but
-  `query-status` returns `Invalid Password` for known-good SIMs, so it is the
-  account not the SIM. Username is live (`DHGroup.Live`), password appears to
-  still be the test account's. **Ask Caburn to confirm the API password.** Until
-  then: no DVR setup SMS, no SIM activation. (The `.env` `SMS_URL` had the scheme
-  twice — `https:https://` — which made every send fail with
-  `UnsupportedProtocol`; that is fixed and live.)
-- **Junk account id=100**, `9977b2b62d3f…@example.org`, self-registered by a bot.
-  Its invoice `DH-2026-0002` has `sent_to = "Khh"` and **fails every hour,
-  forever**. Delete the account or give it a real email. Self-registration is now
-  off so no more can appear.
-- **New camera SJ22FHK** (device `0442795001`, SIM `335339467055`, mobile
-  `07940732187`, ICCID `8944303353394670558`) exists in CNMS under "DH Group
-  Fleet View" (device 5767 / sim 5773 / vehicle 7184) but was **never added to DH
-  FleetView** — do that via the DVR label screen, which uses the operator's own
-  session.
-- **CNMS `UserSvr` restarts repeatedly**, never diagnosed. `D:\CMSServer\Log` was
-  not read — the user declined once; ask before reading it.
-- **Invoicing module hidden from the UI** (menu item removed from
-  `SettingsMenu.jsx`; restoring needs `ReceiptLongIcon`). Backend still runs.
-- **Trade mark**: the user owns **Infomac Solutions**; DH FleetView is a branded
-  edition built for a reseller. Advice given: register **Infomac Solutions**, not
-  "DH FleetView" — descriptive and colliding with Fleetview Solutions Ltd (West
-  Midlands, est. 2006, vehicle tracking and cameras) and PowerFleet's FleetView™.
-  A CITMA clearance search was recommended before filing.
-- **About panel** states Infomac holds the platform's proprietary and white-label
-  rights, with **no upstream Traccar credit** — permitted only because upstream
-  ships no `NOTICE` file (Apache 2.0 §4(d) is conditional on one). **Do not strip
-  the per-file copyright headers or `LICENSE.txt`**; §4(b)/(c) still require them
-  and 1,032 of 1,066 Java files carry Anton Tananaev's copyright.
+- **RDP: the Administrator password expired 22 June 2026** (max age 42 days) and
+  with NLA on, an expired password is refused during the handshake — you never
+  reach the change-password prompt. The user could not get in on 14 Oct. Unblock
+  with `Set-LocalUser -Name Administrator -PasswordNeverExpires $true`, or set a
+  new password from the IONOS console. **Not yet done — awaiting the user.**
+- **3389 is open to the internet and under constant brute force** — 108 attempts
+  from one IP in 12 hours on 14 Oct, lockout threshold "Never". Nothing has got
+  in. Restrict 3389 to the user's own IP in the IONOS firewall.
+- **Caburn SIM portal rejects our login** (`Invalid Password` for known-good
+  SIMs; username `DHGroup.Live` is live). Blocks DVR setup SMS and SIM
+  activation. The tracker SIM's SMS works through the user's own portal.
+- **Ports still to open at IONOS: 5027** (Teltonika's own, so 9007 can be given
+  back) and **29000** (TachoSync's documented port, if we ever listen again).
+  2102 is open and reachable, verified externally.
+- **Rotate the credentials that were in public git history** —
+  `database.password`, `cmsv9.mediaSecret`, the CNMS account.
+- **`tacho-bridge-app` has diverged from its remote.** The remote carries ten
+  commits from 17 Sept (Tacho Bridge App port to upstream v0.8, flespi guards,
+  sync CI) that were never pulled here; this box has five the remote lacks.
+  14 Oct's work went to branch **`tacho-live-20261013`** instead. Reconciling
+  the two is a deliberate job, not a merge to improvise.
+- **White-label repo is current** — `varaprasad1016/White-Label-Tracking`,
+  `main` at `ed78dd7`. Its web app builds; its **Java tree does not compile**
+  (the same `TachographManager` faults). One brand leak remains:
+  `DevicePage.jsx:268` hard-codes `dhfleetview.co.uk` for the camera web link.
+- **Junk account id=100** (`9977b2b62d3f…@example.org`): invoice `DH-2026-0002`
+  fails hourly, forever. Delete it or give it a real email.
+- **CNMS `UserSvr` restarts repeatedly**, never diagnosed. Ask before reading
+  `D:\CMSServer\Log`.
+- **Live video plays on mobile but not in the desktop browser (14 Oct, open).**
+  Server side proven: `mediacontrol` returns `errCode 0` and valid URLs, the
+  deployed bundle is current, 4022 presents a valid Let's Encrypt certificate.
+  Prime suspect is the PC's network blocking outbound **4022**. The real fix is
+  to proxy the FLV through Apache on **443** (`/live` → `127.0.0.1:4022`) and
+  have `buildLiveFlvUrl` return that — removes the odd port for every customer.
+- **Trade mark**: register **Infomac Solutions**, not "DH FleetView"
+  (descriptive, and collides with Fleetview Solutions Ltd and PowerFleet's
+  FleetView™). CITMA clearance search recommended first.
+- **About panel** credits Infomac with no upstream Traccar credit — permitted
+  only because upstream ships no `NOTICE` file (Apache 2.0 §4(d)). **Do not
+  strip per-file copyright headers or `LICENSE.txt`.**
 
 ---
 
-## 8. Mistakes made here — do not repeat
+## 8. TachoSync integration (built 14 Oct)
 
-- Blamed **H.265** for black video and nearly had the user reconfigure every
-  camera. Jessibuca decodes H.265 over FLV. The real cause was stream naming.
-- Called `result:4` on the CNMS WebSocket a fatal auth failure. It is the trigger
-  for the order send; "fixing" it would have broken working video.
-- **Reverted working code** (`canonicalTerminal`) while hunting a fault that was
-  actually Traccar wedged on H2 — and thereby reintroduced the 11-digit bug.
-  Generalised from a single camera that happened to work.
-- Twice reported Parameter Config broken when the camera was simply **offline**.
-- Dismissed `curl` reporting `200 (0 bytes)` on the new support page as a quirk.
-  It was the service-worker fallback bug; the user found it instead.
-- Read Traccar log timestamps as UK time for most of a session (section 5).
+Teltonika's hosted service does the download; we keep the files.
+
+- **Account**: D&H Group Ltd. PJ19FBK registered, "Quick schedule" assigned.
+- **Key**: `TACHOSYNC_API_KEY` in `C:\tachograph-server\.env`. Company-scoped,
+  sent as `X-API-KEY`. Shown once by their portal; if lost, delete and recreate.
+- **Spec**: `https://api.tacho.teltonika.lt/swagger/v1/swagger.json` (the
+  `/api-docs/v1` page renders client-side and is useless to fetch).
+- **Client** `app/services/tachosync.py` — company, vehicles, vehicle/driver
+  files, downloads history, file content, and `sync()` which pulls new files
+  through `download_ingest` (de-duplicates by sha256, so it is safe to repeat).
+- **API** `app/api/tachosync.py` — `/api/tachosync/overview`, `/files`,
+  `/files/{kind}/{id}`, `POST /sync`. Manager + licence gated.
+- **Page** `/tacho/downloads` (`app/static/downloads.html`): vehicles with status
+  and last download, the failure reason when there is one, the file list, and a
+  "Fetch new files" button. Linked from the tachograph panel on the video page.
+
+The downloads history is the only place that says *why* a download did not
+happen. Read it before touching the unit.
+
+---
+
+## 9. Live tachograph data (working)
+
+The decode exists three times and the AVL IDs must match across all of them:
+
+- `traccar-web/src/common/util/fmc650Tacho.js` — the app's decoder
+- `tachograph-server/app/services/fmc650.py` — the server's ingest decoder
+- `DHFleetView .../api/resource/TachographResource.java` — the ID set used to
+  merge records server-side
+
+Values are sent **on change**, so any single position carries only what moved and
+a parked vehicle sends records with none of them. Hence
+`GET /api/tachograph/live/{deviceId}` (one vehicle, 24 h, ~5,000 records
+scanned) and `GET /api/tachograph/live` (every tacho-capable vehicle, for the
+list) which merge newest-first and return about sixty values.
+
+The panel (`TachoOverlay.jsx`) sits over the map on the video page, draggable and
+closable, seeded from that endpoint so a parked lorry still shows the driver's
+hours. The vehicle list shows the driver's name beside a plate-styled
+registration.
+
+**Known gap:** the driver card *number* arrives as a 64-bit integer that JSON
+cannot carry exactly, so the app shows the holder's name and "card inserted"
+rather than a number. Fixing it properly is a few lines in the Teltonika decoder
+and a Traccar restart.
+
+---
+
+## 10. Mistakes made here — do not repeat
+
+- **Watch filters too narrow, twice in one night.** A background watch grepped
+  for "Device connected" and missed "a unit with IMEI … tried to connect", so
+  hourly check-ins went unnoticed for hours. Another counted the unit's own
+  `STATUS` as a new response and reported success that had not happened. When
+  waiting on a log, match the failure cases too.
+- **Concluded `tacho_connect` did not exist** from an `#ERROR` returned while the
+  tachograph was asleep. It works when the vehicle is awake. Test under the
+  conditions the feature needs.
+- **Restarted a service without verifying it restarted**, then drew conclusions
+  from code that was not running.
+- **Named the wrong function** as the cause of the green-engine bug
+  (`getIgnitionColor`, which nothing calls) instead of the markup in
+  `DeviceRow.jsx`.
+- **Claimed 5027 was reachable** after testing from the server to its own public
+  IP — that is loopback and proves nothing about inbound.
+- Blamed **H.265** for black video; blamed the **channel-count change** for the
+  9808 outage; called `result:4` fatal. All wrong, all expensive.
+- Dismissed `curl` reporting `200 (0 bytes)` as a quirk. It was the
+  service-worker fallback bug; the user found it.
 
 General lesson: verify against observed behaviour — logs, byte counts, process
-state — before acting on a plausible theory, and never generalise from one sample.
+state, record cadence — before acting on a plausible theory, and never
+generalise from one sample.

@@ -32,6 +32,7 @@ const AddVehiclePage = lazy(() => import('./other/AddVehiclePage'));
 const InvoicingPage = lazy(() => import('./other/InvoicingPage'));
 const SimsPage = lazy(() => import('./other/SimsPage'));
 const TripReportPage = lazy(() => import('./reports/TripReportPage'));
+const ReportWorkspacePage = lazy(() => import('./reports/ReportWorkspacePage'));
 const StopReportPage = lazy(() => import('./reports/StopReportPage'));
 const SummaryReportPage = lazy(() => import('./reports/SummaryReportPage'));
 const ChartReportPage = lazy(() => import('./reports/ChartReportPage'));
@@ -197,6 +198,7 @@ const Navigation = () => {
           </Route>
 
           <Route path="reports">
+            <Route index element={<ReportWorkspacePage />} />
             <Route path="combined" element={<CombinedReportPage />} />
             <Route path="chart" element={<ChartReportPage />} />
             <Route path="events" element={<EventReportPage />} />

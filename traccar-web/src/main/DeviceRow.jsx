@@ -45,6 +45,8 @@ import {
   getIgnition,
   getVehicleStatus,
   getStatusColor as getVehicleStatusColor,
+  lastFixTime,
+  satelliteCount,
 } from '../common/util/vehicleStatus';
 
 dayjs.extend(relativeTime);
@@ -106,6 +108,14 @@ const useStyles = makeStyles()((theme) => ({
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+  },
+  // Amber, or red when lanes are shut: the same language as the map markers.
+  roadAhead: {
+    fontWeight: 700,
+    fontSize: '0.7rem',
+    textTransform: 'uppercase',
+    letterSpacing: '0.03em',
+    color: theme.palette.warning.main,
   },
   driverName: {
     fontSize: '0.78rem',
@@ -204,7 +214,7 @@ const looksLikeReg = (value) => {
   return /^[A-Z0-9]{5,8}$/.test(text) && /[A-Z]/.test(text) && /[0-9]/.test(text);
 };
 
-const DeviceRow = ({ devices, index, style, tacho }) => {
+const DeviceRow = ({ devices, index, style, tacho, ahead }) => {
   const { classes } = useStyles();
   const dispatch = useDispatch();
   const navigate = useNavigate();
@@ -258,7 +268,23 @@ const DeviceRow = ({ devices, index, style, tacho }) => {
   })();
   // Icon library: selectable category icons (mapIcons) are shown in avatar; color by ignition
   // Gray when ignition off (parked/stopped/offline), green when running (spec)
-  const vehicleStatusLabel = vehicleStatus.charAt(0).toUpperCase() + vehicleStatus.slice(1);
+  // "Nofix" told nobody anything. What matters is that the pin is the last
+  // known one, how old it is, and whether the unit can see any satellites at
+  // all - none for days is a broken aerial, not a vehicle parked in a shed.
+  const satellites = satelliteCount(position);
+  const fixAge = lastFixTime(position) ? dayjs(lastFixTime(position)).fromNow() : null;
+  const vehicleStatusLabel =
+    vehicleStatus === 'nofix'
+      ? 'No satellite lock'
+      : vehicleStatus.charAt(0).toUpperCase() + vehicleStatus.slice(1);
+  const statusTooltip =
+    vehicleStatus === 'nofix'
+      ? `The unit is reporting but has no satellite lock, so this is its last known position${
+          fixAge ? `, taken ${fixAge}` : ''
+        }.${satellites === 0 ? ' It can see no satellites at all — check the GPS aerial.' : ''}${
+          satellites > 0 ? ` Satellites in view: ${satellites}.` : ''
+        }`
+      : `Ignition: ${ignition === true ? 'ON' : ignition === false ? 'OFF' : 'unknown'} – ${vehicleStatusLabel}`;
   // Live speed, shown only while the vehicle is actually driving.
   const speed = drivingSpeed(item, position, speedUnit, t);
   // Where it is and how far it has been: the two things a transport manager
@@ -269,6 +295,9 @@ const DeviceRow = ({ devices, index, style, tacho }) => {
   const driverUniqueId = position?.attributes?.driverUniqueId;
   const hasCamera = Boolean(item.attributes?.cmsv9DeviceId);
   const lastUpdate = item.lastUpdate ? dayjs(item.lastUpdate).fromNow() : null;
+
+  // Roadworks or a closure in front of this vehicle, on its own heading.
+  const roadAhead = ahead?.[item.id];
 
   // Who is in the driver's seat, from the vehicle's own tachograph. The list
   // fetches this for every vehicle at once (see DeviceList); a vehicle without
@@ -292,9 +321,7 @@ const DeviceRow = ({ devices, index, style, tacho }) => {
             {' • '}
           </>
         )}
-        <Tooltip
-          title={`Ignition: ${ignition === true ? 'ON' : ignition === false ? 'OFF' : 'unknown'} – ${vehicleStatusLabel}`}
-        >
+        <Tooltip title={statusTooltip}>
           <span
             className={classes[getVehicleStatusColor(vehicleStatus)]}
             style={{ fontWeight: 600, fontSize: '0.7rem', textTransform: 'uppercase' }}
@@ -302,6 +329,23 @@ const DeviceRow = ({ devices, index, style, tacho }) => {
             {vehicleStatusLabel}
           </span>
         </Tooltip>
+        {vehicleStatus === 'nofix' && (
+          <Tooltip title={statusTooltip}>
+            <span className={classes.neutral} style={{ fontSize: '0.7rem' }}>
+              {' • '}
+              {fixAge ? `last fix ${fixAge}` : 'no fix recorded'}
+              {satellites !== null && ` • ${satellites} sat${satellites === 1 ? '' : 's'}`}
+            </span>
+          </Tooltip>
+        )}
+        {roadAhead && (
+          <Tooltip title={roadAhead.disruption.description || 'Disruption ahead'}>
+            <span className={classes.roadAhead}>
+              {' • '}
+              {`${roadAhead.disruption.road || 'Works'} ${roadAhead.distanceKm} km ahead`}
+            </span>
+          </Tooltip>
+        )}
         {speed && (
           <span className={classes.success} style={{ fontWeight: 600 }}>
             {' • '}
@@ -379,7 +423,7 @@ const DeviceRow = ({ devices, index, style, tacho }) => {
           </Tooltip>
         </ListItemAvatar>
         <ListItemText
-          primary={(
+          primary={
             <span className={classes.primaryRow}>
               {looksLikeReg(primaryValue) ? (
                 <span className={classes.plate} title={primaryValue}>
@@ -391,7 +435,7 @@ const DeviceRow = ({ devices, index, style, tacho }) => {
               )}
               {driverName && <span className={classes.driverName}>{driverName}</span>}
             </span>
-          )}
+          }
           secondary={
             <>
               {secondaryText()}

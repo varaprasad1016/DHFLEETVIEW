@@ -97,6 +97,25 @@ export const isIgnitionOff = (position, device) => getIgnition(position, device)
 export const hasFix = (position) => position?.valid !== false;
 
 /**
+ * Satellites the unit can see, or null when it does not report it.
+ *
+ * None at all, reported steadily over days, is an aerial fault rather than a
+ * vehicle in a shed - which is the one thing a bare "no fix" never told anyone.
+ */
+export const satelliteCount = (position) => {
+  const value = position?.attributes?.sat;
+  return typeof value === 'number' ? value : null;
+};
+
+/**
+ * When the coordinate on screen was actually taken.
+ *
+ * Without a lock the unit keeps sending its last known coordinate, so the pin
+ * stays put while the lorry does not. This is the age of that pin.
+ */
+export const lastFixTime = (position) => position?.fixTime || position?.deviceTime || null;
+
+/**
  * Derive vehicle status from ignition, speed and whether the fix is real.
  * DVR behaviour is preserved: it already reports ignition, so same path.
  * @returns {'running'|'idling'|'parked'|'nofix'|'offline'}

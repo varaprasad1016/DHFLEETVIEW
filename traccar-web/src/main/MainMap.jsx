@@ -6,6 +6,7 @@ import MapView from '../map/core/MapView';
 import MapSelectedDevice from '../map/main/MapSelectedDevice';
 import MapAccuracy from '../map/main/MapAccuracy';
 import MapGeofence from '../map/MapGeofence';
+import MapDisruptions from '../map/MapDisruptions';
 import MapCurrentLocation from '../map/MapCurrentLocation';
 import PoiMap from '../map/main/PoiMap';
 import MapPadding from '../map/MapPadding';
@@ -20,6 +21,8 @@ import MapScale from '../map/MapScale';
 import MapRuler from '../map/control/MapRuler';
 import MapNotification from '../map/control/MapNotification';
 import useFeatures from '../common/util/useFeatures';
+import usePersistedState from '../common/util/usePersistedState';
+import MapDisruptionToggle from '../map/control/MapDisruptionToggle';
 
 const MainMap = ({ filteredPositions, selectedPosition, onEventsClick }) => {
   const theme = useTheme();
@@ -32,6 +35,9 @@ const MainMap = ({ filteredPositions, selectedPosition, onEventsClick }) => {
   const features = useFeatures();
 
   const [rulerActive, setRulerActive] = useState(false);
+  // Roadworks are on by default: a closure the office did not know about is
+  // the expensive kind. Remembered per browser for anyone who disagrees.
+  const [roadworks, setRoadworks] = usePersistedState('mapDisruptions', true);
 
   const onMarkerClick = useCallback(
     (_, deviceId) => {
@@ -45,6 +51,7 @@ const MainMap = ({ filteredPositions, selectedPosition, onEventsClick }) => {
       <MapView>
         <MapOverlay />
         <MapGeofence />
+        <MapDisruptions enabled={roadworks} />
         <MapAccuracy positions={filteredPositions} />
         <MapLiveRoutes deviceIds={filteredPositions.map((p) => p.deviceId)} />
         <MapFollowTrail />
@@ -59,6 +66,7 @@ const MainMap = ({ filteredPositions, selectedPosition, onEventsClick }) => {
         <MapSelectedDevice />
         <PoiMap />
         <MapRuler positions={filteredPositions} onActiveChange={setRulerActive} />
+        <MapDisruptionToggle enabled={roadworks} onChange={setRoadworks} />
         {!features.disableEvents && (
           <MapNotification enabled={eventsAvailable} onClick={onEventsClick} />
         )}

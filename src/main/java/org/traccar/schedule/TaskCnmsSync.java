@@ -197,8 +197,26 @@ public class TaskCnmsSync extends SingleScheduleTask {
                 }
 
                 position.set(Position.KEY_IGNITION, acc);
+                // How many satellites the unit can see, which is the difference
+                // between "parked somewhere enclosed" and "the GPS aerial is not
+                // working". A camera reporting for days on end with none of them
+                // has a fault, and without this nobody could tell.
+                int satellites = satelliteCount(data);
+                if (satellites >= 0) {
+                    position.set(Position.KEY_SATELLITES, satellites);
+                }
+
                 // Mileage comes in 0.1 km units as well; Traccar stores metres.
-                position.set(Position.KEY_TOTAL_DISTANCE, data.path("summileage").asDouble(0) * 100.0);
+                //
+                // Not on a vehicle that also has a tracker, though. The two
+                // count from different starting points, so a camera position
+                // landing between two tracker ones sends the odometer
+                // backwards, and every report built on it reads a negative
+                // trip. One vehicle gets one odometer: the tracker's where
+                // there is a tracker, the camera's where there is not.
+                if (!hasTracker(device)) {
+                    position.set(Position.KEY_TOTAL_DISTANCE, data.path("summileage").asDouble(0) * 100.0);
+                }
                 position.set("cnmsOnline", carstatus > 0 && carstatus != 2);
                 position.set("cnmsAddress", data.path("baiduAddress").asText(""));
                 position.set("cnmsMileage", data.path("mileage").asDouble(0) * 100.0);
@@ -467,6 +485,41 @@ public class TaskCnmsSync extends SingleScheduleTask {
     // ones are right. The hour that repeats when the clocks go back resolves to
     // the first (BST) occurrence, which is the normal convention.
     private static final java.time.ZoneId CNMS_ZONE = java.time.ZoneId.of("Europe/London");
+
+    /**
+     * Satellites in view, or -1 when the record does not say.
+     *
+     * <p>The platform's own database calls this lGNSSStarCount; its API has been
+     * seen to spell it several ways, so each likely name is tried and the first
+     * one present wins. When none of them is there the field names are logged
+     * once per run, which is the quickest way to learn the right one rather than
+     * guessing again.
+     */
+    private int satelliteCount(com.fasterxml.jackson.databind.JsonNode data) {
+        for (String name : new String[] {
+                "lGNSSStarCount", "gnssstarcount", "gnssStarCount", "starcount", "starCount",
+                "satellite", "satellites", "starnum", "star"}) {
+            if (data.hasNonNull(name)) {
+                return data.path(name).asInt(-1);
+            }
+        }
+        if (!satelliteFieldReported) {
+            satelliteFieldReported = true;
+            StringBuilder names = new StringBuilder();
+            data.fieldNames().forEachRemaining(name -> names.append(name).append(' '));
+            LOG.info("CNMS gps record carries no satellite count; fields are: {}", names.toString().trim());
+        }
+        return -1;
+    }
+
+    private boolean satelliteFieldReported;
+
+    /** Whether this vehicle has a tracker of its own as well as a camera. */
+    private boolean hasTracker(Device device) {
+        String imei = device.getString("trackerImei");
+        String model = device.getString("trackerModel");
+        return (imei != null && !imei.isBlank()) || (model != null && !model.isBlank());
+    }
 
     private Date parseCnmsTime(String gpstime) {
         if (gpstime == null || gpstime.length() < 12) {

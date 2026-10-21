@@ -1,0 +1,1 @@
+const a=(o,{deviceIds:r=[],from:e,to:d})=>{const n=new URLSearchParams({kind:o,from:e,to:d});return r.forEach(t=>n.append("deviceId",t)),`/tacho/api/reports/pdf?${n.toString()}`},c=async(o,r)=>{const e=document.createElement("a");e.href=a(o,r),e.download="",e.rel="noopener",document.body.appendChild(e),e.click(),e.remove()};export{c as d};

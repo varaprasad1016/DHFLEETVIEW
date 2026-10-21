@@ -24,6 +24,13 @@
          this one line and a restart, plus "setparam 2005:5027" to each unit. -->
     <entry key="teltonika.port">9007</entry>
 
+    <!-- National Highways live road disruption (closures, roadworks, lane
+         restrictions on the strategic network). Free subscription key from
+         developer.data.nationalhighways.co.uk; their limit is 10 calls a
+         minute, and the feed is cached for refreshMinutes between fetches. -->
+    <entry key="roads.nationalHighwaysKey">3c6863e9bb15457e9c218c55f080432a</entry>
+    <entry key="roads.refreshMinutes">5</entry>
+
     <!-- CNMS video platform integration -->
     <entry key="cmsv9.url">https://portal.dhfleetview.co.uk</entry>
     <entry key="cmsv9.account">admin</entry>
@@ -49,6 +56,12 @@
 
     <!-- Data on D: (C: is kept for the system and programs) -->
     <entry key='logger.file'>D:/DHFleetViewData/traccar/logs/tracker-server.log</entry>
+    <!-- Reports longer than this (seconds) used a "fast" path that builds trips
+         from deviceMoving/deviceStopped events. Positions synced from the
+         cameras never raise those events, so every report over a day came back
+         empty. Push the threshold past any period the reports offer and the
+         accurate path - which reads the positions themselves - is always used. -->
+    <entry key='report.fastThreshold'>2678400</entry>
     <entry key='media.path'>D:/DHFleetViewData/traccar/media</entry>
 
 </properties>

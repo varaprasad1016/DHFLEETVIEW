@@ -19,7 +19,14 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.StreamingOutput;
+import jakarta.ws.rs.BadRequestException;
+import jakarta.ws.rs.HeaderParam;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.traccar.api.BaseResource;
+import org.traccar.config.Config;
+import org.traccar.config.Keys;
+import org.traccar.media.Cmsv9ClipStore;
 import org.traccar.media.Cmsv9Manager;
 import org.traccar.model.Device;
 import org.traccar.storage.StorageException;
@@ -29,15 +36,25 @@ import org.traccar.storage.query.Request;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
 import java.util.LinkedHashMap;
 import java.util.Map;
+
 
 @Path("cmsv9")
 @Produces(MediaType.APPLICATION_JSON)
 public class Cmsv9Resource extends BaseResource {
 
+    private static final Logger LOG = LoggerFactory.getLogger(Cmsv9Resource.class);
+
     @Inject
     private Cmsv9Manager cmsv9Manager;
+
+    @Inject
+    private Cmsv9ClipStore clipStore;
+
+    @Inject
+    private Config config;
 
     @GET
     @Path("config")
@@ -142,11 +159,92 @@ public class Cmsv9Resource extends BaseResource {
     }
 
     /**
-     * On-demand footage download. Triggers a playback of the requested time
-     * range on the device, then streams the resulting FLV straight through to
-     * the client as a file attachment. The bytes are piped, never written to
-     * disk, so there is no server-side storage cost. Requires the device to be
-     * online (it plays the clip back from its SD card in real time).
+     * Asks for a clip to be fetched off the vehicle, without waiting for it.
+     *
+     * <p>Fetching is not quick and it is not free: the camera plays the footage
+     * back off its own card in real time over the vehicle's mobile connection,
+     * so ten minutes of footage takes ten minutes and costs about 220 MB. The
+     * caller gets told what it will cost and then polls {@link #clipStatus}.
+     */
+    @POST
+    @Path("clip/{deviceId}/{channel}")
+    public Map<String, Object> prepareClip(
+            @PathParam("deviceId") long deviceId,
+            @PathParam("channel") int channel,
+            @QueryParam("startTime") String startTime,
+            @QueryParam("endTime") String endTime,
+            @QueryParam("format") String format) throws Exception {
+        Cmsv9ClipStore.Clip clip = clipOf(deviceId, channel, startTime, endTime, format);
+        int seconds = Cmsv9ClipStore.seconds(clip);
+        int maxMinutes = config.getInteger(Keys.CMSV9_CLIP_MAX_MINUTES);
+        if (seconds <= 0) {
+            throw new BadRequestException("That is not a valid time range.");
+        }
+        if (seconds > maxMinutes * 60) {
+            throw new BadRequestException(
+                    "That clip is longer than " + maxMinutes + " minutes. The camera plays footage back in real time"
+                    + " over the vehicle's mobile data, so please ask for a shorter piece.");
+        }
+        Map<String, Object> result = new LinkedHashMap<>(clipState(clip));
+        if (!Boolean.TRUE.equals(result.get("ready"))) {
+            clipStore.request(clip);
+            result = new LinkedHashMap<>(clipState(clip));
+        }
+        return result;
+    }
+
+    /** How far along a clip is: cached already, being fetched, or neither. */
+    @GET
+    @Path("clip/{deviceId}/{channel}")
+    public Map<String, Object> clipStatus(
+            @PathParam("deviceId") long deviceId,
+            @PathParam("channel") int channel,
+            @QueryParam("startTime") String startTime,
+            @QueryParam("endTime") String endTime,
+            @QueryParam("format") String format) throws Exception {
+        return clipState(clipOf(deviceId, channel, startTime, endTime, format));
+    }
+
+    private Cmsv9ClipStore.Clip clipOf(
+            long deviceId, int channel, String startTime, String endTime, String format) throws Exception {
+        return new Cmsv9ClipStore.Clip(
+                getCmsDeviceId(deviceId), channel + 1, startTime, endTime,
+                cmsv9Manager.isFfmpegAvailable() && "share".equalsIgnoreCase(format));
+    }
+
+    private Map<String, Object> clipState(Cmsv9ClipStore.Clip clip) throws IOException {
+        Map<String, Object> result = new LinkedHashMap<>();
+        int seconds = Cmsv9ClipStore.seconds(clip);
+        result.put("seconds", seconds);
+        result.put("estimatedBytes", seconds * Cmsv9ClipStore.BYTES_PER_MINUTE / 60);
+        java.nio.file.Path file = clipStore.existing(clip);
+        if (file != null) {
+            result.put("ready", true);
+            result.put("bytes", Files.size(file));
+            return result;
+        }
+        result.put("ready", false);
+        Cmsv9ClipStore.Capture capture = clipStore.running(clip);
+        if (capture != null) {
+            result.put("working", true);
+            result.put("bytes", capture.getBytes());
+            result.put("elapsedSeconds", capture.getElapsedSeconds());
+        } else {
+            result.put("working", false);
+        }
+        return result;
+    }
+
+    /**
+     * Serves a clip off the disk cache.
+     *
+     * <p>Nothing streams through from the vehicle any more. A clip that has not
+     * been fetched yet is fetched now and the request waits for it, but a clip
+     * already held is served straight from the file - with a length and byte
+     * ranges, so the browser can seek in it and a download manager asking a
+     * second time costs the vehicle nothing. That second ask is what used to
+     * take the playback stream away from the first one and leave both with a
+     * few seconds of footage.
      */
     @GET
     @Path("download/{deviceId}/{channel}")
@@ -155,46 +253,95 @@ public class Cmsv9Resource extends BaseResource {
             @PathParam("channel") int channel,
             @QueryParam("startTime") String startTime,
             @QueryParam("endTime") String endTime,
-            @QueryParam("format") String format) throws Exception {
-        String terminal = getCmsDeviceId(deviceId);
-        int cnmsChannel = channel + 1;
-        boolean mp4 = cmsv9Manager.isFfmpegAvailable();
-        // "share" re-encodes to H.264 with the index at the front, which is
-        // what a phone or WhatsApp will accept; the default streams the
-        // camera's own H.265 straight through, which starts instantly and is
-        // what the review player scrubs through.
-        boolean shareable = mp4 && "share".equalsIgnoreCase(format);
-        InputStream input;
-        if (shareable) {
-            input = cmsv9Manager.openPlaybackShareableMp4(terminal, cnmsChannel, startTime, endTime);
-        } else if (mp4) {
-            input = cmsv9Manager.openPlaybackMp4(terminal, cnmsChannel, startTime, endTime);
-        } else {
-            input = cmsv9Manager.openPlaybackStream(terminal, cnmsChannel, startTime, endTime);
+            @QueryParam("format") String format,
+            @QueryParam("disposition") String disposition,
+            @HeaderParam("Range") String range) throws Exception {
+        Cmsv9ClipStore.Clip clip = clipOf(deviceId, channel, startTime, endTime, format);
+        int seconds = Cmsv9ClipStore.seconds(clip);
+        int maxMinutes = config.getInteger(Keys.CMSV9_CLIP_MAX_MINUTES);
+        if (seconds <= 0 || seconds > maxMinutes * 60) {
+            return Response.status(Response.Status.BAD_REQUEST).build();
         }
-        if (input == null) {
+        java.nio.file.Path file;
+        try {
+            // Short clips are worth waiting for inline. A long one would hold
+            // this thread for its own length and be cut off by the proxy long
+            // before it finished, so the capture carries on in the background
+            // and the caller is told to come back - which is what the video
+            // page does anyway, having asked for the clip first.
+            file = clipStore.request(clip).get(45, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (java.util.concurrent.TimeoutException e) {
+            return Response.status(Response.Status.SERVICE_UNAVAILABLE)
+                    .header("Retry-After", Math.max(5, seconds / 4))
+                    .entity(Map.of(
+                            "message", "That footage is still coming off the vehicle.",
+                            "seconds", seconds))
+                    .type(MediaType.APPLICATION_JSON)
+                    .build();
+        } catch (java.util.concurrent.ExecutionException e) {
+            LOG.warn("Clip could not be fetched: {}", e.getCause().getMessage());
             return Response.status(Response.Status.NOT_FOUND).build();
         }
 
-        String stamp = startTime != null ? startTime.replaceAll("[^0-9]", "") : "clip";
-        String filename = terminal + "_ch" + cnmsChannel + "_" + stamp + (mp4 ? ".mp4" : ".flv");
+        long length = Files.size(file);
+        String filename = file.getFileName().toString();
+        Response.ResponseBuilder builder;
+        long from = 0;
+        long to = length - 1;
 
+        // One range, which is all a browser ever asks a video for.
+        if (range != null && range.startsWith("bytes=") && !range.contains(",")) {
+            String[] parts = range.substring(6).split("-", 2);
+            try {
+                if (parts[0].isEmpty()) {
+                    from = Math.max(0, length - Long.parseLong(parts[1]));
+                } else {
+                    from = Long.parseLong(parts[0]);
+                    if (parts.length > 1 && !parts[1].isEmpty()) {
+                        to = Math.min(to, Long.parseLong(parts[1]));
+                    }
+                }
+            } catch (NumberFormatException e) {
+                from = 0;
+                to = length - 1;
+            }
+            if (from > to || from >= length) {
+                return Response.status(416).header("Content-Range", "bytes */" + length).build();
+            }
+            builder = Response.status(Response.Status.PARTIAL_CONTENT)
+                    .header("Content-Range", "bytes " + from + "-" + to + "/" + length);
+        } else {
+            builder = Response.ok();
+        }
+
+        final long start = from;
+        final long count = to - from + 1;
         StreamingOutput output = out -> {
-            try (InputStream in = input) {
-                byte[] buffer = new byte[8192];
-                int length;
-                while ((length = in.read(buffer)) != -1) {
-                    out.write(buffer, 0, length);
-                    out.flush();
+            try (InputStream in = Files.newInputStream(file)) {
+                in.skipNBytes(start);
+                byte[] buffer = new byte[64 * 1024];
+                long left = count;
+                while (left > 0) {
+                    int read = in.read(buffer, 0, (int) Math.min(buffer.length, left));
+                    if (read < 0) {
+                        break;
+                    }
+                    out.write(buffer, 0, read);
+                    left -= read;
                 }
             } catch (IOException e) {
-                // client disconnected or playback stream ended
+                // the browser went away; nothing to clean up
             }
         };
-        return Response.ok(output)
-                .header("Content-Type", mp4 ? "video/mp4" : "video/x-flv")
-                .header("Content-Disposition", "attachment; filename=\"" + filename + "\"")
-                .header("Cache-Control", "no-cache")
+        return builder.entity(output)
+                .header("Content-Type", "video/mp4")
+                .header("Content-Length", count)
+                .header("Accept-Ranges", "bytes")
+                .header("Content-Disposition",
+                        "attachment".equalsIgnoreCase(disposition) || clip.shareable()
+                                ? "attachment; filename=\"" + filename + "\"" : "inline")
+                // Same clip, same bytes, for as long as the cache holds it.
+                .header("Cache-Control", "private, max-age=86400")
                 .build();
     }
 
@@ -268,8 +415,10 @@ public class Cmsv9Resource extends BaseResource {
 
         JsonNode resp = cmsv9Manager.playbackAppoint(
                 terminal, String.valueOf(cnmsChannel), startTime, endTime);
-        String flvUrl = resp.path("resultData").path("httpurl").asText("");
-        if (flvUrl.isEmpty()) {
+        // CNMS answers with its own absolute address on the media port; the
+        // browser wants it through this site (see Cmsv9Manager.forBrowser).
+        String flvUrl = cmsv9Manager.forBrowser(resp.path("resultData").path("httpurl").asText(""));
+        if (flvUrl == null || flvUrl.isEmpty()) {
             flvUrl = cmsv9Manager.buildPlaybackFlvUrl(terminal, cnmsChannel);
         }
 

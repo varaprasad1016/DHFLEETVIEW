@@ -2322,6 +2322,26 @@ public final class Keys {
     /**
      * CMSV9 / 808gps video platform server URL (e.g. http://host:port).
      */
+    /**
+     * National Highways subscription key, for the live road disruption feed
+     * (closures, roadworks and lane restrictions on the strategic network).
+     * Free, from developer.data.nationalhighways.co.uk. Without it the
+     * disruption layer simply reports itself as not configured.
+     */
+    public static final ConfigKey<String> ROADS_NATIONAL_HIGHWAYS_KEY = new StringConfigKey(
+            "roads.nationalHighwaysKey",
+            List.of(KeyType.CONFIG));
+
+    /**
+     * How long a fetched copy of that feed is reused. Their limit is 10 calls a
+     * minute and the data changes slowly, so there is nothing to gain from
+     * asking more often.
+     */
+    public static final ConfigKey<Integer> ROADS_REFRESH_MINUTES = new IntegerConfigKey(
+            "roads.refreshMinutes",
+            List.of(KeyType.CONFIG),
+            5);
+
     public static final ConfigKey<String> CMSV9_URL = new StringConfigKey(
             "cmsv9.url",
             List.of(KeyType.CONFIG));
@@ -2424,6 +2444,32 @@ public final class Keys {
             "cmsv9.frpWebPort",
             List.of(KeyType.CONFIG),
             9966);
+
+    /**
+     * Where captured footage is kept. Footage is played back off a camera's SD card in real time over the vehicle's
+     * mobile connection, so every clip is kept once fetched and served from here afterwards. Defaults to a
+     * cmsv9-clips folder under media.path.
+     */
+    public static final ConfigKey<String> CMSV9_CLIP_PATH = new StringConfigKey(
+            "cmsv9.clipPath",
+            List.of(KeyType.CONFIG));
+
+    /**
+     * How much disk the captured footage may use, in megabytes. The oldest clips are deleted once it is exceeded.
+     */
+    public static final ConfigKey<Long> CMSV9_CLIP_CACHE_MB = new LongConfigKey(
+            "cmsv9.clipCacheMb",
+            List.of(KeyType.CONFIG),
+            20480L);
+
+    /**
+     * The longest clip that may be requested, in minutes. A minute of footage costs roughly 22 MB of the vehicle's
+     * data allowance and takes a minute to play back, so an unbounded request is an expensive mistake to make.
+     */
+    public static final ConfigKey<Integer> CMSV9_CLIP_MAX_MINUTES = new IntegerConfigKey(
+            "cmsv9.clipMaxMinutes",
+            List.of(KeyType.CONFIG),
+            20);
 
     /**
      * Tachograph module enabled.

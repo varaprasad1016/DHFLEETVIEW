@@ -8,6 +8,7 @@ import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import DownloadIcon from '@mui/icons-material/Download';
 import { ACTIVITY, asHours, cardEnding } from '../../common/util/fmc650Tacho';
 
 /*
@@ -151,6 +152,18 @@ const useStyles = makeStyles()((theme) => ({
     border: 0,
     padding: 0,
     cursor: 'pointer',
+  },
+  downloads: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: theme.spacing(0.5),
+    alignSelf: 'flex-start',
+    fontSize: '0.72rem',
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+    color: theme.palette.primary.main,
+    textDecoration: 'none',
   },
   empty: {
     fontSize: '0.78rem',
@@ -476,6 +489,14 @@ const TachoOverlay = ({ live, deviceName, onClose }) => {
               </div>
             </>
           )}
+          {/* The DDD files themselves: downloaded from the vehicle by TachoSync
+              and archived here. A page rather than a panel - they are a list
+              with dates and sizes, not something to read over a map. */}
+          <div className={classes.divider} />
+          <a className={classes.downloads} href="/tacho/downloads" target="_blank" rel="noreferrer">
+            <DownloadIcon sx={{ fontSize: 15 }} />
+            Downloads
+          </a>
           {recordedAt && (
             <Typography className={classes.foot}>
               {stale

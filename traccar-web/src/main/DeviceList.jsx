@@ -68,13 +68,45 @@ const DeviceList = ({ devices }) => {
     };
   }, []);
 
+  /*
+   * What each vehicle is driving towards: closures and roadworks ahead of it on
+   * the strategic network. One request for the whole list, refreshed on the
+   * same rhythm as the feed behind it, and silent when it fails - a roadworks
+   * service being down must never cost anyone their vehicle list.
+   */
+  const [ahead, setAhead] = useState({});
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const response = await fetch('/api/disruptions/ahead');
+        if (!response.ok) return;
+        const data = await response.json();
+        if (cancelled) return;
+        const byDevice = {};
+        (data.items || []).forEach((item) => {
+          byDevice[item.deviceId] = item;
+        });
+        setAhead(byDevice);
+      } catch {
+        // the vehicles matter more than the roadworks
+      }
+    };
+    load();
+    const timer = setInterval(load, 120000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
+
   return (
     <List
       className={classes.list}
       rowComponent={DeviceRow}
       rowCount={devices.length}
       rowHeight={96}
-      rowProps={{ devices, tacho }}
+      rowProps={{ devices, tacho, ahead }}
       overscanCount={5}
     />
   );

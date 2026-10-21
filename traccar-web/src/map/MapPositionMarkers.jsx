@@ -5,7 +5,11 @@ import MapMarkers from './MapMarkers';
 import { formatTime } from '../common/util/formatter';
 import { useTranslation } from '../common/components/LocalizationProvider';
 import { mapIconKey } from './core/preloadImages';
-import { drivingSpeed, getVehicleStatus, getStatusColor as getVehicleStatusColor } from '../common/util/vehicleStatus';
+import {
+  drivingSpeed,
+  getVehicleStatus,
+  getStatusColor as getVehicleStatusColor,
+} from '../common/util/vehicleStatus';
 import { useAttributePreference } from '../common/util/preferences';
 import { fromMapCoordinates } from './core/mapUtil';
 
@@ -63,8 +67,9 @@ const MapPositionMarkers = ({
         color = position.attributes.color;
       } else {
         const vehicleStatus = getVehicleStatus(device, position);
-        color = getVehicleStatusColor(vehicleStatus);
-        // Map offline error case to neutral if you prefer gray for offline? Keep error for visibility.
+        // Without a lock the pin is the last known one, not where the vehicle
+        // is now. Grey says that; amber would read as a vehicle sitting there.
+        color = vehicleStatus === 'nofix' ? 'neutral' : getVehicleStatusColor(vehicleStatus);
       }
     } else {
       color = 'neutral';
@@ -72,8 +77,14 @@ const MapPositionMarkers = ({
     // While a vehicle is driving its speed sits under the name on the map, so it
     // is readable without opening the vehicle.
     const speed = showStatus ? drivingSpeed(device, position, speedUnit, t) : null;
+    // A stale pin says so on the map itself, rather than looking like a parked
+    // lorry at a place it left hours ago.
+    const stale =
+      showStatus && getVehicleStatus(device, position) === 'nofix'
+        ? `no satellite lock · last fix ${formatTime(position.fixTime, 'minutes')}`
+        : null;
     const titles = {
-      name: speed ? `${device.name}\n${speed}` : device.name,
+      name: [device.name, speed, stale].filter(Boolean).join('\n'),
       fixTime: formatTime(position.fixTime, 'seconds'),
     };
     return {
