@@ -128,6 +128,30 @@ class _MainScreenState extends State<MainScreen> {
     await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
   }
 
+  /// A name safe to write to disk, with an extension the sharing sheet can
+  /// make sense of. The page supplies both, and neither can be trusted: the
+  /// name may carry path separators, or be missing altogether.
+  String _safeFileName(String name, String mimeType) {
+    var safe = name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+    if (safe.isEmpty || safe == '_') safe = 'download';
+    if (!safe.contains('.')) {
+      const byType = {
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+        'application/pdf': 'pdf',
+        'text/csv': 'csv',
+        'application/json': 'json',
+        'application/zip': 'zip',
+        'image/jpeg': 'jpg',
+        'image/png': 'png',
+        'video/mp4': 'mp4',
+        'application/vnd.google-earth.kml+xml': 'kml',
+      };
+      final extension = byType[mimeType.split(';').first.trim().toLowerCase()];
+      if (extension != null) safe = '$safe.$extension';
+    }
+    return safe;
+  }
+
   String _fileNameFor(Uri uri, String? contentDisposition) {
     if (contentDisposition != null) {
       final encodedMatch = RegExp(r"filename\*=UTF-8''([^;]+)", caseSensitive: false)
@@ -151,17 +175,31 @@ class _MainScreenState extends State<MainScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Future<void> _downloadFile(Uri uri, {String? contentDisposition}) async {
+  Future<void> _downloadFile(Uri uri, {String? contentDisposition,
+                                       String? suggestedFileName}) async {
     try {
+      // The session the page is using lives in the WebView's cookies, not in
+      // the stored token, and a /tacho page is signed in separately again.
+      // Sending the cookies as well as the token means a download works
+      // wherever in the app it was started, rather than only on the pages the
+      // stored token happens to cover.
+      final cookies = await CookieManager.instance().getCookies(url: WebUri.uri(uri));
+      final headers = <String, String>{};
+      if (cookies.isNotEmpty) {
+        headers['Cookie'] = cookies.map((c) => '${c.name}=${c.value}').join('; ');
+      }
       final token = await _loginTokenStore.read(false);
-      if (token == null) {
+      if (token != null) headers['Authorization'] = 'Bearer $token';
+      if (headers.isEmpty) {
         _showDownloadMessage('Please log in again before downloading a file.');
         return;
       }
-      final response = await http.get(uri, headers: {'Authorization': 'Bearer $token'});
+      final response = await http.get(uri, headers: headers);
       if (response.statusCode >= 200 && response.statusCode < 300) {
         await _shareFile(
-          _fileNameFor(uri, contentDisposition ?? response.headers['content-disposition']),
+          suggestedFileName != null
+            ? _safeFileName(suggestedFileName, response.headers['content-type'] ?? '')
+            : _fileNameFor(uri, contentDisposition ?? response.headers['content-disposition']),
           response.bodyBytes,
         );
       } else {
@@ -223,12 +261,34 @@ class _MainScreenState extends State<MainScreen> {
       case 'logout':
         await _loginTokenStore.delete();
       case 'download':
+        // download|mime|name|base64 - a file the page built for itself.
         try {
           if (parts.length < 2) throw const FormatException('Missing download data');
-          await _shareFile('report.xlsx', base64Decode(parts[1]));
+          if (parts.length >= 4) {
+            // The base64 is last and can itself contain nothing but base64
+            // characters, so anything after the third separator is payload.
+            await _shareFile(
+              _safeFileName(parts[2], parts[1]),
+              base64Decode(parts.sublist(3).join('|')),
+            );
+          } else {
+            // The older two-part form, still sent by pages that have not been
+            // through this path: a spreadsheet and nothing else.
+            await _shareFile('report.xlsx', base64Decode(parts[1]));
+          }
         } catch (e) {
           developer.log('Failed to save downloaded file', error: e);
-          _showDownloadMessage('The report could not be downloaded. Please try again.');
+          _showDownloadMessage('The file could not be saved. Please try again.');
+        }
+      case 'downloadUrl':
+        // downloadUrl|suggested name|absolute url - a normal link carrying a
+        // download attribute, which the WebView would otherwise just navigate.
+        if (parts.length >= 3) {
+          final target = Uri.tryParse(parts.sublist(2).join('|'));
+          if (target != null && (target.scheme == 'http' || target.scheme == 'https')) {
+            await _downloadFile(target,
+              suggestedFileName: parts[1].isEmpty ? null : parts[1]);
+          }
         }
       case 'server':
         final url = parts[1];
@@ -342,6 +402,9 @@ class _MainScreenState extends State<MainScreen> {
             initialSettings: InAppWebViewSettings(
               javaScriptEnabled: true,
               useShouldOverrideUrlLoading: true,
+              // Without this, onDownloadStartRequest below is registered and
+              // never called, so every download in the app did nothing at all.
+              useOnDownloadStart: true,
               supportZoom: false,
               builtInZoomControls: false,
             ),
@@ -358,6 +421,82 @@ class _MainScreenState extends State<MainScreen> {
                       }
                     }
                   };
+                  (function() {
+                    // Files the page builds itself never reach the WebView as a
+                    // download: a spreadsheet export or a video snapshot is a
+                    // blob: or data: link, often clicked by script on an anchor
+                    // that was never put in the document. The WebView cancels
+                    // those and nothing happens. They are read here instead and
+                    // handed to the app as bytes.
+                    if (window.__dhfvDownloads) return;
+                    window.__dhfvDownloads = true;
+                    var blobs = new Map();
+                    var originalCreateObjectURL = URL.createObjectURL;
+                    URL.createObjectURL = function(object) {
+                      var url = originalCreateObjectURL.apply(this, arguments);
+                      if (object instanceof Blob) blobs.set(url, object);
+                      return url;
+                    };
+                    var clean = function(value) { return String(value || '').replace(/[|\\r\\n]/g, '_'); };
+                    var post = function(message) { window.appInterface.postMessage(message); };
+                    var sendBlob = function(blob, name) {
+                      var reader = new FileReader();
+                      reader.onload = function() {
+                        post('download|' + clean(blob.type || 'application/octet-stream') + '|' + clean(name || 'download')
+                          + '|' + String(reader.result).split(',')[1]);
+                      };
+                      reader.readAsDataURL(blob);
+                    };
+                    var handleInPage = function(href, name) {
+                      if (href.indexOf('blob:') === 0) {
+                        var blob = blobs.get(href);
+                        if (blob) { sendBlob(blob, name); return true; }
+                        fetch(href).then(function(r) { return r.blob(); }).then(function(b) { sendBlob(b, name); });
+                        return true;
+                      }
+                      if (href.indexOf('data:') === 0) {
+                        var match = /^data:([^;,]*)((?:;[^;,]*)*?)(;base64)?,([\\s\\S]*)\$/.exec(href);
+                        if (!match) return false;
+                        var b64 = match[3] ? match[4] : btoa(unescape(encodeURIComponent(decodeURIComponent(match[4]))));
+                        post('download|' + clean(match[1] || 'application/octet-stream') + '|' + clean(name || 'download') + '|' + b64);
+                        return true;
+                      }
+                      return false;
+                    };
+                    var handleAnchor = function(anchor) {
+                      var href = anchor.href || '';
+                      var name = anchor.getAttribute('download');
+                      if (href.indexOf('blob:') === 0 || href.indexOf('data:') === 0) return handleInPage(href, name);
+                      if (name !== null && /^https?:/.test(href)) { post('downloadUrl|' + clean(name) + '|' + href); return true; }
+                      return false;
+                    };
+                    document.addEventListener('click', function(event) {
+                      var anchor = event.target && event.target.closest ? event.target.closest('a[href]') : null;
+                      if (anchor && handleAnchor(anchor)) { event.preventDefault(); event.stopImmediatePropagation(); }
+                    }, true);
+                    // Code-triggered downloads (file-saver and friends) click a
+                    // link that is not in the page, so the listener above never
+                    // sees them.
+                    var originalClick = HTMLAnchorElement.prototype.click;
+                    HTMLAnchorElement.prototype.click = function() {
+                      if (handleAnchor(this)) return;
+                      return originalClick.apply(this, arguments);
+                    };
+                    var originalDispatch = EventTarget.prototype.dispatchEvent;
+                    EventTarget.prototype.dispatchEvent = function(event) {
+                      if (event && event.type === 'click' && this instanceof HTMLAnchorElement && !this.isConnected && handleAnchor(this)) {
+                        return false;
+                      }
+                      return originalDispatch.apply(this, arguments);
+                    };
+                    var originalOpen = window.open;
+                    window.open = function(url) {
+                      if (typeof url === 'string' && (url.indexOf('blob:') === 0 || url.indexOf('data:') === 0) && handleInPage(url, 'download')) {
+                        return null;
+                      }
+                      return originalOpen.apply(this, arguments);
+                    };
+                  })();
                   const excelType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
                   const originalCreateObjectURL = URL.createObjectURL;
                   URL.createObjectURL = function(object) {
