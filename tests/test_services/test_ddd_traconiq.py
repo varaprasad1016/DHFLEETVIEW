@@ -6,10 +6,10 @@ that belongs in a repository. The shapes here are the ones the parser actually
 emits, taken from its Go struct tags.
 """
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta as td, timezone
 
 from app.services import ddd_traconiq as parser
-from app.services.tacho_rules import Activity as Activity_
+from app.services.tacho_rules import Activity as Activity_, PlaceEntry as PlaceEntry_
 
 
 def _change(minute, work_type, *, card_present=True, driver=True, team=False):
@@ -212,6 +212,60 @@ class TestAttribution:
         span = Activity_("drive", _at(2026, 5, 20, 6), _at(2026, 5, 20, 9))
         cards = [(1, "CO DRIVER", _at(2026, 5, 20, 5), None)]
         assert [who for _, who in parser._attribute(span, 0, cards)] == [None]
+
+
+class TestRuleFamilies:
+    """The card's rules and the hours rules must not overlap.
+
+    A driver's hours are judged from every file there is; the country entries
+    and card withdrawals are judged from the card, which is the only thing that
+    records them. Both passes clear their own findings before writing new ones,
+    so if the two families ever shared a rule, each pass would delete the
+    other's work on every run.
+    """
+
+    def _timeline(self):
+        # Two working days with a short overnight between them, which is
+        # enough for the hours rules to have something to say.
+        out = []
+        for day in (20, 21):
+            start = _at(2026, 5, day, 5)
+            out.append(Activity_("work", start, start + td(minutes=30)))
+            out.append(Activity_("drive", start + td(minutes=30), start + td(hours=5, minutes=30)))
+            out.append(Activity_("work", start + td(hours=5, minutes=30), start + td(hours=14)))
+            out.append(Activity_("rest", start + td(hours=14), _at(2026, 5, day + 1, 5)))
+        return out
+
+    def test_the_two_families_are_disjoint(self):
+        from app.api.tacho import RECORD_KEEPING_RULES
+        from app.services.tacho_rules import analyse
+
+        acts = self._timeline()
+        places = [PlaceEntry_(_at(2026, 5, 20, 5), "begin", country=21)]
+        everything = analyse(acts, places, [])
+        card = [i for i in everything if i.rule in RECORD_KEEPING_RULES]
+        hours = [i for i in everything if i.rule not in RECORD_KEEPING_RULES]
+
+        assert len(card) + len(hours) == len(everything)
+        assert not ({i.rule for i in card} & {i.rule for i in hours})
+
+    def test_the_hours_pass_can_never_raise_a_card_rule(self):
+        """Without places, `analyse` leaves the record-keeping rules alone.
+
+        This is what lets a vehicle unit be analysed at all: it has no country
+        entries to show, and judging it on them would report every day as
+        missing one.
+        """
+        from app.api.tacho import RECORD_KEEPING_RULES
+        from app.services.tacho_rules import analyse
+
+        found = analyse(self._timeline())
+        assert not [i for i in found if i.rule in RECORD_KEEPING_RULES]
+
+    def test_a_vehicle_unit_still_gets_judged_on_its_hours(self):
+        from app.services.tacho_rules import analyse
+
+        assert analyse(self._timeline()), "two 14-hour days should breach something"
 
 
 class TestPlaces:

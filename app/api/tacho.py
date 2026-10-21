@@ -254,6 +254,67 @@ async def _persist_infringements(session: AsyncSession, driver_ref: str, found: 
     return added
 
 
+# The rules that judge what the driver did with their card, rather than how
+# long they drove. A country entry and a card withdrawal live on the card and
+# nowhere else, so these are the card's to answer for and a vehicle unit must
+# never be asked about them. Keeping the two families apart is what lets the
+# combined analysis and the card's own analysis both run without one deleting
+# the other's findings.
+RECORD_KEEPING_RULES = ("country_start", "country_end", "card_withdrawal")
+
+
+async def _clear_open(session: AsyncSession, driver_ref: str,
+                      company_id: uuid.UUID | None, rules: tuple[str, ...],
+                      keep_rules: bool, within: tuple[datetime, datetime] | None = None) -> None:
+    """Drop this driver's untouched findings for one family of rules.
+
+    Anything acknowledged, dismissed, signed or debriefed is somebody's
+    decision on the record and is left exactly as they left it.
+    """
+    reviewed = select(InfringementReview.infringement_id)
+    stale = delete(Infringement).where(
+        Infringement.driver_ref == driver_ref,
+        Infringement.status == "open",
+        Infringement.id.not_in(reviewed),
+        Infringement.rule.in_(rules) if keep_rules else Infringement.rule.not_in(rules))
+    if company_id is not None:
+        stale = stale.where(Infringement.company_id == company_id)
+    if within is not None:
+        stale = stale.where(Infringement.period_start >= within[0],
+                            Infringement.period_start <= within[1])
+    await session.execute(stale)
+    await session.flush()
+
+
+async def analyse_card_records(session: AsyncSession, driver_ref: str, parsed: dict,
+                               source_file_id: uuid.UUID,
+                               company_id: uuid.UUID | None = None) -> int:
+    """Judge a driver card on the things only a card can answer for.
+
+    The country entries and the card's time out of a unit, over the period this
+    card covers. The hours themselves are left to `analyse_driver`, which has
+    the driver's whole timeline rather than one card's worth of it.
+    """
+    activities = parsed.get("activities") or []
+    places = parsed.get("places")
+    if not activities or places is None:
+        return 0
+
+    found = [i for i in analyse(activities, places, parsed.get("card_gaps"))
+             if i.rule in RECORD_KEEPING_RULES]
+
+    # Scoped to what this card actually covers, so a driver's older card does
+    # not have its findings cleared by a newer one that says nothing about
+    # those weeks.
+    covered = (min(a.start for a in activities), max(a.end for a in activities))
+    await _clear_open(session, driver_ref, company_id, RECORD_KEEPING_RULES,
+                      keep_rules=True, within=covered)
+    if not found:
+        await session.commit()
+        return 0
+    return await _persist_infringements(session, driver_ref, found, source_file_id, company_id)
+
+
 async def analyse_driver(session: AsyncSession, driver_ref: str,
                          company_id: uuid.UUID | None = None,
                          source_file_id: uuid.UUID | None = None) -> int:
@@ -286,16 +347,15 @@ async def analyse_driver(session: AsyncSession, driver_ref: str,
     if not rows:
         return 0
 
-    stale = delete(Infringement).where(
-        Infringement.driver_ref == driver_ref, Infringement.status == "open")
-    if company_id is not None:
-        stale = stale.where(Infringement.company_id == company_id)
-    await session.execute(stale)
-    await session.flush()
+    await _clear_open(session, driver_ref, company_id, RECORD_KEEPING_RULES,
+                      keep_rules=False)
 
     timeline = [Activity(row.activity_type, row.started_at, row.ended_at, crew=row.crew)
                 for row in rows]
-    found = analyse(timeline)
+    # The record-keeping rules belong to the card, which is the only thing that
+    # knows about them; `analyse` already leaves them out when given no places,
+    # and this makes that explicit rather than incidental.
+    found = [i for i in analyse(timeline) if i.rule not in RECORD_KEEPING_RULES]
     if not found:
         await session.commit()
         return 0

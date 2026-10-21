@@ -124,10 +124,9 @@ async def _read_into(session, tf, data: bytes, *, company_id, vehicle_ref: str |
     operator's record and still has to be producible for DVSA.
     """
     from app.api.tacho import (_parse_driver_card, _persist_activities,
-                               _persist_infringements, analyse_driver,
+                               analyse_card_records, analyse_driver,
                                parse_vehicle_unit)
     from app.services import operators
-    from app.services.tacho_rules import analyse
 
     filename = tf.filename
     is_card = tf.file_kind == "driver_card"
@@ -142,12 +141,21 @@ async def _read_into(session, tf, data: bytes, *, company_id, vehicle_ref: str |
             tf.parse_error = None
             await _persist_activities(session, parsed, tf.id, company_id,
                                       driver_ref=tf.driver_ref)
-            found = analyse(parsed["activities"], parsed.get("places"),
-                            parsed.get("card_gaps"))
-            added = await _persist_infringements(
-                session, tf.driver_ref or "unknown", found, tf.id, company_id)
+
+            # Two passes, because they answer different questions from
+            # different evidence: the hours from everything known about this
+            # driver, and the country entries and card withdrawals from this
+            # card, which is the only thing that records them. The card's own
+            # pass runs now whatever the caller asked, because it depends on
+            # nothing but this file and the places are not kept anywhere else.
+            who = tf.driver_ref or "unknown"
+            added = await analyse_card_records(session, who, parsed, tf.id, company_id)
+            if run_analysis:
+                added += await analyse_driver(session, who, company_id, tf.id)
+
             result.update(file_kind="driver_card", parser=parser,
                           driver_ref=tf.driver_ref, days=parsed.get("days"),
+                          drivers=[tf.driver_ref] if tf.driver_ref else [],
                           infringements=added)
         else:
             from app.services import ddd_parser
