@@ -189,8 +189,26 @@ def _driver_ref(card: dict) -> str | None:
 
 
 def _changes(raw: list) -> list[tuple[int, str, bool, bool]]:
-    """Activity changes as (minute, kind, card_out, crew), in time order."""
-    out = []
+    """One person's activity changes as (minute, kind, card_out, crew).
+
+    For a driver card, every change belongs to the card's holder whichever slot
+    they sat in, so they form a single timeline.
+    """
+    out = [change for _slot, changes in _changes_by_slot(raw).items()
+           for change in changes]
+    out.sort(key=lambda item: item[0])
+    return out
+
+
+def _changes_by_slot(raw: list) -> dict[int, list[tuple[int, str, bool, bool]]]:
+    """Activity changes split by the card slot that recorded them.
+
+    A vehicle unit writes the changes for both seats into one list, so pairing
+    them as a single sequence interleaves two people: one driver's break gets
+    closed by the other's change, and a shift comes out with no break in it at
+    all. Each slot is its own person and its own timeline.
+    """
+    slots: dict[int, list[tuple[int, str, bool, bool]]] = {}
     for change in raw or []:
         if not isinstance(change, dict):
             continue
@@ -200,16 +218,18 @@ def _changes(raw: list) -> list[tuple[int, str, bool, bool]]:
         minute = change.get("minutes")
         if not isinstance(minute, int) or not 0 <= minute <= 1440:
             continue
-        # `driver` false means the card sat in the second slot, which is the
-        # holder crewing as co-driver. This mirrors what the Go reader marked:
-        # the `team` bit is the regulation's own multi-manning flag and would
-        # catch more two-up work, but it also relaxes the daily rest rule from
-        # 11 hours to 9, so widening it here would quietly report fewer
-        # infringements. Left alone deliberately.
-        crew = change.get("driver") is False
-        out.append((minute, kind, change.get("card_present") is False, crew))
-    out.sort(key=lambda item: item[0])
-    return out
+        # `driver` false means this change was recorded in the second slot.
+        slot = 0 if change.get("driver") is not False else 1
+        # `team` is the regulation's own multi-manning bit, set on both seats'
+        # records while a shift is crewed. That is what the rest rules need -
+        # multi-manned work is rested 9 hours inside 30 rather than 11 inside
+        # 24, and that applies to both drivers, not only the one in seat two.
+        crew = bool(change.get("team"))
+        slots.setdefault(slot, []).append(
+            (minute, kind, change.get("card_present") is False, crew))
+    for changes in slots.values():
+        changes.sort(key=lambda item: item[0])
+    return slots
 
 
 def _spans(days: list[tuple[datetime, list]]) -> tuple[list[Activity], list[CardGap]]:
@@ -252,6 +272,53 @@ def _spans(days: list[tuple[datetime, list]]) -> tuple[list[Activity], list[Card
 
 def _midnight(when: datetime) -> datetime:
     return when.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _attribute(activity: Activity, slot: int,
+               cards: list[tuple[int, str, datetime, datetime | None]],
+               ) -> list[tuple[Activity, str | None]]:
+    """Split one span into the parts each card session actually covers.
+
+    A span must not be handed whole to whoever happened to be in the seat when
+    it started. A vehicle unit records the seat's activity continuously, so the
+    span that begins while a driver is still aboard carries on after the card
+    comes out - with no card in, the unit books the time as work, and it runs
+    to midnight. Attributing all of that to the driver who left at lunchtime
+    invents a twelve-hour afternoon shift, and the rules then quite reasonably
+    report a duty period with no rest in it.
+
+    So each span is cut at the session boundaries: the parts inside a session
+    belong to that card's holder, and the parts outside belong to nobody.
+    """
+    covered = []
+    for card_slot, who, inserted, withdrawn in cards:
+        if card_slot != slot:
+            continue
+        start = max(activity.start, inserted)
+        end = min(activity.end, withdrawn if withdrawn is not None else activity.end)
+        if end > start:
+            covered.append((start, end, who))
+    covered.sort(key=lambda piece: piece[0])
+
+    out: list[tuple[Activity, str | None]] = []
+    cursor = activity.start
+
+    def add(start: datetime, end: datetime, who: str | None) -> None:
+        # The activity grid is whole minutes, so a sliver left by a card that
+        # came out mid-minute is rounding, not a period of work.
+        if (end - start).total_seconds() >= 60:
+            out.append((Activity(activity.type, start, end, crew=activity.crew), who))
+
+    for start, end, who in covered:
+        if start > cursor:
+            add(cursor, start, None)
+            cursor = start
+        if end > cursor:
+            add(cursor, end, who)
+            cursor = end
+    if cursor < activity.end:
+        add(cursor, activity.end, None)
+    return out
 
 
 def _places(records: list) -> list[PlaceEntry]:
@@ -396,8 +463,8 @@ def _vu_serial(document: dict, suffix: str) -> str | None:
     return None
 
 
-def _vu_cards(blocks: list, suffix: str) -> list[tuple[str, datetime, datetime | None]]:
-    """Who held the vehicle's slots, and between when."""
+def _vu_cards(blocks: list, suffix: str) -> list[tuple[int, str, datetime, datetime | None]]:
+    """Who held which of the vehicle's slots, and between when."""
     cards = []
     for block in blocks:
         records = _records(block, "vu_card_iw_record_array")
@@ -406,9 +473,11 @@ def _vu_cards(blocks: list, suffix: str) -> list[tuple[str, datetime, datetime |
         for card in records:
             ref = _driver_ref(card)
             inserted = _time((card or {}).get("card_insertion_time"))
-            if ref and inserted:
-                cards.append((ref, inserted,
-                              _time(card.get("card_withdrawal_time"))))
+            if not ref or inserted is None:
+                continue
+            slot = card.get("card_slot_number")
+            cards.append((slot if isinstance(slot, int) else 0, ref, inserted,
+                          _time(card.get("card_withdrawal_time"))))
     return cards
 
 
@@ -421,7 +490,9 @@ def parse_vehicle_unit(data: bytes) -> dict:
     if not isinstance(blocks, list):
         blocks = [blocks]
 
-    days: list[tuple[datetime, list]] = []
+    # One set of days per seat. The two seats are two people, and a timeline
+    # built from both at once is neither of them.
+    by_slot: dict[int, list[tuple[datetime, list]]] = {}
     for block in blocks:
         if not isinstance(block, dict):
             continue
@@ -432,24 +503,40 @@ def parse_vehicle_unit(data: bytes) -> dict:
             day = _time(block.get("time_real"))
         if day is None:
             continue
-        changes = _changes(
+        slots = _changes_by_slot(
             _records(block, "vu_activity_daily_record_array")
             or _records(block.get("vu_activity_daily_data") or {}, "activity_change_info"))
-        if changes:
-            days.append((_midnight(day), changes))
-    days.sort(key=lambda item: item[0])
+        for slot, changes in slots.items():
+            if changes:
+                by_slot.setdefault(slot, []).append((_midnight(day), changes))
 
-    activities, _gaps = _spans(days)
-
-    # Attach a driver to each span from whichever card was in a slot at the
-    # time. Spans with no matching insertion stay vehicle-only.
     cards = _vu_cards([b for b in blocks if isinstance(b, dict)], suffix)
-    refs: list[str | None] = [
-        next((who for who, inserted, withdrawn in cards
-              if activity.end > inserted
-              and (withdrawn is None or activity.start < withdrawn)), None)
-        for activity in activities
-    ]
+
+    activities: list[Activity] = []
+    refs: list[str | None] = []
+    for slot in sorted(by_slot):
+        days = sorted(by_slot[slot], key=lambda item: item[0])
+        spans, _gaps = _spans(days)
+        # Attach the driver whose card was in *this* seat at the time. A span
+        # with no matching insertion stays vehicle-only rather than being
+        # guessed at: unattributed hours are nobody's hours.
+        for activity in spans:
+            for piece, ref in _attribute(activity, slot, cards):
+                # An empty second seat is still recorded, one change a day
+                # saying "card out, available, from midnight". That is the
+                # absence of a person, not a person being available, and
+                # keeping it credits the vehicle with a whole phantom crew
+                # member. The driver's own seat is kept whether a card was in
+                # it or not, because a lorry working with no card in slot one
+                # is exactly what somebody needs to see.
+                if slot != 0 and ref is None:
+                    continue
+                activities.append(piece)
+                refs.append(ref)
+
+    order = sorted(range(len(activities)), key=lambda i: activities[i].start)
+    activities = [activities[i] for i in order]
+    refs = [refs[i] for i in order]
 
     registration, vin = _vu_identity(document, suffix)
     # A file with no plate, no VIN and no activity is not a vehicle unit the

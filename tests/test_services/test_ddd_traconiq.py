@@ -9,6 +9,7 @@ emits, taken from its Go struct tags.
 from datetime import date, datetime, timezone
 
 from app.services import ddd_traconiq as parser
+from app.services.tacho_rules import Activity as Activity_
 
 
 def _change(minute, work_type, *, card_present=True, driver=True, team=False):
@@ -37,11 +38,23 @@ class TestActivityChanges:
     def test_a_minute_outside_the_day_is_dropped(self):
         assert parser._changes([_change(1441, 3), _change(-1, 3)]) == []
 
-    def test_the_second_slot_is_marked_as_crewing(self):
-        (_, _, _, crew), = parser._changes([_change(0, 3, driver=False)])
+    def test_the_multi_manning_bit_is_what_marks_crewing(self):
+        """`team`, not the slot.
+
+        An empty second seat still records a change of its own, so reading the
+        slot as crewing marks a lorry with nobody in seat two as two-up. The
+        regulation's `team` bit is set on both seats' records while a shift is
+        genuinely crewed, which is also what the rest rules need: multi-manned
+        work is rested 9 hours inside 30, and that applies to both drivers.
+        """
+        (_, _, _, crew), = parser._changes([_change(0, 3, team=True)])
         assert crew is True
 
-    def test_the_first_slot_is_not_crewing(self):
+    def test_the_second_seat_alone_is_not_crewing(self):
+        (_, _, _, crew), = parser._changes([_change(0, 3, driver=False, team=False)])
+        assert crew is False
+
+    def test_single_manned_work_is_not_crewing(self):
         (_, _, _, crew), = parser._changes([_change(0, 3, driver=True)])
         assert crew is False
 
@@ -120,6 +133,85 @@ class TestSpans:
             (_at(2026, 5, 21), parser._changes([_change(0, 0), _change(60, 3)])),
         ])
         assert len(gaps) == 2
+
+
+class TestSlots:
+    """A vehicle unit writes both seats into one list. They are two people."""
+
+    def test_each_seat_gets_its_own_timeline(self):
+        slots = parser._changes_by_slot([
+            _change(0, 0, driver=True), _change(60, 3, driver=True),
+            _change(0, 1, driver=False, card_present=False),
+        ])
+        assert sorted(slots) == [0, 1]
+        assert len(slots[0]) == 2
+        assert len(slots[1]) == 1
+
+    def test_one_seats_break_is_not_closed_by_the_others_change(self):
+        """The bug this guards against.
+
+        Merged into one sequence, the driver's rest from 00:00 is cut short at
+        00:30 by the co-driver's change, and a shift comes out with no break in
+        it. Kept apart, the driver's rest runs its full hour.
+        """
+        slots = parser._changes_by_slot([
+            _change(0, 0, driver=True), _change(60, 2, driver=True),
+            _change(30, 2, driver=False),
+        ])
+        spans, _gaps = parser._spans([(_at(2026, 5, 20), slots[0])])
+        rest = [a for a in spans if a.type == "rest"]
+        assert rest[0].minutes == 60
+
+
+class TestAttribution:
+    """Whose hours a span is, when a card comes out part way through it."""
+
+    def _cards(self, *sessions):
+        return [(0, who, start, end) for who, start, end in sessions]
+
+    def test_a_span_is_cut_at_the_card_withdrawal(self):
+        """The bug this guards against.
+
+        With no card in, the unit books the seat as work to midnight. Handing
+        that whole span to the driver who left at 11:21 invents an afternoon
+        shift, and the rules then report a duty period with no rest in it.
+        """
+        span = Activity_("work", _at(2026, 5, 20, 10), _at(2026, 5, 21))
+        pieces = parser._attribute(span, 0, self._cards(
+            ("A DRIVER", _at(2026, 5, 20, 6), _at(2026, 5, 20, 11, 21))))
+        assert [(p.start.strftime("%H:%M"), p.end.strftime("%H:%M"), who)
+                for p, who in pieces] == [
+            ("10:00", "11:21", "A DRIVER"), ("11:21", "00:00", None)]
+
+    def test_time_before_a_card_went_in_belongs_to_nobody(self):
+        span = Activity_("work", _at(2026, 5, 20, 6), _at(2026, 5, 20, 12))
+        pieces = parser._attribute(span, 0, self._cards(
+            ("A DRIVER", _at(2026, 5, 20, 8), _at(2026, 5, 20, 12))))
+        assert [who for _, who in pieces] == [None, "A DRIVER"]
+
+    def test_a_card_still_in_the_unit_holds_the_span_to_its_end(self):
+        span = Activity_("drive", _at(2026, 5, 20, 6), _at(2026, 5, 20, 9))
+        pieces = parser._attribute(span, 0, self._cards(
+            ("A DRIVER", _at(2026, 5, 20, 5), None)))
+        assert len(pieces) == 1
+        assert pieces[0][1] == "A DRIVER"
+        assert pieces[0][0].minutes == 180
+
+    def test_a_sliver_left_by_a_mid_minute_withdrawal_is_not_a_period_of_work(self):
+        span = Activity_("work", _at(2026, 5, 20, 11, 21), _at(2026, 5, 21))
+        withdrawn = _at(2026, 5, 20, 11, 21).replace(second=33)
+        pieces = parser._attribute(span, 0, self._cards(
+            ("A DRIVER", _at(2026, 5, 20, 6), withdrawn)))
+        assert [who for _, who in pieces] == [None]
+
+    def test_a_span_nobody_was_aboard_for_belongs_to_nobody(self):
+        span = Activity_("work", _at(2026, 5, 20, 6), _at(2026, 5, 20, 9))
+        assert [who for _, who in parser._attribute(span, 0, [])] == [None]
+
+    def test_the_other_seats_card_does_not_claim_this_seats_span(self):
+        span = Activity_("drive", _at(2026, 5, 20, 6), _at(2026, 5, 20, 9))
+        cards = [(1, "CO DRIVER", _at(2026, 5, 20, 5), None)]
+        assert [who for _, who in parser._attribute(span, 0, cards)] == [None]
 
 
 class TestPlaces:

@@ -226,6 +226,7 @@ async def _persist_activities(session: AsyncSession, parsed: dict, source_file_i
             vehicle_id=vehicle_id,
             vehicle_ref=_vehicle_ref_for(parsed, activity, vehicle_ref),
             activity_type=activity.type, started_at=activity.start, ended_at=activity.end,
+            crew=activity.crew,
             source="TACHOGRAPH", confidence="DIRECT"))
     await session.flush()
 
@@ -251,6 +252,56 @@ async def _persist_infringements(session: AsyncSession, driver_ref: str, found: 
         added += 1
     await session.commit()
     return added
+
+
+async def analyse_driver(session: AsyncSession, driver_ref: str,
+                         company_id: uuid.UUID | None = None,
+                         source_file_id: uuid.UUID | None = None) -> int:
+    """Run the rules over everything known about one driver, and record what they find.
+
+    A vehicle unit holds the vehicle's record, not a driver's, so analysing one
+    file on its own judges a driver on the hours they happened to do in that
+    lorry. This assembles the driver's whole timeline from every file first -
+    which is the only way the daily and weekly limits mean anything - and then
+    runs the rules once over the lot.
+
+    The record-keeping rules are left out deliberately: a country entry lives
+    on the driver's own card, so judging it from vehicle data would report
+    every day as missing one. `analyse` already skips them when no places are
+    supplied.
+
+    Findings nobody has looked at yet are replaced rather than added to. A
+    re-read happens because the reading improved, and an infringement the data
+    no longer supports has to be able to disappear. Anything somebody has
+    already acknowledged or dismissed is left exactly as they left it: that is
+    their decision on the record, not ours to revise.
+    """
+    if not driver_ref:
+        return 0
+
+    query = select(TachoActivity).where(TachoActivity.driver_ref == driver_ref)
+    if company_id is not None:
+        query = query.where(TachoActivity.company_id == company_id)
+    rows = (await session.execute(query.order_by(TachoActivity.started_at))).scalars().all()
+    if not rows:
+        return 0
+
+    stale = delete(Infringement).where(
+        Infringement.driver_ref == driver_ref, Infringement.status == "open")
+    if company_id is not None:
+        stale = stale.where(Infringement.company_id == company_id)
+    await session.execute(stale)
+    await session.flush()
+
+    timeline = [Activity(row.activity_type, row.started_at, row.ended_at, crew=row.crew)
+                for row in rows]
+    found = analyse(timeline)
+    if not found:
+        await session.commit()
+        return 0
+
+    file_id = source_file_id or rows[-1].source_file_id
+    return await _persist_infringements(session, driver_ref, found, file_id, company_id)
 
 
 # --- endpoints --------------------------------------------------------------

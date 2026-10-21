@@ -34,6 +34,10 @@ class TachoActivity(Base):
     activity_type: Mapped[str] = mapped_column(String(16), nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     ended_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # The card was in the second slot: the holder was crewing as co-driver.
+    # Multi-manned work is rested differently, so a span analysed without this
+    # is judged against the wrong limit.
+    crew: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     source: Mapped[str] = mapped_column(String(20), server_default=text("'TACHOGRAPH'"))
     confidence: Mapped[str] = mapped_column(String(16), server_default=text("'DIRECT'"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

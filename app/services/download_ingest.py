@@ -115,7 +115,7 @@ async def ingest(data: bytes, filename: str, *, imei: str | None = None,
 
 
 async def _read_into(session, tf, data: bytes, *, company_id, vehicle_ref: str | None,
-                     result: dict) -> None:
+                     result: dict, run_analysis: bool = True) -> None:
     """Parse `data` into an archived file row, with its activities and findings.
 
     Shared by a file that has just arrived and by a re-read of one an older
@@ -124,7 +124,8 @@ async def _read_into(session, tf, data: bytes, *, company_id, vehicle_ref: str |
     operator's record and still has to be producible for DVSA.
     """
     from app.api.tacho import (_parse_driver_card, _persist_activities,
-                               _persist_infringements, parse_vehicle_unit)
+                               _persist_infringements, analyse_driver,
+                               parse_vehicle_unit)
     from app.services import operators
     from app.services.tacho_rules import analyse
 
@@ -182,10 +183,22 @@ async def _read_into(session, tf, data: bytes, *, company_id, vehicle_ref: str |
             await _persist_activities(session, parsed, tf.id, company_id,
                                       vehicle.id if vehicle else None, tf.vehicle_ref,
                                       activity_driver_refs=parsed.get("activity_driver_refs"))
+
+            # Then judge each driver the unit recorded, over their whole
+            # timeline rather than just this file. A vehicle unit names the
+            # drivers who used it; spans with nobody in the slot belong to no
+            # driver and are not anybody's hours.
+            added = 0
+            if run_analysis:
+                for who in parsed.get("drivers") or []:
+                    added += await analyse_driver(session, who, company_id, tf.id)
+
             result.update(file_kind="vehicle_unit", vehicle_ref=tf.vehicle_ref,
                           operator=operator.name if operator else None,
                           parser=parsed.get("parser"),
                           generation=parsed.get("generation"),
+                          drivers=parsed.get("drivers"),
+                          infringements=added,
                           days=parsed.get("days"))
     except Exception as exc:                            # noqa: BLE001
         # The file is kept whatever happens. A download we cannot read is
@@ -228,7 +241,10 @@ async def reparse(*, only_failed: bool = True, limit: int = 500) -> list[dict]:
     than added to, so running this twice leaves the same record as running it
     once.
     """
+    from app.api.tacho import analyse_driver
+
     done: list[dict] = []
+    drivers: set[tuple[str, object, object]] = set()
     async with SessionLocal() as session:
         query = select(TachoFile).order_by(TachoFile.created_at)
         if only_failed:
@@ -246,13 +262,26 @@ async def reparse(*, only_failed: bool = True, limit: int = 500) -> list[dict]:
                 done.append(result)
                 continue
 
+            # Hold the analysis back until every file has been re-read.
+            # Judging a driver while half the archive is still the old
+            # reading measures them against a timeline that is part new and
+            # part stale, and records findings from it.
             await _read_into(session, tf, data, company_id=tf.company_id,
-                             vehicle_ref=tf.vehicle_ref, result=result)
+                             vehicle_ref=tf.vehicle_ref, result=result,
+                             run_analysis=False)
             result["parsed"] = tf.parsed
             done.append(result)
+            for who in result.get("drivers") or []:
+                drivers.add((who, tf.company_id, tf.id))
 
         await session.commit()
 
+        judged = 0
+        for who, company_id, file_id in sorted(drivers, key=lambda d: str(d[0])):
+            judged += await analyse_driver(session, who, company_id, file_id)
+        await session.commit()
+
     readable = sum(1 for entry in done if entry.get("parsed"))
-    logger.info("re-read %d archived file(s); %d now parse", len(done), readable)
+    logger.info("re-read %d archived file(s); %d now parse, %d finding(s) from %d driver(s)",
+                len(done), readable, judged, len(drivers))
     return done
