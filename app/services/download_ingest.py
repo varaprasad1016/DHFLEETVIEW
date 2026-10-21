@@ -34,9 +34,10 @@ def looks_like_driver_card(data: bytes, filename: str = "") -> bool:
     different handling, so it is decided from the file rather than trusted from
     the name. The name is only consulted when the content is unreadable.
     """
-    from app.services import ddd_go, ddd_parser
+    from app.services import ddd_go, ddd_parser, ddd_traconiq
 
-    for reader in (ddd_go.parse_driver_card, ddd_parser.parse_driver_card):
+    for reader in (ddd_traconiq.parse_driver_card, ddd_go.parse_driver_card,
+                   ddd_parser.parse_driver_card):
         try:
             reader(data)
             return True
@@ -69,10 +70,7 @@ async def ingest(data: bytes, filename: str, *, imei: str | None = None,
     # Imported here: the ingest steps live with the endpoint that has always
     # served them, and importing eagerly would have a service depend on the API
     # layer at start-up.
-    from app.api.tacho import (_account_company, _parse_driver_card,
-                               _persist_activities, _persist_infringements)
-    from app.services import ddd_go, operators
-    from app.services.tacho_rules import analyse
+    from app.api.tacho import _account_company
 
     stored = archive.store(filename, data)
     result: dict = {"filename": filename, "sha256": stored["sha256"],
@@ -105,84 +103,8 @@ async def ingest(data: bytes, filename: str, *, imei: str | None = None,
         session.add(tf)
         await session.flush()
 
-        try:
-            if is_card:
-                parsed, parser = _parse_driver_card(data)
-                tf.driver_ref = parsed.get("driver_ref")
-                tf.card_number = parsed.get("card_number")
-                tf.parsed = True
-                await _persist_activities(session, parsed, tf.id, company_id,
-                                          driver_ref=tf.driver_ref)
-                found = analyse(parsed["activities"], parsed.get("places"),
-                                parsed.get("card_gaps"))
-                added = await _persist_infringements(
-                    session, tf.driver_ref or "unknown", found, tf.id, company_id)
-                result.update(file_kind="driver_card", parser=parser,
-                              driver_ref=tf.driver_ref, days=parsed.get("days"),
-                              infringements=added)
-            else:
-                from app.services import ddd_parser
-                try:
-                    tf.company_name = operators.clean_name(
-                        ddd_parser.parse_vehicle_unit_company(data))
-                except Exception:                           # noqa: BLE001
-                    tf.company_name = None
-                operator = await operators.resolve(session, tf.company_name)
-                if operator is not None:
-                    tf.operator_id = operator.id
-
-                parsed = ddd_go.parse_vehicle_unit(data)
-                tf.parsed = True
-                reg = "".join((parsed.get("vehicle_ref") or "").upper().split())
-                vehicle = None
-                if reg and company_id is not None:
-                    vehicle = (await session.execute(select(Vehicle).where(
-                        Vehicle.company_id == company_id,
-                        Vehicle.registration == reg))).scalar_one_or_none()
-                    if vehicle is None:
-                        vehicle = Vehicle(company_id=company_id, registration=reg,
-                                          vin=parsed.get("vehicle_vin"),
-                                          tachograph_serial=parsed.get("tachograph_serial"))
-                        session.add(vehicle)
-                        await session.flush()
-                        result["vehicle_created"] = True
-                if vehicle is not None:
-                    tf.vehicle_id = vehicle.id
-                    tf.vehicle_ref = vehicle.registration
-                    result["operator_on_vehicle"] = await operators.note_vehicle(vehicle, operator)
-                await _persist_activities(session, parsed, tf.id, company_id,
-                                          vehicle.id if vehicle else None, tf.vehicle_ref,
-                                          activity_driver_refs=parsed.get("activity_driver_refs"))
-                result.update(file_kind="vehicle_unit", vehicle_ref=tf.vehicle_ref,
-                              operator=operator.name if operator else None,
-                              days=parsed.get("days"))
-        except Exception as exc:                            # noqa: BLE001
-            # The file is kept whatever happens. A download we cannot read is
-            # still the operator's record and still has to be producible for
-            # DVSA; it is flagged for a person rather than thrown away.
-            tf.parsed = False
-            tf.parse_error = str(exc)[:500]
-            result["parse_error"] = str(exc)
-            logger.warning("%s arrived but could not be read: %s", filename, exc)
-
-        # Attach it to its vehicle whatever happened above. A download that
-        # would not parse still belongs to a lorry, and the registration is in
-        # the file name even when it is not readable inside the file.
-        if not tf.vehicle_ref and tf.file_kind == "vehicle_unit":
-            tf.vehicle_ref = vehicle_ref or registration_in(filename)
-        if tf.vehicle_ref and tf.vehicle_id is None and company_id is not None:
-            reg = "".join(tf.vehicle_ref.upper().split())
-            tf.vehicle_ref = reg
-            vehicle = (await session.execute(select(Vehicle).where(
-                Vehicle.company_id == company_id,
-                Vehicle.registration == reg))).scalar_one_or_none()
-            if vehicle is None:
-                vehicle = Vehicle(company_id=company_id, registration=reg)
-                session.add(vehicle)
-                await session.flush()
-                result["vehicle_created"] = True
-            tf.vehicle_id = vehicle.id
-            result["vehicle_ref"] = reg
+        await _read_into(session, tf, data, company_id=company_id,
+                         vehicle_ref=vehicle_ref, result=result)
 
         await session.commit()
         result["file_id"] = str(tf.id)
@@ -190,3 +112,147 @@ async def ingest(data: bytes, filename: str, *, imei: str | None = None,
     logger.info("stored %s from %s (%s)", filename, imei or "a vehicle",
                 result.get("file_kind", "unknown"))
     return result
+
+
+async def _read_into(session, tf, data: bytes, *, company_id, vehicle_ref: str | None,
+                     result: dict) -> None:
+    """Parse `data` into an archived file row, with its activities and findings.
+
+    Shared by a file that has just arrived and by a re-read of one an older
+    parser could not manage. It never raises for an unreadable file: the row is
+    flagged instead, because a download nobody can parse is still the
+    operator's record and still has to be producible for DVSA.
+    """
+    from app.api.tacho import (_parse_driver_card, _persist_activities,
+                               _persist_infringements, parse_vehicle_unit)
+    from app.services import operators
+    from app.services.tacho_rules import analyse
+
+    filename = tf.filename
+    is_card = tf.file_kind == "driver_card"
+
+
+    try:
+        if is_card:
+            parsed, parser = _parse_driver_card(data)
+            tf.driver_ref = parsed.get("driver_ref")
+            tf.card_number = parsed.get("card_number")
+            tf.parsed = True
+            tf.parse_error = None
+            await _persist_activities(session, parsed, tf.id, company_id,
+                                      driver_ref=tf.driver_ref)
+            found = analyse(parsed["activities"], parsed.get("places"),
+                            parsed.get("card_gaps"))
+            added = await _persist_infringements(
+                session, tf.driver_ref or "unknown", found, tf.id, company_id)
+            result.update(file_kind="driver_card", parser=parser,
+                          driver_ref=tf.driver_ref, days=parsed.get("days"),
+                          infringements=added)
+        else:
+            from app.services import ddd_parser
+            try:
+                tf.company_name = operators.clean_name(
+                    ddd_parser.parse_vehicle_unit_company(data))
+            except Exception:                           # noqa: BLE001
+                tf.company_name = None
+            operator = await operators.resolve(session, tf.company_name)
+            if operator is not None:
+                tf.operator_id = operator.id
+
+            parsed = parse_vehicle_unit(data)
+            tf.parsed = True
+            tf.parse_error = None
+            reg = "".join((parsed.get("vehicle_ref") or "").upper().split())
+            vehicle = None
+            if reg and company_id is not None:
+                vehicle = (await session.execute(select(Vehicle).where(
+                    Vehicle.company_id == company_id,
+                    Vehicle.registration == reg))).scalar_one_or_none()
+                if vehicle is None:
+                    vehicle = Vehicle(company_id=company_id, registration=reg,
+                                      vin=parsed.get("vehicle_vin"),
+                                      tachograph_serial=parsed.get("tachograph_serial"))
+                    session.add(vehicle)
+                    await session.flush()
+                    result["vehicle_created"] = True
+            if vehicle is not None:
+                tf.vehicle_id = vehicle.id
+                tf.vehicle_ref = vehicle.registration
+                result["operator_on_vehicle"] = await operators.note_vehicle(vehicle, operator)
+            await _persist_activities(session, parsed, tf.id, company_id,
+                                      vehicle.id if vehicle else None, tf.vehicle_ref,
+                                      activity_driver_refs=parsed.get("activity_driver_refs"))
+            result.update(file_kind="vehicle_unit", vehicle_ref=tf.vehicle_ref,
+                          operator=operator.name if operator else None,
+                          parser=parsed.get("parser"),
+                          generation=parsed.get("generation"),
+                          days=parsed.get("days"))
+    except Exception as exc:                            # noqa: BLE001
+        # The file is kept whatever happens. A download we cannot read is
+        # still the operator's record and still has to be producible for
+        # DVSA; it is flagged for a person rather than thrown away.
+        tf.parsed = False
+        tf.parse_error = str(exc)[:500]
+        result["parse_error"] = str(exc)
+        logger.warning("%s could not be read: %s", filename, exc)
+
+    # Attach it to its vehicle whatever happened above. A download that
+    # would not parse still belongs to a lorry, and the registration is in
+    # the file name even when it is not readable inside the file.
+    if not tf.vehicle_ref and tf.file_kind == "vehicle_unit":
+        tf.vehicle_ref = vehicle_ref or registration_in(filename)
+    if tf.vehicle_ref and tf.vehicle_id is None and company_id is not None:
+        reg = "".join(tf.vehicle_ref.upper().split())
+        tf.vehicle_ref = reg
+        vehicle = (await session.execute(select(Vehicle).where(
+            Vehicle.company_id == company_id,
+            Vehicle.registration == reg))).scalar_one_or_none()
+        if vehicle is None:
+            vehicle = Vehicle(company_id=company_id, registration=reg)
+            session.add(vehicle)
+            await session.flush()
+            result["vehicle_created"] = True
+        tf.vehicle_id = vehicle.id
+        result["vehicle_ref"] = reg
+
+
+async def reparse(*, only_failed: bool = True, limit: int = 500) -> list[dict]:
+    """Read archived files again with the parsers installed today.
+
+    A download no reader of the day could manage is kept rather than thrown
+    away, exactly so that a better reader arriving later still has the file to
+    read. This is what makes such an upgrade reach the files already in the
+    archive instead of only the next ones to arrive.
+
+    Re-reading is safe to repeat: a file's activity spans are replaced rather
+    than added to, so running this twice leaves the same record as running it
+    once.
+    """
+    done: list[dict] = []
+    async with SessionLocal() as session:
+        query = select(TachoFile).order_by(TachoFile.created_at)
+        if only_failed:
+            query = query.where(TachoFile.parsed.is_(False))
+        files = (await session.execute(query.limit(limit))).scalars().all()
+
+        for tf in files:
+            result: dict = {"filename": tf.filename, "file_id": str(tf.id),
+                            "was": tf.parse_error}
+            try:
+                with open(tf.storage_path, "rb") as handle:
+                    data = handle.read()
+            except OSError as exc:
+                result["error"] = f"archived file could not be read: {exc}"
+                done.append(result)
+                continue
+
+            await _read_into(session, tf, data, company_id=tf.company_id,
+                             vehicle_ref=tf.vehicle_ref, result=result)
+            result["parsed"] = tf.parsed
+            done.append(result)
+
+        await session.commit()
+
+    readable = sum(1 for entry in done if entry.get("parsed"))
+    logger.info("re-read %d archived file(s); %d now parse", len(done), readable)
+    return done

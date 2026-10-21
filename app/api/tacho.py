@@ -21,7 +21,7 @@ from app.models.core import Company, Vehicle
 from app.models.tacho import TachoActivity
 from app.models.operator import Operator
 from app.models.tacho import Infringement, TachoFile
-from app.services import (archive, ddd_go, ddd_parser, driver_calendar, driver_reports,
+from app.services import (archive, ddd_go, ddd_parser, ddd_traconiq, driver_calendar, driver_reports,
                           infringement_reviews, mailer,
                           media_store, modules, operators, report_settings,
                           tacho_compliance, tacho_pdf, tacho_report)
@@ -136,34 +136,67 @@ def _same_registration(left: str | None, right: str | None) -> bool:
     return bool(left and right and "".join(left.upper().split()) == "".join(right.upper().split()))
 
 
-def _parse_driver_card(data: bytes) -> tuple[dict, str]:
-    """Parse with the maintained Go reader, falling back only when configured.
+def _full_readers():
+    """The readers that implement the whole regulation, best first.
 
-    A failed Go parse is not silently hidden when fallback is disabled: the
-    caller records the error with the archived file. This makes deployments
-    able to enforce Gen2/signature-capable parsing rather than accidentally
-    accepting the old screening reader.
+    tachoparser leads because it is the only one that reads second-generation
+    version 1 units. tachograph-go follows: it is MIT, so it keeps working on
+    an installation that would rather not ship AGPL code at all.
     """
-    go_error: Exception | None = None
-    if ddd_go.available():
+    return (
+        (ddd_traconiq.parse_driver_card, ddd_traconiq.PARSER_NAME, ddd_traconiq.available),
+        (ddd_go.parse_driver_card, "tachograph-go", ddd_go.available),
+    )
+
+
+def _parse_driver_card(data: bytes) -> tuple[dict, str]:
+    """Parse with the best available reader, falling back only when configured.
+
+    A failed parse is not silently hidden when fallback is disabled: the caller
+    records the error with the archived file. This makes deployments able to
+    enforce Gen2/signature-capable parsing rather than accidentally accepting
+    the old screening reader.
+    """
+    failures: list[str] = []
+    for reader, name, installed in _full_readers():
+        if not installed():
+            failures.append(f"{name}: not installed")
+            continue
         try:
-            return ddd_go.parse_driver_card(data), "tachograph-go"
-        except Exception as exc:
-            go_error = exc
-            if not settings.tacho_parser_fallback:
-                raise
-    elif not settings.tacho_parser_fallback:
-        raise ddd_go.GoParserUnavailable(
-            "tachograph-go parser is required but no runnable CLI was found")
+            return reader(data), name
+        except Exception as exc:                            # noqa: BLE001
+            failures.append(f"{name}: {exc}")
+
+    reasons = "; ".join(failures)
+    if not settings.tacho_parser_fallback:
+        raise ValueError(f"no capable parser read this card - {reasons}")
 
     try:
         return ddd_parser.parse_driver_card(data), "builtin-gen1"
     except Exception as fallback_error:
-        if go_error is not None:
-            raise ValueError(
-                f"tachograph-go parser failed: {go_error}; "
-                f"built-in parser failed: {fallback_error}") from fallback_error
-        raise
+        raise ValueError(
+            f"{reasons}; built-in parser failed: {fallback_error}") from fallback_error
+
+
+def parse_vehicle_unit(data: bytes) -> dict:
+    """Parse a vehicle unit with the best available reader.
+
+    There is no built-in fallback here: the Gen1 reader was only ever written
+    for cards. Both full readers are tried because they fail on different
+    files - tachograph-go cannot read second-generation version 1 units, and a
+    file one reader stumbles on may still be readable by the other.
+    """
+    failures: list[str] = []
+    for module, name in ((ddd_traconiq, ddd_traconiq.PARSER_NAME),
+                         (ddd_go, "tachograph-go")):
+        if not module.available():
+            failures.append(f"{name}: not installed")
+            continue
+        try:
+            return module.parse_vehicle_unit(data)
+        except Exception as exc:                            # noqa: BLE001
+            failures.append(f"{name}: {exc}")
+    raise ValueError("no parser read this vehicle unit - " + "; ".join(failures))
 
 
 def _vehicle_ref_for(parsed: dict, activity: Activity, fallback: str | None = None) -> str | None:
@@ -462,7 +495,7 @@ async def upload(body: UploadIn, session: AsyncSession = Depends(get_session),
             # Vehicle-unit files are not driver cards. Parse the VU identity
             # first, then find (or create) the account's vehicle by the
             # registration stored inside the DDD. No vehicle picker is needed.
-            parsed = ddd_go.parse_vehicle_unit(data)
+            parsed = parse_vehicle_unit(data)
             tf.parsed = True
             source_vehicle_ref = parsed.get("vehicle_ref")
             assigned_vehicle_ref = vehicle.registration if vehicle else None
@@ -1266,14 +1299,14 @@ async def list_files(session: AsyncSession = Depends(get_session),
     } for f in rows]
 
 
-@router.get("/files")
-async def list_files(
+@router.get("/downloads")
+async def list_downloads(
     limit: int = 200,
     offset: int = 0,
     vehicle_ref: str | None = None,
     kind: str | None = None,
     session: AsyncSession = Depends(get_session),
-    principal: Principal = Depends(require_manager),
+    scope: TachoScope = Depends(tacho_scope),
     _license: None = Depends(require_license),
     _module: None = Depends(require_module("tacho")),
 ) -> dict:
@@ -1283,8 +1316,14 @@ async def list_files(
     read out of it: a file that would not parse is still the operator's
     evidence and still has to be producible for DVSA, so it is listed here with
     the reason it could not be read rather than hidden.
+
+    This is a separate path from `/files` deliberately: `/files` answers with a
+    plain list for the pages that total it up, and two handlers on one path
+    means only the first one registered is ever reached.
     """
-    query = select(TachoFile).order_by(TachoFile.created_at.desc())
+    # Scoped like every other tachograph listing. These files carry named
+    # drivers' hours, so one customer's manager must never see another's.
+    query = select(TachoFile).where(scope.files()).order_by(TachoFile.created_at.desc())
     if vehicle_ref:
         query = query.where(TachoFile.vehicle_ref == vehicle_ref.upper().replace(" ", ""))
     if kind in ("driver_card", "vehicle_unit"):
@@ -1314,11 +1353,43 @@ async def list_files(
     }
 
 
+@router.post("/downloads/reparse")
+async def reparse_downloads(
+    principal: Principal = Depends(require_manager),
+    scope: TachoScope = Depends(tacho_scope),
+    _license: None = Depends(require_license),
+    _module: None = Depends(require_module("tacho")),
+) -> dict:
+    """Read the files that would not parse again, with today's parsers.
+
+    Kept deliberately manual. A parser upgrade is the reason to run this, and
+    whoever performed the upgrade is the person who should see what changed.
+    """
+    if not scope.everything:
+        raise HTTPException(
+            status_code=403,
+            detail="Re-reading the archive is an administrator's job.")
+
+    from app.services.download_ingest import reparse
+
+    outcome = await reparse(only_failed=True)
+    return {
+        "looked_at": len(outcome),
+        "now_parse": sum(1 for entry in outcome if entry.get("parsed")),
+        "files": [{
+            "filename": entry.get("filename"),
+            "parsed": entry.get("parsed", False),
+            "was": (entry.get("was") or "")[:160] or None,
+            "error": entry.get("parse_error") or entry.get("error"),
+        } for entry in outcome],
+    }
+
+
 @router.get("/files/{file_id}/raw")
 async def raw_file(
     file_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-    principal: Principal = Depends(require_manager),
+    scope: TachoScope = Depends(tacho_scope),
     _license: None = Depends(require_license),
     _module: None = Depends(require_module("tacho")),
 ) -> Response:
@@ -1328,7 +1399,10 @@ async def raw_file(
     .ddd is a signed file and anything that touches the bytes destroys the
     signature an analysis bureau or DVSA would check it by.
     """
-    record = await session.get(TachoFile, file_id)
+    # Fetched through the caller's own scope rather than by id alone: a file id
+    # is not a permission, and these files name drivers.
+    record = (await session.execute(select(TachoFile).where(
+        TachoFile.id == file_id, scope.files()))).scalar_one_or_none()
     if record is None:
         raise HTTPException(status_code=404, detail="That download is not in the archive.")
     try:

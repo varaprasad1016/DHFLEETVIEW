@@ -188,7 +188,7 @@ const kindLabel = (k) => (k === 'driver_card' ? 'Driver card' : k === 'vehicle_u
 async function loadRaw() {
   const box = $('raw');
   try {
-    const r = await fetch('api/tacho/files?limit=500');
+    const r = await fetch('api/tacho/downloads?limit=500');
     if (!r.ok) throw new Error('The archive could not be read (' + r.status + ')');
     const data = await r.json();
     archived = data.files || [];

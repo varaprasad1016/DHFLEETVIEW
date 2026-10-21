@@ -151,14 +151,24 @@ class Settings(BaseSettings):
     vehicle_warning_days: int = 85
 
     # --- Driver-card parsing -------------------------------------------------
-    # The MIT tachograph-go CLI is the preferred reader when installed. The
-    # built-in Gen1 reader remains a deliberately explicit fallback so an
-    # installation without the optional binary can still archive and analyse
-    # cards.
+    # Three readers, tried in this order: tachoparser, then the MIT
+    # tachograph-go CLI, then the built-in Gen1 reader. tachoparser leads
+    # because it is the only one that reads second-generation version 1 vehicle
+    # units, which is every unit in the fleet; tachograph-go stays because it is
+    # MIT and so carries no licence weight, and the built-in reader stays so an
+    # installation with neither binary can still archive and analyse cards.
     tacho_parser_enabled: bool = True
     tacho_parser_binary: str = ""
     tacho_parser_timeout: int = 30
     tacho_parser_authenticate: bool = False
+
+    # traconiq/tachoparser, run as a separate process. AGPL-3.0: nothing from it
+    # is imported or linked here, and its source must stay available to anyone
+    # using this over a network - see app/services/ddd_traconiq.py and the
+    # PROVENANCE.txt kept beside the binary.
+    tacho_traconiq_enabled: bool = True
+    tacho_traconiq_binary: str = r"D:\tools\tachoparser\dddparser.exe"
+    tacho_traconiq_timeout: int = 120
 
     # --- TachoSync (Teltonika WEB Tacho) ---
     # The service the FMC650 uploads its DDD files to. It runs the half of the

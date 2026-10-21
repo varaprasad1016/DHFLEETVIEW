@@ -160,7 +160,7 @@
           }
         }
       } catch {}
-      if (on('tacho')) try { const fl = await (await fetch('api/tacho/files?limit=1',{cache:'no-store'})).json();
+      if (on('tacho')) try { const fl = await (await fetch('api/tacho/downloads?limit=1',{cache:'no-store'})).json();
         $('dlPill').textContent = (fl.total||0) + ' files'; } catch {}
       if (on('shifts')) try { const sh = await (await fetch('api/shifts/active',{cache:'no-store'})).json();
         const live = Array.isArray(sh) ? sh.length : 0;

@@ -59,3 +59,8 @@ graphify-out/cache/
 tools/tachograph-go/
 # Tachograph downloads are operator data, never source.
 *.ddd
+
+# Python bytecode - regenerated on every run, never source
+__pycache__/
+*.pyc
+*.pyo
