@@ -79,6 +79,15 @@
   </div>
 
   <div class="panel pane" data-pane="sync">
+    <h2>Driver cards</h2>
+    <div id="drivers" class="scroll"><p class="empty">Loading…</p></div>
+    <p class="note">A driver card can only be read while it is in a tachograph and that unit is
+      connected, so a card showing <b>waiting for device connection</b> is normal rather than a
+      fault &mdash; the download happens next time the driver is in the lorry. A card with no
+      schedule against it will never be downloaded at all.</p>
+  </div>
+
+  <div class="panel pane" data-pane="sync">
     <h2>Files</h2>
     <div id="files" class="scroll"><p class="empty">Loading…</p></div>
     <p class="note">Downloading a file here fetches it from TachoSync. Files already pulled into
@@ -119,6 +128,9 @@ async function loadVehicles() {
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
     if (!data.configured) { box.innerHTML = '<p class="empty">' + esc(data.hint || 'Not connected.') + '</p>'; return; }
+    // Cards first: an account can have cards registered and no vehicles, and
+    // the driver table must not go missing with the vehicle one.
+    renderDrivers(data.drivers || []);
     if (!data.vehicles.length) { box.innerHTML = '<p class="empty">No vehicles registered with TachoSync yet.</p>'; return; }
     box.innerHTML = '<table><thead><tr><th>Vehicle</th><th>Status</th><th>Last seen by TachoSync</th>'
       + '<th>Last download</th></tr></thead><tbody>'
@@ -136,6 +148,42 @@ async function loadVehicles() {
   } catch (e) {
     box.innerHTML = '<p class="empty">Could not reach TachoSync: ' + esc(e.message) + '</p>';
   }
+}
+
+const SETTLING = {
+  WaitingForDeviceConnection: 'waiting for the card to be in a connected lorry',
+  WaitingForDevice: 'waiting for the card to be in a connected lorry',
+};
+
+function renderDrivers(rows) {
+  const box = $('drivers');
+  if (!box) return;
+  if (!rows.length) {
+    box.innerHTML = '<p class="empty">No driver cards registered with TachoSync yet. '
+      + 'Until a card is registered there with a schedule against it, no driver files can arrive.</p>';
+    return;
+  }
+  box.innerHTML = '<table><thead><tr><th>Card holder</th><th>Status</th>'
+    + '<th>Last seen by TachoSync</th><th>Last download</th></tr></thead><tbody>'
+    + rows.map((d) => {
+      const pill = d.disabled ? '<span class="pill no">disabled</span>'
+        : d.last_download ? '<span class="pill ok">downloaded</span>'
+        : !d.schedules ? '<span class="pill no">no schedule</span>'
+        : '<span class="pill wait">waiting</span>';
+      const why = (!d.last_download && d.waiting_for)
+        ? '<div class="why"><b>' + esc(SETTLING[d.waiting_for] || d.waiting_for) + '</b>'
+          + (d.next_attempt ? 'Next attempt: ' + esc(d.next_attempt) : '') + '</div>'
+        : (!d.schedules
+          ? '<div class="why"><b>Nothing will be downloaded</b>No schedule is set against this '
+            + 'card on TachoSync.</div>' : '');
+      const seen = d.last_vehicle
+        ? when(d.last_connected) + '<br><span style="color:var(--muted)">in ' + esc(d.last_vehicle)
+          + (d.last_activity ? ' · ' + esc(d.last_activity.toLowerCase()) : '') + '</span>'
+        : when(d.last_connected);
+      return '<tr><td><b>' + esc(d.name || '—') + '</b><br><span style="color:var(--muted)">'
+        + esc(d.card_number || '') + '</span>' + why + '</td><td>' + pill + '</td><td>'
+        + seen + '</td><td>' + when(d.last_download) + '</td></tr>';
+    }).join('') + '</tbody></table>';
 }
 
 async function loadFiles() {

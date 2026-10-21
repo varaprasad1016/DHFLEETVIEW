@@ -70,7 +70,37 @@ async def overview() -> dict:
             "blocked_by": {"stage": last_failure.get("stage"), "detail": last_failure.get("details")}
             if last_failure and not vehicle.get("lastSuccessfulDownloadTime") else None,
         })
-    return {"configured": True, "company": company.get("name"), "vehicles": rows}
+    # Driver cards sit alongside the vehicles, because "where are the driver
+    # files?" is asked just as often and the answer is never on the vehicle
+    # list. A card is only readable while it is in a connected unit, so the
+    # schedule's own status is the whole answer.
+    cards = []
+    try:
+        for driver in await tachosync.drivers():
+            schedules = []
+            try:
+                schedules = (await tachosync.driver_detail(driver["id"])).get("schedules") or []
+            except tachosync.TachoSyncError:
+                pass      # the card still belongs on the list without its schedule
+            waiting = next((s for s in schedules if not s.get("lastSuccessfulDownloadTime")), None)
+            cards.append({
+                "id": driver.get("id"),
+                "name": driver.get("cardName"),
+                "card_number": driver.get("cardNumber"),
+                "disabled": driver.get("disabled"),
+                "last_connected": driver.get("lastConnected"),
+                "last_activity": driver.get("lastActivity"),
+                "last_vehicle": driver.get("lastVehicleNumber"),
+                "last_download": driver.get("lastSuccessfulDownloadTime"),
+                "schedules": len(schedules),
+                "waiting_for": (waiting or {}).get("currentStatus"),
+                "next_attempt": (waiting or {}).get("nextDownloadAttempt"),
+            })
+    except tachosync.TachoSyncError:
+        cards = []        # the vehicle half of the page is still worth showing
+
+    return {"configured": True, "company": company.get("name"),
+            "vehicles": rows, "drivers": cards}
 
 
 @router.get("/files")

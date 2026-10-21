@@ -89,6 +89,23 @@ async def vehicles(key: str | None = None) -> list[dict]:
     return await _paged("Vehicles", key=key)
 
 
+async def drivers(key: str | None = None) -> list[dict]:
+    return await _paged("Drivers", key=key)
+
+
+async def driver_detail(driver_id: str, key: str | None = None) -> dict:
+    """One driver card, with the state of each schedule against it.
+
+    The listing says whether a card has ever been downloaded; only this says
+    what the schedule is waiting for. A card is not downloaded on a timer like
+    a vehicle unit - it can only be read while the card is in a tachograph and
+    that unit is connected - so "waiting for device connection" is the normal
+    resting state, not a fault, and the difference matters when somebody is
+    asking why no file has arrived.
+    """
+    return await _get(f"Drivers/{driver_id}", key=key) or {}
+
+
 async def downloads_history(vehicle_id: str) -> list[dict]:
     """Recent download attempts for one vehicle, successes and failures alike.
 
