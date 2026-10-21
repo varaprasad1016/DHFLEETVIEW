@@ -137,6 +137,11 @@ async def _read_into(session, tf, data: bytes, *, company_id, vehicle_ref: str |
             parsed, parser = _parse_driver_card(data)
             tf.driver_ref = parsed.get("driver_ref")
             tf.card_number = parsed.get("card_number")
+            # The expiry comes off the card itself, and the driver records page
+            # counts on it for card-renewal warnings. The hand-upload path has
+            # always kept it; a file fetched automatically must not quietly
+            # know less than one somebody dragged in.
+            tf.card_expiry = parsed.get("card_expiry") or tf.card_expiry
             tf.parsed = True
             tf.parse_error = None
             await _persist_activities(session, parsed, tf.id, company_id,

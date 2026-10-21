@@ -200,11 +200,30 @@ def parse_vehicle_unit(data: bytes) -> dict:
 
 
 def _vehicle_ref_for(parsed: dict, activity: Activity, fallback: str | None = None) -> str | None:
-    """Associate a span with the card's recorded vehicle spell when available."""
+    """Which lorry the card says the driver was in when this span began.
+
+    The spells are chronological, so the right one is the latest that had
+    started by the time the activity did - not merely the first one that
+    overlaps. A spell whose end the card does not record (the newest is open,
+    and an older one can have an unreadable end) satisfies a loose overlap
+    test for everything that follows it, which put a whole card's 276 spans in
+    one lorry while the card plainly named a dozen.
+
+    A span that begins before any spell - rest before the driver ever boarded -
+    gets no registration rather than the nearest guess. The driver was not in
+    a lorry, and saying which one would be an invention.
+    """
+    best = None
     for vehicle in parsed.get("vehicles", []):
-        if vehicle.first_use and activity.end >= vehicle.first_use:
-            if vehicle.last_use is None or activity.start <= vehicle.last_use:
-                return vehicle.registration or fallback
+        if not vehicle.first_use or vehicle.first_use > activity.start:
+            continue
+        # A spell the card closed cannot own work that started after it ended.
+        if vehicle.last_use is not None and activity.start > vehicle.last_use:
+            continue
+        if best is None or vehicle.first_use > best.first_use:
+            best = vehicle
+    if best is not None and best.registration:
+        return best.registration
     return fallback
 
 
@@ -431,6 +450,52 @@ async def _latest_company_name(session: AsyncSession, scope: TachoScope) -> str 
         .order_by(TachoFile.created_at.desc())
         .limit(1)
     )).scalar_one_or_none()
+
+
+@router.get("/drivers")
+async def list_drivers(session: AsyncSession = Depends(get_session),
+                       scope: TachoScope = Depends(tacho_scope)) -> list[dict]:
+    """Every driver the tachograph data knows about, however it learned of them.
+
+    The pages used to build their own list from driver-card files alone, which
+    meant a driver whose hours came off a vehicle unit could not be picked on
+    the weekly report or the timeline - the data was all there and there was no
+    way to ask for it. A vehicle unit names the drivers who used it, so they
+    belong on this list on the same footing as a card holder; which evidence
+    there is for each is said rather than implied, because a driver known only
+    from a unit has no country entries and the reports should say so.
+    """
+    rows = (await session.execute(
+        select(TachoActivity.driver_ref,
+               TachoFile.file_kind,
+               func.count(TachoActivity.id),
+               func.min(TachoActivity.started_at),
+               func.max(TachoActivity.ended_at))
+        .join(TachoFile, TachoFile.id == TachoActivity.source_file_id)
+        .where(TachoActivity.driver_ref.is_not(None), scope.activities())
+        .group_by(TachoActivity.driver_ref, TachoFile.file_kind))).all()
+
+    found: dict[str, dict] = {}
+    for driver_ref, kind, spans, first, last in rows:
+        entry = found.setdefault(driver_ref, {
+            "driver_ref": driver_ref, "spans": 0,
+            "from_card": False, "from_vehicle_unit": False,
+            "first_seen": first, "last_seen": last,
+        })
+        entry["spans"] += spans
+        entry["from_card"] |= kind == "driver_card"
+        entry["from_vehicle_unit"] |= kind == "vehicle_unit"
+        entry["first_seen"] = min(entry["first_seen"], first)
+        entry["last_seen"] = max(entry["last_seen"], last)
+
+    return [{
+        **entry,
+        "first_seen": entry["first_seen"].isoformat() if entry["first_seen"] else None,
+        "last_seen": entry["last_seen"].isoformat() if entry["last_seen"] else None,
+        # What the hours rest on, so a report can be honest about its evidence.
+        "evidence": ("card and vehicle unit" if entry["from_card"] and entry["from_vehicle_unit"]
+                     else "driver card" if entry["from_card"] else "vehicle unit"),
+    } for entry in sorted(found.values(), key=lambda e: e["driver_ref"])]
 
 
 @router.get("/summary")
@@ -848,10 +913,15 @@ async def _report_for(session: AsyncSession, file_id: uuid.UUID | None,
     signoff = {(r.rule, r.period_start.isoformat()): infringement_reviews.view(reviews.get(r.id)) for r in rows}
 
     operator = await _operator_for_report(session, parsed, start, end)
+    # A card lists every lorry the driver has ever been in, including other
+    # operators'. An account sees its own and no more: those registrations and
+    # the mileage done in them are not theirs to read. An administrator, who
+    # has no one account, keeps the full list.
     report = tacho_report.build_report(
         parsed, found, start=start, end=end,
         driver_ref=tf.driver_ref or parsed.get("driver_ref"),
-        company_name=operator["name"])
+        company_name=operator["name"],
+        only_regs=None if scope.everything else scope.regs)
     # Carried on the report so the screen and the emailing step can see it: a
     # report spanning two operators must not be sent to either as though it
     # were theirs.

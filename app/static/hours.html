@@ -326,9 +326,22 @@
     });
     return out;
   }
+
+  // Every driver the tachograph data knows, whether that came from their card
+  // or from a vehicle unit naming them. Built from activity on record, so a
+  // driver whose hours arrived with a lorry download can still be picked.
+  let driverCache=null;
+  async function knownDrivers(){
+    if(driverCache)return driverCache;
+    try{
+      const r=await api('/api/tacho/drivers',{cache:'no-store'});
+      const rows=await r.json();
+      driverCache=Array.isArray(rows)?rows.map(d=>d.driver_ref).filter(Boolean).sort():[];
+    }catch{ driverCache=[]; }
+    return driverCache;
+  }
   async function renderTimeline(){
-    const files=await (await api('/api/tacho/files',{cache:'no-store'})).json();
-    const drivers=[...new Set(files.filter(f=>f.file_kind==='driver_card'&&f.driver_ref).map(f=>f.driver_ref))].sort();
+    const drivers=await knownDrivers();
     if(!timelineDriver && drivers.length===1)timelineDriver=drivers[0];
     const q=new URLSearchParams(); if(timelineDriver)q.set('driver_ref',timelineDriver);
     if(timelineFrom)q.set('start',timelineFrom+'T00:00:00');
@@ -525,12 +538,11 @@
 
   let repFrom='', repTo='', repDriver='';
   async function renderReport(){
-    const files=await (await api('/api/tacho/files',{cache:'no-store'})).json();
-    const drivers=[...new Set(files.filter(f=>f.file_kind==='driver_card'&&f.driver_ref).map(f=>f.driver_ref))].sort();
+    const drivers=await knownDrivers();
     if(!repDriver && drivers.length===1)repDriver=drivers[0];
     const q=new URLSearchParams();
     if(repFrom)q.set('start',repFrom); if(repTo)q.set('end',repTo); if(repDriver)q.set('driver_ref',repDriver);
-    const driverControl=drivers.length>1?`<div><label>Driver</label><select id="rd"><option value="">Select driver</option>${drivers.map(d=>`<option value="${esc(d)}"${d===repDriver?' selected':''}>${esc(d)}</option>`).join('')}</select></div>`:'';
+    const driverControl=drivers.length?`<div><label>Driver</label><select id="rd"><option value="">Select driver</option>${drivers.map(d=>`<option value="${esc(d)}"${d===repDriver?' selected':''}>${esc(d)}</option>`).join('')}</select></div>`:'';
     let h=`<div class="card"><div class="row report-controls" style="margin-bottom:10px">
       ${driverControl}
       <div><label>From</label><input type="date" id="rf" value="${repFrom}"></div>

@@ -1,12 +1,14 @@
 """Downloads: what TachoSync holds, and bringing it here.
 
-GET  /api/tachosync/overview        account, vehicles, and why a download failed
+GET  /api/tachosync/overview        account, vehicles, driver cards, and why a download failed
 GET  /api/tachosync/files           every file TachoSync has, newest first
 GET  /api/tachosync/files/{kind}/{file_id}   the file itself, streamed to the browser
 POST /api/tachosync/sync            fetch anything new into our archive
+POST /api/tachosync/drivers/{id}/download   ask for one driver card at the next chance
 
 The split is deliberate: TachoSync does the download from the vehicle, we keep
-the file. Nothing here writes to TachoSync.
+the file. The one thing written back is a request for a card to be downloaded,
+which only happens when somebody asks for it.
 """
 
 from __future__ import annotations
@@ -148,6 +150,46 @@ async def sync(days: int = 30) -> dict:
     """Fetch anything new into our archive. Safe to repeat: files already on
     record are skipped."""
     return await tachosync.sync(days=days)
+
+
+@router.post("/drivers/{driver_id}/download")
+async def download_driver(driver_id: str, days: int = 30) -> dict:
+    """Ask for one driver's card at the first opportunity, then go and get it.
+
+    This does not reach into the lorry: a card can only be read while it is in
+    a tachograph and that unit is connected. What it does is put this card at
+    the front of the queue for the next time both are true, which is worth
+    doing when somebody can see the driver is aboard now - the alternative is
+    waiting for the daily schedule to come round.
+
+    The fetch afterwards is what brings the file here, and it is cheap when
+    nothing new has appeared yet.
+    """
+    drivers = await tachosync.drivers()
+    driver = next((d for d in drivers if str(d.get("id")) == driver_id), None)
+    if driver is None:
+        raise HTTPException(status_code=404, detail="TachoSync does not know that driver card.")
+    company_id = (driver.get("company") or {}).get("id")
+    if not company_id:
+        raise HTTPException(status_code=502,
+                            detail="TachoSync did not say which company that card belongs to.")
+
+    asked = await tachosync.download_driver_now(driver_id, company_id)
+    logger.info("asked TachoSync for %s's card at the next connection (schedule %s)",
+                driver.get("cardName"), asked.get("scheduleId"))
+
+    # The unit may already be connected, in which case the file can exist by
+    # the time we look. If not, the scheduled fetch will bring it later.
+    fetched = await tachosync.sync(days=days)
+    return {
+        "asked_for": driver.get("cardName"),
+        "card_number": driver.get("cardNumber"),
+        "schedule_id": asked.get("scheduleId"),
+        "replaced_an_earlier_request": bool(asked.get("overwritten")),
+        "fetched_now": fetched.get("fetched", 0),
+        "note": ("The card arrived and is being analysed." if fetched.get("fetched")
+                 else "Queued. It will arrive the next time that card is in a connected lorry."),
+    }
 
 
 @router.get("/keys")

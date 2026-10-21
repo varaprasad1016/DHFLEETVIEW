@@ -15,6 +15,7 @@ runs past midnight fills those in on the day it ends.
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -200,16 +201,33 @@ def _day_row(d: date, lo: _Local, acts: list[Activity], days: list[DutyDay],
     }
 
 
+def _reg_key(value: str | None) -> str:
+    return re.sub(r"[^A-Z0-9]", "", (value or "").upper())
+
+
 def build_report(parsed: dict, infringements: list[Infringement],
                  start: date | None = None, end: date | None = None,
                  driver_ref: str | None = None, company_name: str | None = None,
-                 tz: ZoneInfo = LOCAL) -> dict:
-    """Assemble the report. `parsed` is a parse_driver_card() result."""
+                 tz: ZoneInfo = LOCAL, only_regs: set[str] | None = None) -> dict:
+    """Assemble the report. `parsed` is a parse_driver_card() result.
+
+    `only_regs` limits the vehicles shown to an account's own. A driver's card
+    records every lorry they have driven, including other operators', and those
+    registrations are not this account's to see - nor is the mileage done in
+    them. The driver's hours are unaffected: they are the driver's wherever
+    they were worked.
+    """
     lo = _Local(tz)
     acts = _prepare(parsed["activities"])
     days = _duty_days(acts)
     vehicles = parsed.get("vehicles") or []
     incidents: list[CardIncident] = parsed.get("incidents") or []
+
+    elsewhere = 0
+    if only_regs is not None:
+        mine = [v for v in vehicles if _reg_key(v.registration) in only_regs]
+        elsewhere = len(vehicles) - len(mine)
+        vehicles = mine
 
     if not acts:
         return {"driver": {}, "weeks": [], "period": {}}
@@ -294,5 +312,9 @@ def build_report(parsed: dict, infringements: list[Infringement],
                    "timezone": str(tz),
                    "data_from": covered[0].isoformat(),
                    "data_to": covered[1].isoformat()},
+        # Said plainly rather than left as a silent gap: the driver worked
+        # spells in lorries that are not on this account, and this report
+        # does not show them.
+        "spells_in_other_operators_vehicles": elsewhere,
         "weeks": weeks,
     }

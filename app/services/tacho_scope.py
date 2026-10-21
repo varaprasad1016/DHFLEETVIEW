@@ -94,6 +94,51 @@ class TachoScope:
                 or inf.driver_ref in self.driver_refs)
 
 
+async def claim_files(session: AsyncSession, scope: TachoScope, uploader_id: int | None) -> None:
+    """Work out which archived files belong to this account.
+
+    Three ways a file is yours: you uploaded it, it is a card belonging to one
+    of your drivers, or it is a unit from one of your vehicles.
+
+    A fourth, which matters because it is the common case: a card whose
+    activity happened in one of your vehicles. An operator has to hold the
+    records for whoever drove their lorries, and the vehicle unit is the proof
+    that they did - without this a card download sits in the archive invisible
+    to the only account entitled to it, just because nobody had typed that
+    driver's card number into DH FleetView yet.
+    """
+    rows = (await session.execute(select(
+        TachoFile.id, TachoFile.file_kind, TachoFile.card_number, TachoFile.vehicle_ref,
+        TachoFile.driver_ref, TachoFile.uploaded_by_user_id))).all()
+
+    unclaimed: dict[uuid.UUID, str | None] = {}
+    for fid, kind, card, vehicle, driver_ref, uploader in rows:
+        mine = (
+            (uploader_id is not None and uploader == uploader_id)
+            or (kind == "driver_card" and len(card_key(card)) == 14 and card_key(card) in scope.cards)
+            or (kind == "vehicle_unit" and reg_key(vehicle) in scope.regs)
+        )
+        if mine:
+            scope.file_ids.add(fid)
+            if kind == "driver_card" and driver_ref:
+                scope.driver_refs.add(driver_ref)
+        elif kind == "driver_card":
+            unclaimed[fid] = driver_ref
+
+    if not unclaimed or not scope.regs:
+        return
+    driven = (await session.execute(
+        select(TachoActivity.source_file_id, TachoActivity.vehicle_ref)
+        .where(TachoActivity.source_file_id.in_(list(unclaimed)),
+               TachoActivity.vehicle_ref.is_not(None)).distinct())).all()
+    for fid, vehicle in driven:
+        if fid in scope.file_ids or reg_key(vehicle) not in scope.regs:
+            continue
+        scope.file_ids.add(fid)
+        if unclaimed.get(fid):
+            scope.driver_refs.add(unclaimed[fid])
+
+
 async def scope_for(session: AsyncSession, principal: auth.Principal) -> TachoScope:
     if modules.is_super_admin(principal):
         return TachoScope(everything=True)
@@ -101,21 +146,9 @@ async def scope_for(session: AsyncSession, principal: auth.Principal) -> TachoSc
     devices = await auth.visible_devices(principal)
     cards = {k for k in (card_key(d.get("uniqueId")) for d in drivers) if len(k) == 14}
     regs = set().union(*(device_regs(d) for d in devices)) if devices else set()
-    rows = (await session.execute(select(
-        TachoFile.id, TachoFile.file_kind, TachoFile.card_number, TachoFile.vehicle_ref,
-        TachoFile.driver_ref, TachoFile.uploaded_by_user_id))).all()
     scope = TachoScope(everything=False, drivers=drivers, devices=devices, cards=cards, regs=regs,
                        device_uids={str(d.get("uniqueId")) for d in devices if d.get("uniqueId")})
-    for fid, kind, card, vehicle, driver_ref, uploader in rows:
-        mine = (
-            (principal.user_id is not None and uploader == principal.user_id)
-            or (kind == "driver_card" and len(card_key(card)) == 14 and card_key(card) in cards)
-            or (kind == "vehicle_unit" and reg_key(vehicle) in regs)
-        )
-        if mine:
-            scope.file_ids.add(fid)
-            if kind == "driver_card" and driver_ref:
-                scope.driver_refs.add(driver_ref)
+    await claim_files(session, scope, principal.user_id)
     return scope
 
 
@@ -138,19 +171,7 @@ async def scope_for_user_id(session: AsyncSession, principal: auth.Principal,
     scope = TachoScope(everything=False, drivers=drivers, devices=devices, cards=cards,
                        regs=regs,
                        device_uids={str(d.get("uniqueId")) for d in devices if d.get("uniqueId")})
-    rows = (await session.execute(select(
-        TachoFile.id, TachoFile.file_kind, TachoFile.card_number, TachoFile.vehicle_ref,
-        TachoFile.driver_ref, TachoFile.uploaded_by_user_id))).all()
-    for fid, kind, card, vehicle, driver_ref, uploader in rows:
-        mine = (
-            uploader == user_id
-            or (kind == "driver_card" and len(card_key(card)) == 14 and card_key(card) in cards)
-            or (kind == "vehicle_unit" and reg_key(vehicle) in regs)
-        )
-        if mine:
-            scope.file_ids.add(fid)
-            if kind == "driver_card" and driver_ref:
-                scope.driver_refs.add(driver_ref)
+    await claim_files(session, scope, user_id)
     return scope
 
 

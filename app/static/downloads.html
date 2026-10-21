@@ -164,7 +164,7 @@ function renderDrivers(rows) {
     return;
   }
   box.innerHTML = '<table><thead><tr><th>Card holder</th><th>Status</th>'
-    + '<th>Last seen by TachoSync</th><th>Last download</th></tr></thead><tbody>'
+    + '<th>Last seen by TachoSync</th><th>Last download</th><th></th></tr></thead><tbody>'
     + rows.map((d) => {
       const pill = d.disabled ? '<span class="pill no">disabled</span>'
         : d.last_download ? '<span class="pill ok">downloaded</span>'
@@ -180,10 +180,42 @@ function renderDrivers(rows) {
         ? when(d.last_connected) + '<br><span style="color:var(--muted)">in ' + esc(d.last_vehicle)
           + (d.last_activity ? ' · ' + esc(d.last_activity.toLowerCase()) : '') + '</span>'
         : when(d.last_connected);
+      const ask = d.disabled ? ''
+        : '<button class="askCard" data-id="' + esc(d.id) + '" data-name="' + esc(d.name || 'that card')
+          + '">Download now</button>';
       return '<tr><td><b>' + esc(d.name || '—') + '</b><br><span style="color:var(--muted)">'
         + esc(d.card_number || '') + '</span>' + why + '</td><td>' + pill + '</td><td>'
-        + seen + '</td><td>' + when(d.last_download) + '</td></tr>';
+        + seen + '</td><td>' + when(d.last_download) + '</td><td>' + ask + '</td></tr>';
     }).join('') + '</tbody></table>';
+
+  box.querySelectorAll('.askCard').forEach((btn) => btn.addEventListener('click', async () => {
+    const was = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Asking…';
+    try {
+      const r = await fetch('api/tachosync/drivers/' + encodeURIComponent(btn.dataset.id) + '/download',
+        { method: 'POST' });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.detail || ('HTTP ' + r.status));
+      note(data.note || 'Asked for ' + btn.dataset.name + '.');
+      // A card that arrived is in the archive now, so both lists have moved on.
+      loadVehicles(); loadFiles(); archived = []; loadRaw();
+    } catch (e) {
+      note('Could not ask for ' + btn.dataset.name + ': ' + e.message, true);
+      btn.disabled = false;
+      btn.textContent = was;
+    }
+  }));
+}
+
+function note(message, bad) {
+  const box = $('drivers');
+  if (!box) return;
+  const line = document.createElement('p');
+  line.className = 'note';
+  if (bad) line.style.color = 'var(--bad)';
+  line.textContent = message;
+  box.appendChild(line);
 }
 
 async function loadFiles() {

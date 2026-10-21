@@ -106,6 +106,31 @@ async def driver_detail(driver_id: str, key: str | None = None) -> dict:
     return await _get(f"Drivers/{driver_id}", key=key) or {}
 
 
+async def download_driver_now(driver_id: str, company_id: str,
+                              key: str | None = None) -> dict:
+    """Ask TachoSync for this card as soon as it can have it.
+
+    A one-time schedule on top of whatever else is set. It does not reach the
+    card by itself - nothing can - it means the next time that card is in a
+    tachograph and the unit is connected, this download happens rather than
+    waiting for the daily schedule's turn. Worth doing when somebody can see
+    the driver is in the lorry now.
+    """
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        try:
+            response = await client.post(
+                f"{BASE_URL}/DriverSchedules/Quick", headers=_headers(key),
+                json={"driverId": driver_id, "companyId": company_id})
+        except httpx.HTTPError as exc:
+            raise TachoSyncError(f"TachoSync is unreachable ({exc.__class__.__name__}).") from exc
+    if response.status_code == 401:
+        raise TachoSyncError("TachoSync rejected the API key.")
+    if response.status_code >= 400:
+        raise TachoSyncError(
+            f"TachoSync answered {response.status_code} asking for that card.")
+    return response.json() or {}
+
+
 async def downloads_history(vehicle_id: str) -> list[dict]:
     """Recent download attempts for one vehicle, successes and failures alike.
 
