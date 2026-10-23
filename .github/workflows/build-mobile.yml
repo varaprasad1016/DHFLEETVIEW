@@ -290,6 +290,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      # Pinned rather than taken from the runner. The image moved to Java 25,
+      # which Gradle 8.14.4 refuses outright ("incompatible with Gradle"), so
+      # the build broke without a line of our code changing. 21 is the LTS the
+      # Android toolchain is built against; it has to stay in step with the
+      # Gradle version in android/gradle/wrapper/gradle-wrapper.properties.
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
