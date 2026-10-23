@@ -128,6 +128,18 @@ class _MainScreenState extends State<MainScreen> {
     await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
   }
 
+  /// Whether this address belongs to the server the app is signed in to.
+  /// Used to decide what may be fetched with the session rather than handed
+  /// to the phone's browser, which has none of it.
+  bool _isOwnServer(Uri uri) {
+    final saved = _preferences.getString(_urlKey);
+    if (saved == null) return false;
+    final base = Uri.tryParse(saved);
+    return base != null
+        && uri.host.isNotEmpty
+        && uri.host.toLowerCase() == base.host.toLowerCase();
+  }
+
   /// A name safe to write to disk, with an extension the sharing sheet can
   /// make sense of. The page supplies both, and neither can be trusted: the
   /// name may carry path separators, or be missing altogether.
@@ -196,10 +208,14 @@ class _MainScreenState extends State<MainScreen> {
       }
       final response = await http.get(uri, headers: headers);
       if (response.statusCode >= 200 && response.statusCode < 300) {
+        // Both routes end up here so that a file served without a name of its
+        // own still gets an extension from what the server says it is. A
+        // certificate sent inline has neither, and lands as "certificate" with
+        // nothing to tell the phone how to open it.
+        final name = suggestedFileName
+          ?? _fileNameFor(uri, contentDisposition ?? response.headers['content-disposition']);
         await _shareFile(
-          suggestedFileName != null
-            ? _safeFileName(suggestedFileName, response.headers['content-type'] ?? '')
-            : _fileNameFor(uri, contentDisposition ?? response.headers['content-disposition']),
+          _safeFileName(name, response.headers['content-type'] ?? ''),
           response.bodyBytes,
         );
       } else {
@@ -405,6 +421,12 @@ class _MainScreenState extends State<MainScreen> {
               // Without this, onDownloadStartRequest below is registered and
               // never called, so every download in the app did nothing at all.
               useOnDownloadStart: true,
+              // Same again for onCreateWindow: on Android it is not called
+              // unless multiple windows are supported, so every link that
+              // opens in a new tab - a training certificate, a maintenance
+              // document, a signature - did nothing whatsoever.
+              supportMultipleWindows: true,
+              javaScriptCanOpenWindowsAutomatically: true,
               supportZoom: false,
               builtInZoomControls: false,
             ),
@@ -576,9 +598,17 @@ class _MainScreenState extends State<MainScreen> {
               final target = createWindowAction.request.url;
               if (target == null) return false;
               final uri = Uri.parse(target.toString());
-              if (_isDownloadable(uri)) {
+              // Anything on our own server is fetched here, where the session
+              // is. Handing it to the phone's browser instead opens it with no
+              // cookies at all, so a training certificate or a maintenance
+              // document came back 401 and the link looked broken. These have
+              // no file extension either, so the name is taken from what the
+              // server says it is sending.
+              if (_isOwnServer(uri) || _isDownloadable(uri)) {
                 await _downloadFile(uri);
               } else {
+                // A genuinely external link - a maps route for a job - belongs
+                // in the app that handles it.
                 await launchUrl(uri, mode: LaunchMode.externalApplication);
               }
               return false;
