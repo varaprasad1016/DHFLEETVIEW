@@ -960,10 +960,14 @@ async def _report_for(session: AsyncSession, file_id: uuid.UUID | None,
     # operators'. The report shows the vehicles of the account it is for: its
     # own for a customer, and for an administrator the account whose work this
     # is, worked out from the lorries the driver actually drove.
-    if scope.everything and principal is not None:
+    if scope.everything:
+        # An administrator's scope holds no registrations of its own, so it
+        # must never be used as the filter: that hides every vehicle and the
+        # report comes out with no registration, odometer or distance at all.
+        # Work out whose the lorries are, or filter nothing.
         driven = {_reg_key(v.registration) for v in (parsed.get("vehicles") or [])
                   if v.registration}
-        only_regs = await _owning_account_regs(principal, driven)
+        only_regs = await _owning_account_regs(principal, driven) if principal else None
     else:
         only_regs = scope.regs
 
@@ -1111,7 +1115,8 @@ async def send_report(body: dict = Body(default={}),
               else await driver_reports.drivers_active(session, scope, start, end))
     for driver_ref in wanted:
         week.reports.append(
-            await driver_reports.build_week(session, scope, driver_ref, start, end, hidden))
+            await driver_reports.build_week(session, scope, driver_ref, start, end, hidden,
+                                            principal=principal))
 
     if not week.reports:
         covers = (f"between {start} and {end}" if start and end else "on that card")

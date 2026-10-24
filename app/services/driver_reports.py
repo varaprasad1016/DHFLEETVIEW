@@ -122,7 +122,7 @@ async def drivers_active(session: AsyncSession, scope: tacho_scope.TachoScope,
 
 async def build_week(session: AsyncSession, scope: tacho_scope.TachoScope,
                      driver_ref: str, start: date | None, end: date | None,
-                     hidden: set[str] | None = None) -> DriverReport:
+                     hidden: set[str] | None = None, principal=None) -> DriverReport:
     """One driver's report, drawn exactly as the Hours page draws it.
 
     With `start` and `end` given the report covers that span. With both None it
@@ -137,7 +137,8 @@ async def build_week(session: AsyncSession, scope: tacho_scope.TachoScope,
 
     report = DriverReport(driver_ref=driver_ref, name=driver_ref)
     try:
-        data = await _report_for(session, None, driver_ref, start, end, scope, hidden)
+        data = await _report_for(session, None, driver_ref, start, end, scope, hidden,
+                                  principal=principal)
     except Exception as exc:  # noqa: BLE001 - one unreadable card must not stop the rest
         logger.warning("could not build the weekly report for %s: %s", driver_ref, exc)
         report.problem = getattr(exc, "detail", None) or str(exc)
@@ -169,7 +170,8 @@ async def week_for_account(session: AsyncSession, principal, user_id: int, accou
     hidden, _ = await report_settings.hidden_for(session, user_id)
     week = AccountWeek(user_id=user_id, account=account, email=email)
     for driver_ref in await drivers_active(session, scope, start, end):
-        week.reports.append(await build_week(session, scope, driver_ref, start, end, hidden))
+        week.reports.append(await build_week(session, scope, driver_ref, start, end, hidden,
+                                             principal=principal))
     return week
 
 
