@@ -157,7 +157,11 @@
   const pagePrefix=pagePath==='\/hours'?'':pagePath.slice(0,pagePath.lastIndexOf('/'));
   const apiUrl=(path)=>`${pagePrefix}${path}`;
   const api=(path,options)=>fetch(apiUrl(path),options);
-  let tab='calendar';
+  // ?tab=report opens straight on that view, so a menu item elsewhere in the
+  // app can land on the report somebody asked for rather than on the calendar.
+  const TABS=['calendar','compliance','infringements','timeline','report','wtd','files'];
+  const wantedTab=new URLSearchParams(location.search).get('tab');
+  let tab=TABS.includes(wantedTab)?wantedTab:'calendar';
   const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
   const hrs=m=>m==null?'':Math.floor(m/60)+'h'+String(m%60).padStart(2,'0');
   const dt=s=>s?new Date(s).toLocaleString('en-GB',{timeZone:'Europe/London'}):'';
@@ -673,6 +677,9 @@
   document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
     tab=b.dataset.t; document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); render();
   });
+  // Mark the tab we actually opened on, otherwise Calendar keeps the
+  // highlight while a different view is showing.
+  document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on', b.dataset.t===tab));
   async function init(){
     let s; try{ const result=await jsonResponse(await api('/api/license/status',{cache:'no-store'})); s=result.data; }catch{}
     if(!s||!s.licensed){ $('lock').classList.remove('hidden'); return; }
