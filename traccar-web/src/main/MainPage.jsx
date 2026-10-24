@@ -4,8 +4,8 @@ import { useTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate, useLocation } from 'react-router-dom';
-import MapIcon from '@mui/icons-material/Map';
 import DescriptionIcon from '@mui/icons-material/Description';
+import AssignmentIcon from '@mui/icons-material/Assignment';
 import SettingsIcon from '@mui/icons-material/Settings';
 import PersonIcon from '@mui/icons-material/Person';
 import Badge from '@mui/material/Badge';
@@ -236,14 +236,22 @@ const MainPage = () => {
         navigate('/');
         break;
       case 'reports': {
+        // Straight to the report builder, which is the index of /reports, so
+        // a report can be run from here rather than landing on one particular
+        // report and having to go looking for the others.
         let id = selectedDeviceId;
         if (id == null) {
           const deviceIds = Object.keys(devices);
           if (deviceIds.length === 1) id = deviceIds[0];
         }
-        navigate(id != null ? `/reports/combined?deviceId=${id}` : '/reports/combined');
+        navigate(id != null ? `/reports?deviceId=${id}` : '/reports');
         break;
       }
+      case 'tachoreports':
+        // The tachograph module is served outside this app, so a full
+        // navigation rather than a route change.
+        window.location.href = '/tacho/hours?tab=report';
+        break;
       case 'settings':
         navigate('/settings/preferences?menu=true');
         break;
@@ -289,9 +297,11 @@ const MainPage = () => {
 
   const nav = currentNav();
 
+  // No map entry: this menu opens from the map, so it only ever took you to
+  // where you already were.
   const navItems = [
-    { key: 'map', label: t('mapTitle'), icon: <MapIcon fontSize="small" /> },
-    !disableReports && { key: 'reports', label: t('reportTitle'), icon: <DescriptionIcon fontSize="small" /> },
+    !disableReports && { key: 'reports', label: 'Tracking reports', icon: <DescriptionIcon fontSize="small" /> },
+    !disableReports && { key: 'tachoreports', label: 'Tacho reports', icon: <AssignmentIcon fontSize="small" /> },
     !readonly && { key: 'settings', label: t('settingsTitle'), icon: <SettingsIcon fontSize="small" /> },
     !readonly && { key: 'account', label: t('settingsUser'), icon: <PersonIcon fontSize="small" /> },
   ].filter(Boolean);
