@@ -5,6 +5,7 @@ drivers'-hours / WTD infringement engine. Every route is licence-gated.
 from __future__ import annotations
 
 import base64
+import logging
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
@@ -21,17 +22,20 @@ from app.models.core import Company, Vehicle
 from app.models.tacho import TachoActivity
 from app.models.operator import Operator
 from app.models.tacho import Infringement, TachoFile
-from app.services import (archive, ddd_go, ddd_parser, ddd_traconiq, driver_calendar, driver_reports,
+from app.services import (archive, auth, ddd_go, ddd_parser, ddd_traconiq, driver_calendar,
+                          driver_reports,
                           infringement_reviews, mailer,
                           media_store, modules, operators, report_settings,
                           tacho_compliance, tacho_pdf, tacho_report)
 from app.services import wtd as wtd_service
 from app.models.infringement_review import InfringementReview
-from app.services.tacho_scope import TachoScope, scope_for
+from app.services.tacho_scope import TachoScope, device_regs, scope_for
 from app.services.tacho_rules import Activity, Infringement as RuleInfringement, analyse
 from app.services.tacho_rules import code_for as tacho_rules_codes
 
 router = APIRouter(prefix="/api/tacho", tags=["tacho"], dependencies=[Depends(require_license), Depends(require_manager), Depends(require_module("tacho"))])
+
+logger = logging.getLogger("tacho.api")
 
 
 # --- schemas ----------------------------------------------------------------
@@ -867,9 +871,48 @@ async def reanalyse(body: ReanalyseIn, session: AsyncSession = Depends(get_sessi
     return out
 
 
+async def _owning_account_regs(principal: Principal, driven: set[str]) -> set[str] | None:
+    """The vehicles of the customer account this driver's work belongs to.
+
+    A weekly report is a document for one operator, so it should list that
+    operator's lorries whoever prints it. An administrator has no account of
+    their own, so without this they get every vehicle the card has ever been
+    in - including other firms' lorries, which are nobody's business here and
+    are not even on this system.
+
+    Worked out from the vehicles the driver actually drove: the customer
+    accounts holding any of them are the accounts this report concerns. Where
+    the driver has worked for more than one of them the union is used, which is
+    still only vehicles somebody here owns. None of them means nothing can be
+    attributed, and the caller shows nothing rather than guessing.
+    """
+    if not driven:
+        return set()
+    try:
+        users = await auth.traccar_get(principal, "/api/users") or []
+    except (OSError, ValueError) as exc:                # Traccar unreachable or odd reply
+        logger.warning("could not work out whose vehicles this report is for: %s", exc)
+        return None                                     # fall back to no filtering
+    regs: set[str] = set()
+    for user in users:
+        # Administrators hold every vehicle, so they say nothing about whose
+        # lorry this is.
+        if user.get("administrator") or not user.get("id"):
+            continue
+        try:
+            devices = await auth.traccar_get(principal, f"/api/devices?userId={int(user['id'])}") or []
+        except (OSError, ValueError):                   # one account failing is not the report
+            continue
+        theirs = set().union(*(device_regs(d) for d in devices)) if devices else set()
+        if theirs & driven:
+            regs |= theirs
+    return regs
+
+
 async def _report_for(session: AsyncSession, file_id: uuid.UUID | None,
                       driver_ref: str | None, start: date | None,
-                      end: date | None, scope: TachoScope, hidden_rules: set[str] | None = None) -> dict:
+                      end: date | None, scope: TachoScope, hidden_rules: set[str] | None = None,
+                      principal: Principal | None = None) -> dict:
     """Pick the card file the report is about, then build the report from it.
     hidden_rules: infringement types the user has chosen to leave off the report."""
     stmt = select(TachoFile).where(TachoFile.file_kind == "driver_card", scope.files())
@@ -914,14 +957,21 @@ async def _report_for(session: AsyncSession, file_id: uuid.UUID | None,
 
     operator = await _operator_for_report(session, parsed, start, end)
     # A card lists every lorry the driver has ever been in, including other
-    # operators'. An account sees its own and no more: those registrations and
-    # the mileage done in them are not theirs to read. An administrator, who
-    # has no one account, keeps the full list.
+    # operators'. The report shows the vehicles of the account it is for: its
+    # own for a customer, and for an administrator the account whose work this
+    # is, worked out from the lorries the driver actually drove.
+    if scope.everything and principal is not None:
+        driven = {_reg_key(v.registration) for v in (parsed.get("vehicles") or [])
+                  if v.registration}
+        only_regs = await _owning_account_regs(principal, driven)
+    else:
+        only_regs = scope.regs
+
     report = tacho_report.build_report(
         parsed, found, start=start, end=end,
         driver_ref=tf.driver_ref or parsed.get("driver_ref"),
         company_name=operator["name"],
-        only_regs=None if scope.everything else scope.regs)
+        only_regs=only_regs)
     # Carried on the report so the screen and the emailing step can see it: a
     # report spanning two operators must not be sent to either as though it
     # were theirs.
@@ -1000,7 +1050,8 @@ async def report(file_id: uuid.UUID | None = None, driver_ref: str | None = None
                  scope: TachoScope = Depends(tacho_scope),
                  principal: Principal = Depends(require_manager)) -> dict:
     hidden, _ = await report_settings.hidden_for(session, principal.user_id)
-    return await _report_for(session, file_id, driver_ref, start, end, scope, hidden)
+    return await _report_for(session, file_id, driver_ref, start, end, scope, hidden,
+                             principal=principal)
 
 
 @router.get("/report.pdf")
@@ -1010,7 +1061,8 @@ async def report_pdf(file_id: uuid.UUID | None = None, driver_ref: str | None = 
                      scope: TachoScope = Depends(tacho_scope),
                      principal: Principal = Depends(require_manager)) -> Response:
     hidden, _ = await report_settings.hidden_for(session, principal.user_id)
-    data = await _report_for(session, file_id, driver_ref, start, end, scope, hidden)
+    data = await _report_for(session, file_id, driver_ref, start, end, scope, hidden,
+                             principal=principal)
     who = (data["driver"].get("name") or data["driver"].get("ref") or "driver")
     safe = "".join(c if c.isalnum() else "_" for c in who).strip("_") or "driver"
     name = f"{safe}_{data['period']['from']}_{data['period']['to']}.pdf"
