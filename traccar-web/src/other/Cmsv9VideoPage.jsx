@@ -140,11 +140,48 @@ const useStyles = makeStyles()((theme) => ({
     // stretching the image or overflowing the row.
     minHeight: 0,
     minWidth: 0,
+    // display:flex above beats the hidden attribute's own display:none, and
+    // the other tiles are hidden that way while one fills the screen.
+    '&[hidden]': { display: 'none' },
   },
   cellVideo: {
     width: '100%',
     height: '100%',
     objectFit: 'contain',
+  },
+  // Double-tapping a tile lifts it out of the grid to fill the screen. Done
+  // with fixed positioning rather than the Fullscreen API alone: iOS Safari
+  // will not make an arbitrary element fullscreen, and inside the app's
+  // WebView the native call is refused more often than it is granted. This
+  // works everywhere, and the native call is still attempted on top of it so
+  // Android gives up its system bars as well.
+  cellFullscreen: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    width: '100vw',
+    // Falls back for anything without dvh; dvh is what keeps it exact while a
+    // phone's address bar slides in and out.
+    height: '100vh',
+    // eslint-disable-next-line no-dupe-keys
+    height: '100dvh',
+    zIndex: theme.zIndex.modal + 2,
+    borderRadius: 0,
+    border: 'none',
+    backgroundColor: '#000',
+    margin: 0,
+  },
+  fullscreenHint: {
+    position: 'absolute',
+    bottom: 'calc(env(safe-area-inset-bottom, 0px) + 14px)',
+    left: 0,
+    right: 0,
+    textAlign: 'center',
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: '0.75rem',
+    textShadow: '0 1px 3px rgba(0,0,0,0.9)',
+    pointerEvents: 'none',
+    zIndex: 2,
   },
   cellLabel: {
     position: 'absolute',
@@ -388,6 +425,13 @@ const Cmsv9VideoPage = () => {
   const videoRef = useRef(null);
   const flvPlayerRef = useRef(null);
   const gridPlayers = useRef({});
+  // Which tile is filling the screen, and when each tile was last tapped, so a
+  // second tap soon after counts as a double. onDoubleClick is not dependable
+  // on a touch screen - a browser that treats the first tap as a zoom gesture
+  // never sends it - so the pair is timed here.
+  const [fullscreenChannel, setFullscreenChannel] = useState(null);
+  const lastTapRef = useRef({ ch: null, at: 0 });
+  const cellElsRef = useRef({});
 
   const [searchParams] = useSearchParams();
   const deviceId = searchParams.get('deviceId');
@@ -830,6 +874,93 @@ const Cmsv9VideoPage = () => {
     };
   }, [gridActive, config, cmsv9DeviceId, deviceId, visibleChannels, startChannel]);
 
+  /* Jessibuca measures its container once and draws to a canvas of that size,
+   * so a tile that changes shape keeps the old picture until it is told. Give
+   * the browser a frame to lay the new size out first. */
+  const remeasure = useCallback((ch) => {
+    requestAnimationFrame(() => {
+      const player = gridPlayers.current[ch]?.player;
+      try {
+        player?.resize?.();
+      } catch {
+        // An older build without resize() still redraws on the next frame.
+      }
+    });
+  }, []);
+
+  const exitFullscreen = useCallback(() => {
+    setFullscreenChannel((was) => {
+      if (was !== null) remeasure(was);
+      return null;
+    });
+    try {
+      if (document.fullscreenElement) document.exitFullscreen?.();
+    } catch {
+      // Never granted in the first place; the CSS layer is what mattered.
+    }
+    try {
+      window.screen?.orientation?.unlock?.();
+    } catch {
+      // Not supported, or not allowed outside fullscreen. Harmless.
+    }
+  }, [remeasure]);
+
+  const enterFullscreen = useCallback((ch) => {
+    setFullscreenChannel(ch);
+    remeasure(ch);
+    // Asked for on top of the CSS, not instead of it: where it is granted the
+    // system bars go too, and a phone held upright gets the landscape turn
+    // that makes a 4:3 camera worth looking at. Both are refused often enough
+    // that neither can be relied on, and neither is needed for this to work.
+    const el = cellElsRef.current[ch];
+    try {
+      el?.requestFullscreen?.({ navigationUI: 'hide' })
+        .then(() => window.screen?.orientation?.lock?.('landscape'))
+        .catch(() => {})
+        .finally(() => remeasure(ch));
+    } catch {
+      // Older WebViews throw rather than reject.
+    }
+  }, [remeasure]);
+
+  /* A tile's own tap handling: one tap selects it (or retries a dead channel),
+   * two in quick succession fill the screen. */
+  const handleCellTap = useCallback((ch) => {
+    const now = Date.now();
+    const isDouble = lastTapRef.current.ch === ch && now - lastTapRef.current.at < 320;
+    // A double consumes both taps: the pair is forgotten by channel, not by
+    // pushing the time out of range, so a third tap straight after starts a
+    // fresh pair instead of toggling again.
+    lastTapRef.current = { ch: isDouble ? null : ch, at: now };
+    if (isDouble) {
+      if (fullscreenChannel === ch) exitFullscreen();
+      else enterFullscreen(ch);
+      return;
+    }
+    if (gridErrors[ch]) startChannel(ch, 0);
+    else setSelectedChannel(ch);
+  }, [fullscreenChannel, gridErrors, startChannel, enterFullscreen, exitFullscreen]);
+
+  // Back out of fullscreen the ways people expect: Escape, the Android back
+  // button (which closes native fullscreen without telling React), and leaving
+  // the page entirely.
+  useEffect(() => {
+    if (fullscreenChannel === null) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') exitFullscreen(); };
+    const onChange = () => { if (!document.fullscreenElement) setFullscreenChannel(null); };
+    const onResize = () => remeasure(fullscreenChannel);
+    window.addEventListener('keydown', onKey);
+    document.addEventListener('fullscreenchange', onChange);
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onResize);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.removeEventListener('fullscreenchange', onChange);
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onResize);
+    };
+  }, [fullscreenChannel, exitFullscreen, remeasure]);
+
   const takeSnapshot = useCatch(
     async (player) => {
       if (!player || typeof player.screenshot !== 'function') return;
@@ -1229,14 +1360,28 @@ const Cmsv9VideoPage = () => {
               {visibleChannels.map((ch) => (
                 <div
                   key={ch}
-                  className={`${classes.cell}${selectedChannel === ch ? ` ${classes.cellSelected}` : ''}`}
-                  onClick={() => (gridErrors[ch] ? startChannel(ch, 0) : setSelectedChannel(ch))}
+                  ref={(el) => { cellElsRef.current[ch] = el; }}
+                  className={[
+                    classes.cell,
+                    selectedChannel === ch ? classes.cellSelected : '',
+                    fullscreenChannel === ch ? classes.cellFullscreen : '',
+                  ].filter(Boolean).join(' ')}
+                  // Hidden rather than unmounted: unmounting would tear the
+                  // player down and the stream would have to be asked for
+                  // again on the way back.
+                  hidden={fullscreenChannel !== null && fullscreenChannel !== ch}
+                  onClick={() => handleCellTap(ch)}
                 >
                   <Chip
                     label={`${device?.name ? `${device.name} - ` : ''}CH${ch + 1}`}
                     size="small"
                     className={classes.cellLabel}
                   />
+                  {fullscreenChannel === ch && (
+                    <Typography className={classes.fullscreenHint}>
+                      Double tap to go back
+                    </Typography>
+                  )}
                   {gridActive && !gridErrors[ch] && (
                     <div
                       ref={(el) => {
@@ -1255,14 +1400,16 @@ const Cmsv9VideoPage = () => {
                     </Typography>
                   )}
                   <div className={classes.cellActions}>
-                    {/* The expand control opened the single-camera view, which this page no
-                        longer has. Nothing replaces it yet: a tile that fills the grid is
-                        worth adding, but it is not the same thing and should not pretend
-                        to be. */}
+                    {/* Filling the screen is a double tap on the tile itself,
+                        so there is no expand control here to get in the way of
+                        it. The snapshot swallows its own taps: two of them in
+                        a row are two photographs, not a request for
+                        fullscreen. */}
                     <IconButton
                       size="small"
                       className={classes.cellButton}
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
                         const ctx = gridPlayers.current[ch];
                         takeSnapshot(ctx?.player);
                       }}

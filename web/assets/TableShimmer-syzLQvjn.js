@@ -1,0 +1,1 @@
+import{k as a,l as m,n as i}from"./index-zX9DKrJm.js";import{S as p}from"./Skeleton-DOW2QQ6r.js";const b=({columns:e,startAction:l,endAction:s,ref:t})=>[...Array(3)].map((x,n)=>a.jsx(m,{ref:n===0?t:null,children:[...Array(e)].map((c,r)=>{const o=l&&r===0||s&&r===e-1;return a.jsx(i,{padding:o?"none":"normal",children:!o&&a.jsx(p,{})},-r)})},-n));export{b as T};
