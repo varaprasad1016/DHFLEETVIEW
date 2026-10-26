@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Infomac Solutions. All rights reserved.
+# Proprietary and confidential. See LICENSE.
 # Build the Tacho Bridge App (Windows installer) on GitHub Actions.
 #
 # The forked Tauri/Quasar app lives in tacho-bridge-app/ (this branch). A

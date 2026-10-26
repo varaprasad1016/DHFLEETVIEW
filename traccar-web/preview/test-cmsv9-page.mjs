@@ -1,4 +1,9 @@
 /*
+ * Copyright (c) 2026 Infomac Solutions. All rights reserved.
+ * Proprietary and confidential. No licence is granted by access to this file.
+ * See LICENSE in the repository root.
+ */
+/*
  * CDP test for the CMSV9 video page against the real Traccar server + mock CMSV9.
  * Usage: CHROME=<chrome.exe> node preview/test-cmsv9-page.mjs
  */

@@ -1,0 +1,114 @@
+Copyright (c) 2026 INFOMAC SOLUTIONS. All rights reserved.
+
+PROPRIETARY AND CONFIDENTIAL
+
+
+0. WHAT THIS LICENCE COVERS
+
+   This repository is a derivative of Traccar, which is published by Anton
+   Tananaev under the Apache License 2.0. The Apache licence text is kept at
+   LICENSE.txt and continues to govern the Traccar code, whether unchanged or
+   modified here.
+
+   This notice covers the parts written for DH FleetView and owned by Infomac
+   Solutions: the tachograph and compliance work, the CNMS/CMSV9 video
+   integration, the vehicle and fleet pages written for this product, the
+   deployment and CI tooling, and the documentation under docs/.
+
+   Files carrying an Infomac Solutions copyright header are the Owner's. Files
+   without one are either Traccar's or another third party's, and are listed in
+   THIRD_PARTY_NOTICES.md. Where this notice and a third-party licence disagree
+   about a file, the third-party licence governs that file.
+
+1. OWNERSHIP
+
+   This software, including its source code, object code, documentation,
+   designs, data models and all associated materials (the "Software"), is the
+   proprietary and confidential property of Infomac Solutions (the "Owner").
+
+   The Software is licensed, never sold. All right, title and interest in and
+   to the Software, including all intellectual property rights, remain vested
+   in the Owner at all times.
+
+
+2. NO LICENCE GRANTED BY ACCESS
+
+   No licence, right or interest in the Software is granted by the provision
+   of, or access to, this repository or any copy of the Software.
+
+   Rights are granted only under a separate written agreement signed by the
+   Owner. Where such an agreement exists, it governs, and this notice is
+   subject to it.
+
+
+3. RESTRICTIONS
+
+   Except as expressly permitted by a written agreement signed by the Owner,
+   or as permitted by law notwithstanding this notice, no person may:
+
+   (a) copy, reproduce, publish, distribute or make the Software available to
+       any third party;
+
+   (b) modify, adapt, translate or create derivative works from the Software;
+
+   (c) reverse engineer, decompile or disassemble the Software, or otherwise
+       attempt to derive its source code, structure, algorithms or underlying
+       ideas, save to the extent such restriction is prohibited by applicable
+       law;
+
+   (d) sublicense, sell, rent, lease, assign or otherwise transfer the
+       Software or any rights in it;
+
+   (e) use the Software to provide a service to any third party, or to build
+       a competing product; or
+
+   (f) remove, obscure or alter this notice, any copyright notice, or any
+       other proprietary marking.
+
+
+4. CONFIDENTIALITY
+
+   The Software constitutes confidential information and trade secrets of the
+   Owner. Any person with access to it shall keep it confidential, use it only
+   as expressly authorised in writing, and disclose it to no one without the
+   Owner's prior written consent.
+
+
+5. THIRD-PARTY COMPONENTS
+
+   This repository may incorporate third-party components which remain the
+   property of their respective owners and are licensed under their own terms.
+   Those components are identified in THIRD_PARTY_NOTICES.md.
+
+   Nothing in this notice restricts, or purports to restrict, any right
+   granted under the licence applicable to such a component, and the Owner
+   claims no copyright in them.
+
+
+6. NO WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING WITHOUT LIMITATION THE IMPLIED WARRANTIES OF
+   SATISFACTORY QUALITY, MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+   NON-INFRINGEMENT. NOTHING IN THIS NOTICE EXCLUDES OR LIMITS LIABILITY FOR
+   DEATH OR PERSONAL INJURY CAUSED BY NEGLIGENCE, FOR FRAUD, OR FOR ANY OTHER
+   LIABILITY WHICH CANNOT LAWFULLY BE EXCLUDED OR LIMITED.
+
+
+7. ENFORCEMENT
+
+   Unauthorised use, copying or disclosure of the Software may give rise to
+   civil liability and criminal penalties, and will be pursued to the fullest
+   extent permitted by law.
+
+
+8. GOVERNING LAW
+
+   This notice, and any dispute or claim arising out of or in connection with
+   it (including non-contractual disputes or claims), is governed by and
+   construed in accordance with the law of England and Wales, and the parties
+   submit to the exclusive jurisdiction of the courts of England and Wales.
+
+
+                              Infomac Solutions
+                     hello@infomacsolutions.co.uk

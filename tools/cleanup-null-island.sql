@@ -1,3 +1,5 @@
+-- Copyright (c) 2026 Infomac Solutions. All rights reserved.
+-- Proprietary and confidential. See LICENSE.
 -- Removes the 0,0 positions written by TaskCnmsSync for terminals that have
 -- never reported to CNMS (BRP5G1 / 0442795034 since 2026-09-03).
 -- RUN ONLY WITH THE SERVER STOPPED. Back up data/database.mv.db first.

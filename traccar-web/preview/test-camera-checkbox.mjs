@@ -1,4 +1,9 @@
 /*
+ * Copyright (c) 2026 Infomac Solutions. All rights reserved.
+ * Proprietary and confidential. No licence is granted by access to this file.
+ * See LICENSE in the repository root.
+ */
+/*
  * Verify: device form shows "Camera device" checkbox -> sets cmsv9DeviceId,
  * and the video page + grid work end to end.
  * Usage: CHROME=<chrome.exe> node preview/test-camera-checkbox.mjs

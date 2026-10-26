@@ -1,3 +1,5 @@
+-- Copyright (c) 2026 Infomac Solutions. All rights reserved.
+-- Proprietary and confidential. See LICENSE.
 -- Add 3 CNMS-linked vehicles: name = registration, cmsv9DeviceId = the ID label.
 -- Granted to admin (user 2, admin@dhfleetview.co.uk). All admins see them anyway.
 INSERT INTO tc_devices (id, name, uniqueid, category, attributes, phone) VALUES

@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 Infomac Solutions. All rights reserved.
+ * Proprietary and confidential. No licence is granted by access to this file.
+ * See LICENSE in the repository root.
+ */
 // Drivers sign in on the normal login screen with their name (or driver ID) and
 // PIN, and land in the driver screens served by the tacho server. The session
 // keys match the ones the driver screens read (`drv:` prefix, JSON values).

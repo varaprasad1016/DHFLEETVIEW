@@ -1,4 +1,9 @@
 /*
+ * Copyright (c) 2026 Infomac Solutions. All rights reserved.
+ * Proprietary and confidential. No licence is granted by access to this file.
+ * See LICENSE in the repository root.
+ */
+/*
  * Tachograph data an FMC650 sends alongside its positions.
  *
  * The server stores IO elements it has no name for as position attributes

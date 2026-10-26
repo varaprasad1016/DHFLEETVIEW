@@ -1,4 +1,9 @@
 /*
+ * Copyright (c) 2026 Infomac Solutions. All rights reserved.
+ * Proprietary and confidential. No licence is granted by access to this file.
+ * See LICENSE in the repository root.
+ */
+/*
  * Copyright 2026 DH FleetView contributors
  */
 package org.traccar.tachograph;

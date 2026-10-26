@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 Infomac Solutions. All rights reserved.
+ * Proprietary and confidential. No licence is granted by access to this file.
+ * See LICENSE in the repository root.
+ */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Box, Chip, IconButton, Paper, Tooltip, Typography } from '@mui/material';
 import { alpha } from '@mui/material/styles';

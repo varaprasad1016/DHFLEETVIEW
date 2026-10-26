@@ -1,4 +1,9 @@
 /*
+ * Copyright (c) 2026 Infomac Solutions. All rights reserved.
+ * Proprietary and confidential. No licence is granted by access to this file.
+ * See LICENSE in the repository root.
+ */
+/*
  * Test the CMSV9 multi-camera grid view: all channels play at once.
  * Usage: CHROME=<chrome.exe> node preview/test-cmsv9-grid.mjs
  */

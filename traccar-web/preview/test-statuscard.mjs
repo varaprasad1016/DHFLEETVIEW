@@ -1,4 +1,9 @@
 /*
+ * Copyright (c) 2026 Infomac Solutions. All rights reserved.
+ * Proprietary and confidential. No licence is granted by access to this file.
+ * See LICENSE in the repository root.
+ */
+/*
  * Verify the StatusCard video button appears for a device with cmsv9DeviceId.
  * Usage: CHROME=<chrome.exe> node preview/test-statuscard.mjs
  */

@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 Infomac Solutions. All rights reserved.
+ * Proprietary and confidential. No licence is granted by access to this file.
+ * See LICENSE in the repository root.
+ */
 // Connects to the emulator WebView via CDP and reports what's rendered.
 // Usage: node check-webview.mjs <ws-url>
 const wsUrl = process.argv[2];

@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Infomac Solutions. All rights reserved.
+# Proprietary and confidential. See LICENSE.
 # Enforces that the Tacho Bridge App fork has NO flespi / MQTT association and
 # talks only to the DH FleetView server. Runs fast (grep only, no build) on every
 # change to the fork, so an upstream sync can never quietly reintroduce flespi.
