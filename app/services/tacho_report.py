@@ -25,6 +25,12 @@ from app.services.tacho_rules import (
 
 LOCAL = ZoneInfo("Europe/London")
 WORKING_TIME_RULES = {"wtd_break", "wtd_daily_break"}
+
+# Omissions in the record rather than breaches of a limit. Defined here, beside
+# the other rule family, because both the analysis and the report have to agree
+# on which findings these are - they were previously declared in the API layer,
+# which left the report unable to tell them apart without importing it.
+RECORD_KEEPING_RULES = ("country_start", "country_end", "card_withdrawal")
 DEFAULT_RULE = "HGV EU"
 
 
@@ -294,8 +300,17 @@ def build_report(parsed: dict, infringements: list[Infringement],
         }
         week["working_time_infringements"] = [
             as_dict(i) for i in in_week if i.rule in WORKING_TIME_RULES]
+        # Record keeping is reported apart from drivers' hours. Failing to
+        # enter a country code is an omission in the record, not a breach of a
+        # driving limit, and listing the two together overstates a driver's
+        # hours record to anyone reading the page quickly - including the
+        # driver being asked to sign it.
+        week["exceptions"] = [
+            as_dict(i) for i in in_week
+            if i.rule not in WORKING_TIME_RULES and i.rule in RECORD_KEEPING_RULES]
         week["infringements"] = [
-            as_dict(i) for i in in_week if i.rule not in WORKING_TIME_RULES]
+            as_dict(i) for i in in_week
+            if i.rule not in WORKING_TIME_RULES and i.rule not in RECORD_KEEPING_RULES]
         week["faults"] = [{
             "date": lo.day(e.start).isoformat(), "time": lo.clock(e.start),
             "kind": e.kind, "name": e.name, "registration": e.registration,

@@ -141,6 +141,7 @@
       <button data-t="calendar" class="on">Calendar</button>
       <button data-t="compliance">Download status</button>
       <button data-t="infringements">Infringements</button>
+      <button data-t="performance">Driver performance</button>
       <button data-t="timeline">Timeline</button>
       <button data-t="report">Weekly report</button>
       <button data-t="wtd">Working time</button>
@@ -159,7 +160,7 @@
   const api=(path,options)=>fetch(apiUrl(path),options);
   // ?tab=report opens straight on that view, so a menu item elsewhere in the
   // app can land on the report somebody asked for rather than on the calendar.
-  const TABS=['calendar','compliance','infringements','timeline','report','wtd','files'];
+  const TABS=['calendar','compliance','infringements','performance','timeline','report','wtd','files'];
   const wantedTab=new URLSearchParams(location.search).get('tab');
   let tab=TABS.includes(wantedTab)?wantedTab:'calendar';
   const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
@@ -293,19 +294,106 @@
     $('cw').onchange=()=>{ calWeeks=+$('cw').value; calEnd=$('ce').value; renderCalendar(); };
   }
 
+  // Band to the tag classes already in the sheet, so the colours here are the
+  // same ones the rest of the page uses for the same meaning.
+  const BAND_TAG={green:'compliant',amber:'due_soon',red:'overdue'};
+  const BAND_WORD={green:'Current',amber:'Due soon',red:'Overdue'};
+  // "Never" rather than a dash: a unit nobody has ever downloaded is the most
+  // serious row on the page and must not read as missing data.
+  const sinceCell=d=>d==null?'<b>Never</b>':d;
+
+  function bandCounts(s){
+    return `<span class="note">${s.total} total ·
+      <span style="color:var(--ok)">${s.green} current</span> ·
+      <span style="color:var(--warn)">${s.amber} due soon</span> ·
+      <span style="color:var(--bad)">${s.red} overdue</span></span>`;
+  }
+
   async function renderCompliance(){
-    const {data}=await jsonResponse(await api('/api/tacho/compliance',{cache:'no-store'}));
-    const c=data;
-    const tbl=(title,rows,unit)=>{
-      let h=`<div class="card"><h3 style="margin:0 0 8px">${title} <span class="note">(window ${unit} days)</span></h3>`;
-      if(!rows.length){ return h+'<div class="empty">Nothing to show.</div></div>'; }
-      h+='<table><tr><th>Ref</th><th>Last download</th><th>Days</th><th>Status</th></tr>';
-      rows.forEach(r=>{ h+=`<tr><td>${esc(r.label)}</td><td>${dd(r.last_download)}</td>
-        <td>${r.days_since==null?'—':r.days_since}</td>
-        <td><span class="tag ${r.status}">${r.status.replace('_',' ')}</span></td></tr>`; });
-      return h+'</table></div>';
-    };
-    $('view').innerHTML=tbl('Driver cards',c.drivers,c.windows.driver_days)+tbl('Vehicle units',c.vehicles,c.windows.vehicle_days);
+    const [veh,card]=await Promise.all([
+      jsonResponse(await api('/api/tacho/submission/vehicles',{cache:'no-store'})),
+      jsonResponse(await api('/api/tacho/submission/cards',{cache:'no-store'})),
+    ]);
+    if(!veh.response.ok){
+      $('view').innerHTML=`<div class="empty">${esc(errorText(veh.data,'Could not load download status.'))}</div>`;
+      return;
+    }
+    const v=veh.data, c=card.data;
+
+    let h=`<div class="card">
+      <h3 style="margin:0 0 4px">Vehicle units <a class="btn small" style="float:right"
+        href="${apiUrl('/api/tacho/submission/vehicles.pdf')}">Download PDF</a></h3>
+      <div style="margin-bottom:8px">${bandCounts(v.summary)}</div>`;
+    if(!v.rows.length){ h+='<div class="empty">No vehicles in this account.</div>'; }
+    else{
+      h+='<table><tr><th>Registration</th><th>Type</th><th>Situation</th><th>Depot</th>'
+       + '<th>Last download</th><th>Days since</th><th>Status</th></tr>';
+      v.rows.forEach(r=>{ h+=`<tr><td><b>${esc(r.registration)}</b></td><td>${esc(r.type)}</td>
+        <td>${esc(r.situation)}</td><td class="note">${esc(r.depot)}</td>
+        <td>${dd(r.last_download)}</td><td>${sinceCell(r.days_since_download)}</td>
+        <td><span class="tag ${BAND_TAG[r.band]}">${BAND_WORD[r.band]}</span></td></tr>`; });
+      h+='</table>';
+    }
+    h+='<div class="note" style="margin-top:8px">Vehicle units must be downloaded at least '
+     + 'every 90 days. Amber from 15 days, red from 57.</div></div>';
+
+    h+=`<div class="card">
+      <h3 style="margin:0 0 4px">Driver cards <a class="btn small" style="float:right"
+        href="${apiUrl('/api/tacho/submission/cards.pdf')}">Download PDF</a></h3>
+      <div style="margin-bottom:8px">${c.summary?bandCounts(c.summary):''}</div>`;
+    if(!c.rows||!c.rows.length){ h+='<div class="empty">No drivers in this account.</div>'; }
+    else{
+      h+='<table><tr><th>Name</th><th>Card number</th><th>Depot</th><th>Last activity</th>'
+       + '<th>Days since<br>activity</th><th>Last download</th><th>Days since</th><th>Status</th></tr>';
+      c.rows.forEach(r=>{ h+=`<tr><td><b>${esc(r.name)}</b></td><td class="note">${esc(r.card_number)}</td>
+        <td class="note">${esc(r.home_depot)}</td><td>${dd(r.last_activity)}</td>
+        <td>${r.days_since_activity==null?'—':r.days_since_activity}</td>
+        <td>${dd(r.last_download)}</td><td>${sinceCell(r.days_since_download)}</td>
+        <td><span class="tag ${BAND_TAG[r.band]}">${BAND_WORD[r.band]}</span></td></tr>`; });
+      h+='</table>';
+    }
+    h+='<div class="note" style="margin-top:8px">Driver cards must be downloaded at least '
+     + 'every 28 days. Amber from 15 days, red from 29. A long gap since the last '
+     + 'activity with a recent download is simply a driver who has not worked.</div></div>';
+
+    $('view').innerHTML=h;
+  }
+
+  async function renderPerformance(){
+    const {response,data}=await jsonResponse(
+      await api('/api/tacho/performance?outstanding_only=false',{cache:'no-store'}));
+    if(!response.ok){
+      $('view').innerHTML=`<div class="empty">${esc(errorText(data,'Could not load performance.'))}</div>`;
+      return;
+    }
+    const lvl=n=>n>=4?'var(--bad)':(n===3?'var(--warn)':'var(--mut)');
+    let h=`<div class="card">
+      <h3 style="margin:0 0 8px">Outstanding performance items
+        <a class="btn small" style="float:right"
+           href="${apiUrl('/api/tacho/performance.pdf')}">Download PDF</a></h3>`;
+    if(!data.rows.length){ h+='<div class="empty">No performance items on record.</div>'; }
+    else{
+      h+='<table><tr><th>Driver</th><th>Level</th><th>Points</th><th>Level down</th>'
+       + '<th>Total</th><th>Outstanding</th><th>Open</th><th>Accepted</th><th>Disputed</th>'
+       + '<th>Last debriefed</th><th>Oldest outstanding</th></tr>';
+      data.rows.forEach(r=>{ h+=`<tr><td><b>${esc(r.driver_ref)}</b></td>
+        <td style="color:${lvl(r.level)};font-weight:700">Level ${r.level}</td>
+        <td>${r.points}</td><td class="note">${r.level_down_applied?'Yes':'No'}</td>
+        <td>${r.total_items}</td><td><b>${r.items_outstanding}</b></td>
+        <td>${r.items_open}</td><td>${r.items_accepted}</td>
+        <td${r.items_disputed?' style="color:var(--warn);font-weight:700"':''}>${r.items_disputed}</td>
+        <td>${dd(r.last_debriefed_on)}</td><td>${dd(r.earliest_outstanding)}</td></tr>`; });
+      h+='</table>';
+    }
+    const s=data.scheme;
+    h+=`<div class="note" style="margin-top:8px">An item stays outstanding until it has been
+      debriefed <i>and</i> signed by the driver — the signature is the evidence.
+      Points: minor ${s.points.minor}, serious ${s.points.serious},
+      very serious ${s.points.very_serious}, counted over the last ${s.window_days} days.
+      A driver with no new item for ${s.level_down_days} days comes down one level.
+      These thresholds are policy, not regulation — set them to match your own
+      disciplinary scheme.</div></div>`;
+    $('view').innerHTML=h;
   }
 
   let sevFilter='all', driverFilter='all', vehicleFilter='all';
@@ -630,6 +718,43 @@
     $('rbody').className=''; $('rbody').innerHTML=b||'<div class="empty">Nothing in this period.</div>';
   }
   let wtdWeeks=26, wtdRef=17, wtdOpen=null;
+  // Every driver's working time across the reference period, one row each.
+  // The per-driver view answers "is this driver over?"; this answers "who is
+  // heading over?", which is the question a transport manager acts on.
+  async function renderWtdGrid(){
+    const grid=$('wgrid'), link=$('wRefPdf');
+    if(!grid)return;
+    if(link)link.href=apiUrl(`/api/tacho/wtd/reference.pdf?reference_weeks=${wtdRef}`);
+    const {response,data}=await jsonResponse(
+      await api(`/api/tacho/wtd/reference?reference_weeks=${wtdRef}`,{cache:'no-store'}));
+    if(!response.ok){ grid.className='empty'; grid.textContent=errorText(data,'Could not load the reference period.'); return; }
+    if(!data.drivers.length){ grid.className='empty'; grid.textContent='No working time recorded in this period.'; return; }
+
+    const weekLimit=data.limits.week_minutes, avgLimit=data.limits.average_minutes;
+    const dec=m=>(m/60).toFixed(2);
+    let h='<div style="overflow-x:auto"><table><tr><th>Driver</th>';
+    data.week_starts.forEach((ws,i)=>{ h+=`<th style="text-align:center">Wk${i+1}<br><span class="note">${dd(ws).slice(0,5)}</span></th>`; });
+    h+='<th>Weeks<br>worked</th><th>Average</th><th>Max</th></tr>';
+    data.drivers.forEach(d=>{
+      h+=`<tr><td><b>${esc(d.driver_ref)}</b></td>`;
+      d.cells.forEach(m=>{
+        // A blank week is a dash, never 0.00 — it is left out of the average
+        // entirely, so a zero would claim it had pulled the average down.
+        if(!m){ h+='<td class="note" style="text-align:center">–</td>'; return; }
+        const over=m>weekLimit;
+        h+=`<td style="text-align:center${over?';color:var(--bad);font-weight:700':''}">${dec(m)}</td>`;
+      });
+      const a=d.average_minutes;
+      h+=`<td style="text-align:center">${d.weeks_worked}</td>`
+       + `<td style="text-align:center${d.over_average?';color:var(--bad);font-weight:700':''}">${a==null?'–':dec(a)}</td>`
+       + `<td style="text-align:center">${d.max_minutes==null?'–':dec(d.max_minutes)}</td></tr>`;
+    });
+    h+='</table></div><div class="note" style="margin-top:8px">Hours are working time '
+     + '(driving and other work); availability is excluded. Red is a week over '
+     + `${weekLimit/60} hours, or an average over ${avgLimit/60}.</div>`;
+    grid.className=''; grid.innerHTML=h;
+  }
+
   async function renderWtd(){
     const monthAgo=new Date(Date.now()-30*864e5).toISOString().slice(0,10), todayIso=new Date().toISOString().slice(0,10);
     $('view').innerHTML=`<div class="card"><div class="row report-controls" style="margin-bottom:10px">
@@ -642,7 +767,11 @@
         <div><label>to</label><input type="date" id="hTo" value="${todayIso}"></div>
         <div style="align-self:flex-end"><a class="btn small" id="hCsv" style="text-decoration:none">Download daily hours (CSV)</a></div>
         <div class="note" style="align-self:center">For payroll: card hours per day with app shift times.</div>
-      </div><div id="wbody" class="empty">Loading…</div></div>`;
+      </div><div id="wbody" class="empty">Loading…</div></div>
+      <div class="card"><h3 style="margin:0 0 8px">Reference period summary
+          <a class="btn small" id="wRefPdf" style="float:right;text-decoration:none">Download PDF</a></h3>
+        <div id="wgrid" class="empty">Loading…</div></div>`;
+    renderWtdGrid();
     const csvLink=()=>{ $('hCsv').href=apiUrl('/api/tacho/hours.csv?start='+$('hFrom').value+'&end='+$('hTo').value); };
     $('hFrom').onchange=csvLink; $('hTo').onchange=csvLink; csvLink();
     $('wWeeks').onchange=e=>{ wtdWeeks=Number(e.target.value); renderWtd(); };
@@ -673,7 +802,7 @@
     $('wbody').className=''; $('wbody').innerHTML=b+'</table></div>';
     $('wbody').querySelectorAll('[data-w]').forEach(btn=>btn.onclick=()=>{ const ref=data.drivers[Number(btn.dataset.w)].driver_ref; wtdOpen=wtdOpen===ref?null:ref; renderWtd(); });
   }
-  function render(){ if(tab==='calendar')renderCalendar(); else if(tab==='compliance')renderCompliance(); else if(tab==='wtd')renderWtd(); else if(tab==='infringements')renderInfringements(); else if(tab==='timeline')renderTimeline(); else if(tab==='report')renderReport(); else renderFiles(); }
+  function render(){ if(tab==='calendar')renderCalendar(); else if(tab==='compliance')renderCompliance(); else if(tab==='wtd')renderWtd(); else if(tab==='infringements')renderInfringements(); else if(tab==='performance')renderPerformance(); else if(tab==='timeline')renderTimeline(); else if(tab==='report')renderReport(); else renderFiles(); }
   document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
     tab=b.dataset.t; document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); render();
   });

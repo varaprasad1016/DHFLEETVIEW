@@ -23,9 +23,10 @@ from app.models.tacho import TachoActivity
 from app.models.operator import Operator
 from app.models.tacho import Infringement, TachoFile
 from app.services import (archive, auth, ddd_go, ddd_parser, ddd_traconiq, driver_calendar,
-                          driver_reports,
+                          driver_reports, fleet_pdf,
                           infringement_reviews, mailer,
-                          media_store, modules, operators, report_settings,
+                          media_store, modules, operators, performance, report_settings,
+                          submission,
                           tacho_compliance, tacho_pdf, tacho_report)
 from app.services import wtd as wtd_service
 from app.models.infringement_review import InfringementReview
@@ -283,7 +284,7 @@ async def _persist_infringements(session: AsyncSession, driver_ref: str, found: 
 # never be asked about them. Keeping the two families apart is what lets the
 # combined analysis and the card's own analysis both run without one deleting
 # the other's findings.
-RECORD_KEEPING_RULES = ("country_start", "country_end", "card_withdrawal")
+RECORD_KEEPING_RULES = tacho_report.RECORD_KEEPING_RULES
 
 
 async def _clear_open(session: AsyncSession, driver_ref: str,
@@ -1073,6 +1074,156 @@ async def report_pdf(file_id: uuid.UUID | None = None, driver_ref: str | None = 
     return Response(
         content=tacho_pdf.render(data), media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+async def _operator_label(session: AsyncSession, scope: TachoScope,
+                          principal: Principal) -> str | None:
+    """The name to head a fleet report with.
+
+    A fleet-level report is the operator's document, so it is headed with the
+    operator's name rather than the signed-in user's. Falls back to nothing
+    rather than guessing - an unheaded report is honest, a wrongly headed one
+    is evidence against the wrong company.
+    """
+    names = {f.company_name for f in (await session.execute(
+        select(TachoFile).where(scope.files(), TachoFile.company_name.is_not(None))
+        .limit(50))).scalars().all() if f.company_name}
+    return names.pop() if len(names) == 1 else None
+
+
+@router.get("/submission/vehicles")
+async def vu_submission(session: AsyncSession = Depends(get_session),
+                        scope: TachoScope = Depends(tacho_scope),
+                        principal: Principal = Depends(require_manager),
+                        _license: None = Depends(require_license),
+                        _module: None = Depends(require_module("tacho"))) -> dict:
+    """Days since each vehicle unit was last downloaded, worst first."""
+    company = await _operator_label(session, scope, principal)
+    rows = await submission.vu_submission(session, scope, operator_name=company)
+    return {"company": company, "rows": rows, "summary": submission.summarise(rows),
+            "bands": {"green": submission.VU_BANDS[0], "amber": submission.VU_BANDS[1]}}
+
+
+@router.get("/submission/vehicles.pdf")
+async def vu_submission_pdf(session: AsyncSession = Depends(get_session),
+                            scope: TachoScope = Depends(tacho_scope),
+                            principal: Principal = Depends(require_manager),
+                            _license: None = Depends(require_license),
+                            _module: None = Depends(require_module("tacho"))) -> Response:
+    company = await _operator_label(session, scope, principal)
+    rows = await submission.vu_submission(session, scope, operator_name=company)
+    return Response(
+        content=fleet_pdf.render_vu_submission(rows, company=company),
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="VU_Download_Submission.pdf"'})
+
+
+@router.get("/submission/cards")
+async def card_submission(session: AsyncSession = Depends(get_session),
+                          scope: TachoScope = Depends(tacho_scope),
+                          principal: Principal = Depends(require_manager),
+                          _license: None = Depends(require_license),
+                          _module: None = Depends(require_module("tacho"))) -> dict:
+    """Days since each driver card was last downloaded, and last worked on."""
+    company = await _operator_label(session, scope, principal)
+    rows = await submission.card_submission(session, scope, operator_name=company)
+    return {"company": company, "rows": rows, "summary": submission.summarise(rows),
+            "bands": {"green": submission.CARD_BANDS[0], "amber": submission.CARD_BANDS[1]}}
+
+
+@router.get("/submission/cards.pdf")
+async def card_submission_pdf(session: AsyncSession = Depends(get_session),
+                              scope: TachoScope = Depends(tacho_scope),
+                              principal: Principal = Depends(require_manager),
+                              _license: None = Depends(require_license),
+                              _module: None = Depends(require_module("tacho"))) -> Response:
+    company = await _operator_label(session, scope, principal)
+    rows = await submission.card_submission(session, scope, operator_name=company)
+    return Response(
+        content=fleet_pdf.render_card_submission(rows, company=company),
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="Driver_Card_Submission.pdf"'})
+
+
+@router.get("/performance")
+async def performance_summary(outstanding_only: bool = True,
+                              session: AsyncSession = Depends(get_session),
+                              scope: TachoScope = Depends(tacho_scope),
+                              principal: Principal = Depends(require_manager),
+                              _license: None = Depends(require_license),
+                              _module: None = Depends(require_module("tacho"))) -> dict:
+    """Driver performance levels and what is still outstanding against each."""
+    company = await _operator_label(session, scope, principal)
+    rows = await performance.summary(session, scope, outstanding_only=outstanding_only,
+                                     operator_name=company)
+    scheme = performance.Scheme()
+    return {"company": company, "rows": rows,
+            "scheme": {"points": scheme.points, "window_days": scheme.window_days,
+                       "level_down_days": scheme.level_down_days,
+                       "levels": [{"level": lv, "from_points": pts} for lv, pts in scheme.levels]}}
+
+
+@router.get("/performance.pdf")
+async def performance_summary_pdf(outstanding_only: bool = True,
+                                  session: AsyncSession = Depends(get_session),
+                                  scope: TachoScope = Depends(tacho_scope),
+                                  principal: Principal = Depends(require_manager),
+                                  _license: None = Depends(require_license),
+                                  _module: None = Depends(require_module("tacho"))) -> Response:
+    company = await _operator_label(session, scope, principal)
+    rows = await performance.summary(session, scope, outstanding_only=outstanding_only,
+                                     operator_name=company)
+    return Response(
+        content=fleet_pdf.render_performance(rows, company=company),
+        media_type="application/pdf",
+        headers={"Content-Disposition":
+                 'attachment; filename="Outstanding_Performance_Item_Summary.pdf"'})
+
+
+async def _wtd_grid(session: AsyncSession, scope: TachoScope,
+                    reference_weeks: int) -> dict:
+    from app.services import wtd
+
+    today = datetime.now(wtd.LONDON).date()
+    since_day = wtd.week_start(today) - timedelta(weeks=reference_weeks + 1)
+    since = datetime.combine(since_day, datetime.min.time(), timezone.utc)
+    spans = await _card_spans(session, scope, since, None)
+    return wtd.reference_grid(spans, reference_weeks=reference_weeks, today=today)
+
+
+@router.get("/wtd/reference")
+async def wtd_reference(reference_weeks: int = 17,
+                        session: AsyncSession = Depends(get_session),
+                        scope: TachoScope = Depends(tacho_scope),
+                        principal: Principal = Depends(require_manager),
+                        _license: None = Depends(require_license),
+                        _module: None = Depends(require_module("tacho"))) -> dict:
+    """Every driver's working time across the reference period, as a grid."""
+    if reference_weeks not in (17, 26):
+        raise HTTPException(status_code=400,
+                            detail="Choose a 17 or 26 week reference period.")
+    grid = await _wtd_grid(session, scope, reference_weeks)
+    grid["company"] = await _operator_label(session, scope, principal)
+    return grid
+
+
+@router.get("/wtd/reference.pdf")
+async def wtd_reference_pdf(reference_weeks: int = 17,
+                            session: AsyncSession = Depends(get_session),
+                            scope: TachoScope = Depends(tacho_scope),
+                            principal: Principal = Depends(require_manager),
+                            _license: None = Depends(require_license),
+                            _module: None = Depends(require_module("tacho"))) -> Response:
+    if reference_weeks not in (17, 26):
+        raise HTTPException(status_code=400,
+                            detail="Choose a 17 or 26 week reference period.")
+    grid = await _wtd_grid(session, scope, reference_weeks)
+    company = await _operator_label(session, scope, principal)
+    return Response(
+        content=fleet_pdf.render_wtd_grid(grid, company=company),
+        media_type="application/pdf",
+        headers={"Content-Disposition":
+                 'attachment; filename="WTD_Reference_Period_Summary.pdf"'})
 
 
 @router.post("/report/send")

@@ -46,6 +46,10 @@ COLUMNS = [
 ]
 FINDING_WIDTHS = [56, 32, 58, 616]
 
+# Derived rather than written down twice, so inserting a column cannot put the
+# fortnight figure back under the wrong heading.
+FORTNIGHT_COLUMN = next(i for i, (label, _) in enumerate(COLUMNS) if label.startswith("Fort"))
+
 
 def _styles() -> dict:
     base = getSampleStyleSheet()["Normal"]
@@ -77,7 +81,11 @@ def _day_cells(row: dict) -> list[str]:
         return [_fmt_date(row["date"]), "No data"] + [""] * (len(COLUMNS) - 2)
     if row["rest_day"]:
         cells = [_fmt_date(row["date"]), "Rest Day"] + [""] * (len(COLUMNS) - 2)
-        cells[15] = hhmm(row["fortnight_drive"])
+        # Index 16, not 15. The fortnight figure carries across rest days - it
+        # is the whole point of showing it on one - and 15 is "WTD active",
+        # which on a rest day is zero. Writing it there printed a rest day as
+        # though the driver had worked the fortnight's driving in it.
+        cells[FORTNIGHT_COLUMN] = hhmm(row["fortnight_drive"])
         return cells
     return [
         _fmt_date(row["date"]), row["registration"],
@@ -398,6 +406,9 @@ def render(report: dict, generated: datetime | None = None) -> bytes:
         story += _findings("Working time infringements",
                            week["working_time_infringements"], st, "infringement")
         story += _findings("Infringements", week["infringements"], st, "infringement")
+        # Record-keeping omissions, kept under their own heading so a driver is
+        # not asked to sign for them as though they were driving offences.
+        story += _findings("Exceptions", week.get("exceptions") or [], st, "infringement")
         story += _findings("Faults", week["faults"], st, "fault")
         story.append(Spacer(1, 7))
         story.append(Paragraph(

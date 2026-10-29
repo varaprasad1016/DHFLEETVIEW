@@ -137,6 +137,57 @@ def report(spans, weeks: int = 26, reference_weeks: int = 17, today: date | None
     }
 
 
+def reference_grid(by_driver: dict[str, list], reference_weeks: int = 17,
+                   today: date | None = None) -> dict:
+    """The reference period on one page: drivers down, weeks across.
+
+    The per-driver report answers "is this driver over?". An operator running a
+    workforce needs the other question - "who is heading over, and when?" - and
+    that is only legible as a grid, because the 48-hour average moves as weeks
+    drop off the back of the period.
+
+    Cells are working minutes, or None for a week the card shows no work in.
+    The distinction matters: a blank week is left out of the average entirely
+    (leave or sickness is not a zero-hour week), so showing it as 0 would both
+    misstate the week and imply it had pulled the average down.
+    """
+    today = today or datetime.now(LONDON).date()
+    last = week_start(today)
+    starts = [last - timedelta(weeks=i) for i in range(reference_weeks - 1, -1, -1)]
+
+    drivers = []
+    for ref, spans in sorted(by_driver.items()):
+        weekly: dict[date, int] = {}
+        for day, d in daily(spans).items():
+            working = d["drive"] + d["work"]
+            if working:
+                ws = week_start(day)
+                weekly[ws] = weekly.get(ws, 0) + working
+
+        cells = [weekly.get(ws) for ws in starts]
+        worked = [c for c in cells if c]
+        average = round(sum(worked) / len(worked)) if worked else None
+        drivers.append({
+            "driver_ref": ref,
+            "cells": cells,
+            "weeks_worked": len(worked),
+            "total_minutes": sum(worked),
+            "average_minutes": average,
+            "max_minutes": max(worked, default=None),
+            "over_average": average is not None and average > AVERAGE_LIMIT,
+            "weeks_over_60": sum(1 for c in worked if c > WEEK_LIMIT),
+        })
+
+    return {
+        "reference_weeks": reference_weeks,
+        "week_starts": [ws.isoformat() for ws in starts],
+        "period_start": starts[0].isoformat() if starts else None,
+        "period_end": (last + timedelta(days=6)).isoformat(),
+        "drivers": drivers,
+        "limits": {"week_minutes": WEEK_LIMIT, "average_minutes": AVERAGE_LIMIT},
+    }
+
+
 def daily_rows(spans, start: date, end: date) -> list[dict]:
     """One row per day with card activity: for payroll and working time records."""
     rows = []
