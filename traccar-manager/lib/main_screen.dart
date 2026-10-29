@@ -654,19 +654,40 @@ class _MainScreenState extends State<MainScreen> {
                 _launchAuthorizeRequest(uri);
                 return NavigationActionPolicy.CANCEL;
               }
-              if (uri.authority != Uri.parse(_getUrl()).authority) {
-                try {
-                  launchUrl(uri, mode: LaunchMode.externalApplication);
-                } catch (e) {
-                  developer.log('Failed to launch url', error: e);
-                }
+              if (uri.scheme == 'blob' || uri.scheme == 'data') {
+                // Blob/data downloads are delivered through the injected bridge.
                 return NavigationActionPolicy.CANCEL;
               }
               if (_isDownloadable(uri)) {
                 await _downloadFile(uri);
                 return NavigationActionPolicy.CANCEL;
               }
+              if (uri.authority != Uri.parse(_getUrl()).authority) {
+                try {
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                } catch (e) {
+                  developer.log('Failed to launch url', error: e);
+                }
+                return NavigationActionPolicy.CANCEL;
+              }
               return NavigationActionPolicy.ALLOW;
+            },
+            onDownloadStartRequest: (controller, downloadStartRequest) async {
+              final target = downloadStartRequest.url;
+              await _downloadFile(
+                Uri.parse(target.toString()),
+                contentDisposition: downloadStartRequest.contentDisposition,
+              );
+            },
+            onCreateWindow: (controller, createWindowAction) async {
+              final target = createWindowAction.request.url;
+              if (target == null) return false;
+              final uri = Uri.parse(target.toString());
+              if (_isDownloadable(uri)) {
+                await _downloadFile(uri);
+                return NavigationActionPolicy.CANCEL;
+              }
+              return false;
             },
             onDownloadStartRequest: (controller, request) async {
               final uri = Uri.parse(request.url.toString());
