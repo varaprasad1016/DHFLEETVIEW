@@ -32,7 +32,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -55,9 +54,6 @@ public class Cmsv9Manager {
     private static final Logger LOG = LoggerFactory.getLogger(Cmsv9Manager.class);
     private static final Duration TIMEOUT = Duration.ofSeconds(30);
     private static final String WS_KEY = "J04Tb9pcLF7y6QrFmgTJLeVv33YbMhqW";
-
-    /** Orders whose argument is a message object rather than a flat string. */
-    private static final Set<String> TEXT_ORDERS = Set.of("8300");
 
     private final Config config;
     private final ObjectMapper objectMapper;
@@ -233,35 +229,6 @@ public class Cmsv9Manager {
         body.put("endTime", endTime);
 
         return signedPost("/ajax/cmsapi/queryTerminalFileList", body);
-    }
-
-    /**
-     * Whether CNMS currently sees this camera, or null when it cannot say.
-     *
-     * <p>Null and false are different answers and are kept apart on purpose: a
-     * caller should refuse to send a live order to a camera known to be offline,
-     * but should not refuse merely because CNMS was unreachable for a moment.
-     *
-     * <p>carstatus 2 is what the portal itself renders as offline. Ignition is
-     * not a connectivity signal, so a parked vehicle still counts as online -
-     * the same rule {@code TaskCnmsSync} applies.
-     */
-    public Boolean isDeviceOnline(String terminal) {
-        try {
-            JsonNode response = getGpsStatus(terminal);
-            if (response.path("errCode").asInt(-1) != 0) {
-                return null;
-            }
-            JsonNode list = response.path("resultData");
-            if (!list.isArray() || list.isEmpty()) {
-                return null;
-            }
-            int carstatus = list.get(0).path("carstatus").asInt(0);
-            return carstatus > 0 && carstatus != 2;
-        } catch (Exception e) {
-            LOG.warn("Could not read online status for {}: {}", terminal, e.getMessage());
-            return null;
-        }
     }
 
     public JsonNode getGpsStatus(String terminal) throws Exception {
@@ -694,71 +661,6 @@ public class Cmsv9Manager {
         };
     }
 
-    /**
-     * Plays a recorded segment and writes a file that phones and messaging
-     * apps will actually accept.
-     *
-     * The streaming version above passes the camera's H.265 through untouched
-     * into a fragmented MP4. That plays in VLC and on a PC, but WhatsApp and
-     * the like refuse it on two counts: they want H.264, and a fragmented file
-     * has no index at the front for them to read. So here the video is
-     * re-encoded to H.264 in yuv420p and the index is moved to the front with
-     * faststart.
-     *
-     * Faststart needs to seek in its output, which a pipe cannot do, so this
-     * one goes to a temporary file and is served once ffmpeg has finished.
-     * That means waiting for the whole clip - but the camera plays it back off
-     * its card in real time anyway, so the wait is the clip's own length
-     * either way. The file deletes itself when the download closes.
-     */
-    public InputStream openPlaybackShareableMp4(
-            String terminal, int channel, String startTime, String endTime) throws Exception {
-        InputStream flv = openPlaybackStream(terminal, channel, startTime, endTime);
-        if (flv == null) {
-            return null;
-        }
-        java.nio.file.Path temp = java.nio.file.Files.createTempFile("dhfv-clip-", ".mp4");
-        ProcessBuilder pb = new ProcessBuilder(
-                ffmpegPath(),
-                "-hide_banner", "-loglevel", "error",
-                "-i", "pipe:0",
-                // H.264 Main in yuv420p is the combination every phone decodes.
-                "-c:v", "libx264", "-profile:v", "main", "-level", "4.0",
-                "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", "23",
-                "-c:a", "aac", "-b:a", "96k",
-                // The index at the front, and no fragments.
-                "-movflags", "+faststart",
-                "-f", "mp4",
-                "-y", temp.toString());
-        pb.redirectError(ProcessBuilder.Redirect.DISCARD);
-        Process process = pb.start();
-        Thread feeder = new Thread(() -> {
-            try (InputStream in = flv; java.io.OutputStream out = process.getOutputStream()) {
-                in.transferTo(out);
-            } catch (java.io.IOException e) {
-                // downstream closed or playback ended
-            }
-        }, "cmsv9-ffmpeg-share");
-        feeder.setDaemon(true);
-        feeder.start();
-
-        int exit = process.waitFor();
-        if (exit != 0 || !java.nio.file.Files.isRegularFile(temp)
-                || java.nio.file.Files.size(temp) == 0) {
-            LOG.error("shareable clip conversion failed for {} ch{} (ffmpeg exit {})",
-                    terminal, channel, exit);
-            java.nio.file.Files.deleteIfExists(temp);
-            return null;
-        }
-        return new java.io.FilterInputStream(java.nio.file.Files.newInputStream(temp)) {
-            @Override
-            public void close() throws java.io.IOException {
-                super.close();
-                java.nio.file.Files.deleteIfExists(temp);
-            }
-        };
-    }
-
     private InputStream openUrl(String url) throws Exception {
         HttpRequest request = HttpRequest.newBuilder(URI.create(url))
                 .timeout(Duration.ofSeconds(15))
@@ -796,39 +698,6 @@ public class Cmsv9Manager {
 
     public boolean wsStop(String terminal, int channel) {
         return wsSendOrderOnce(terminal, "9102", channel + ",0,0,0");
-    }
-
-    /**
-     * Ask a camera to open the tunnel that exposes its own settings page.
-     *
-     * <p>The page is served by the camera itself, not by us, and it is only
-     * reachable while the camera holds a tunnel open to the FRP server. The
-     * camera opens one when it is told where to dial, which is what this order
-     * carries. Nothing happens until then: requests for the address simply meet
-     * "no such domain" at the proxy, which is a 404 to whoever asked.
-     *
-     * <p>The terminal is padded to twelve digits here because that is the form
-     * the platform's own client uses for this order, and a camera addressed any
-     * other way never sees it.
-     */
-    public boolean wsOpenDeviceWeb(String terminal) {
-        String host = require(Keys.CMSV9_FRP_HOST);
-        String token = require(Keys.CMSV9_FRP_TOKEN);
-        int port = config.getInteger(Keys.CMSV9_FRP_PORT);
-        String padded = terminal.length() >= 12 ? terminal
-                : "0".repeat(12 - terminal.length()) + terminal;
-        // The token is a shared secret; the order is logged by number only.
-        LOG.info("WS device-web tunnel requested for {} via {}:{}", padded, host, port);
-        return wsSendOrderOnce(padded, "8300", "#FRPSET:" + host + "," + port + "," + token);
-    }
-
-    /**
-     * Where that page appears once the tunnel is up. The camera registers its
-     * unpadded id as the subdomain, so this is not the padded form above.
-     */
-    public String deviceWebUrl(String terminal) {
-        return "http://" + terminal + "." + require(Keys.CMSV9_FRP_WEB_HOST)
-                + ":" + config.getInteger(Keys.CMSV9_FRP_WEB_PORT);
     }
 
     public boolean wsPlayback(String terminal, int channel, String startTime, String endTime) {
@@ -994,20 +863,6 @@ public class Cmsv9Manager {
         }
     }
 
-    /**
-     * The tunnel order carries a shared secret as its last field. The rest of
-     * the order is worth having in the log; the secret is not.
-     */
-    private static String redactOrder(String content) {
-        if (content != null && content.startsWith("#FRPSET:")) {
-            int last = content.lastIndexOf(',');
-            if (last > 0) {
-                return content.substring(0, last + 1) + "<token>";
-            }
-        }
-        return content;
-    }
-
     private void sendWsOrderMsg(WebSocket webSocket, String orderId,
             String terminal, String order, String content) {
         try {
@@ -1025,23 +880,14 @@ public class Cmsv9Manager {
             ObjectNode c = objectMapper.createObjectNode();
             c.put("deviceid", terminal);
             c.put("order", order);
-            // Most orders take their arguments as one comma separated string.
-            // The text-to-terminal orders take an object instead, and a camera
-            // ignores the message entirely if it arrives in the flat form.
-            if (TEXT_ORDERS.contains(order)) {
-                ObjectNode inner = objectMapper.createObjectNode();
-                inner.put("msg", content);
-                c.set("content", inner);
-            } else {
-                c.put("content", content);
-            }
+            c.put("content", content);
             msg.set("content", c);
             msg.put("username", username);
             msg.put("time", time);
             msg.put("sign", sign);
 
             String json = objectMapper.writeValueAsString(msg);
-            LOG.info("WS send order {} to {}: {}", order, terminal, redactOrder(content));
+            LOG.info("WS send order {} to {}: {}", order, terminal, content);
             webSocket.sendText(json, true);
         } catch (Exception e) {
             LOG.error("WS order send failed: {}", e.getMessage());

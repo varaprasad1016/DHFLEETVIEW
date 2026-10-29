@@ -108,7 +108,6 @@ const DvrCommandsPage = () => {
 
   const [commands, setCommands] = useState([]);
   const [gatewayNumber, setGatewayNumber] = useState('');
-  const [portalWarning, setPortalWarning] = useState('');
   const [selected, setSelected] = useState({});
   // Arriving straight from a vehicle that was just added, with it already chosen.
   const [deviceId, setDeviceId] = useState(
@@ -131,7 +130,6 @@ const DvrCommandsPage = () => {
       await loadReplies();
       setCommands(saved.commands || []);
       setGatewayNumber(saved.gateway_number || '');
-      setPortalWarning(saved.portal_warning || '');
       setSelected(Object.fromEntries((saved.commands || []).map((c) => [c.id, true])));
       setMessages(history.messages || []);
       setStalled(history.nothing_is_collecting ? history.waiting_since : null);
@@ -269,10 +267,6 @@ const DvrCommandsPage = () => {
             {notice}
           </Alert>
         )}
-        {/* The portal answering "Success" is not the same as a text leaving
-            their network, and on the test endpoint it never does. Said here
-            because this is the screen with the Send button on it. */}
-        {portalWarning && <Alert severity="warning">{portalWarning}</Alert>}
         {stalled && (
           <Alert severity="warning">
             {`Nothing is sending these. Messages have been waiting since ${dayjs(stalled).format('D MMM HH:mm')} — queueing them here is not the same as sending them, and they will all go out at once whenever a sender is connected.`}

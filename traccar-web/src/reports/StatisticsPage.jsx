@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTheme } from '@mui/material/styles';
 import { Table, TableRow, TableCell, TableHead, TableBody } from '@mui/material';
 import { formatTime } from '../common/util/formatter';
 import { useTranslation } from '../common/components/LocalizationProvider';
@@ -11,6 +12,7 @@ import { useCatchCallback } from '../reactHelper';
 import useReportStyles from './common/useReportStyles';
 import TableShimmer from '../common/components/TableShimmer';
 import fetchOrThrow from '../common/util/fetchOrThrow';
+import exportExcel from '../common/util/exportExcel';
 
 const columnsArray = [
   ['captureTime', 'statisticsCaptureTime'],
@@ -28,6 +30,7 @@ const columnsMap = new Map(columnsArray);
 
 const StatisticsPage = () => {
   const { classes } = useReportStyles();
+  const theme = useTheme();
   const t = useTranslation();
 
   const [columns, setColumns] = usePersistedState('statisticsColumns', [
@@ -50,10 +53,17 @@ const StatisticsPage = () => {
     }
   }, []);
 
+  const onExport = async ({ format = 'xlsx' } = {}) => {
+    const rows = items.map((item) => Object.fromEntries(columns.map((key) => [
+      t(columnsMap.get(key)), key === 'captureTime' ? formatTime(item[key], 'date') : item[key],
+    ])));
+    await exportExcel(t('statisticsTitle'), 'statistics.xlsx', new Map([[t('statisticsTitle'), rows]]), theme, format);
+  };
+
   return (
     <PageLayout menu={<ReportsMenu />} breadcrumbs={['reportTitle', 'statisticsTitle']}>
       <div className={classes.header}>
-        <ReportFilter onShow={onShow} deviceType="none" loading={loading}>
+        <ReportFilter onShow={onShow} onExport={onExport} deviceType="none" loading={loading} formats={['xlsx', 'pdf']}>
           <ColumnSelect columns={columns} setColumns={setColumns} columnsArray={columnsArray} />
         </ReportFilter>
       </div>

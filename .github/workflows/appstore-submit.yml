@@ -1,0 +1,27 @@
+# Submit to App Store review, or push text metadata, using the API key.
+# Lane "metadata" uploads category/description/keywords/URLs (no submission).
+# Lane "submit" submits the latest build (App Store Connect listing must be complete).
+
+name: Submit to App Store
+
+on:
+  workflow_dispatch:
+    inputs:
+      lane:
+        description: "fastlane lane: submit or metadata"
+        required: false
+        default: "submit"
+
+jobs:
+  run:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run fastlane ${{ inputs.lane }}
+        working-directory: traccar-manager
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          APP_STORE_CONNECT_KEY: ${{ secrets.APP_STORE_CONNECT_KEY }}
+        run: fastlane ${{ inputs.lane }}

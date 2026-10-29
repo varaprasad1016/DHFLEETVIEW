@@ -154,24 +154,13 @@ public class Cmsv9Resource extends BaseResource {
             @PathParam("deviceId") long deviceId,
             @PathParam("channel") int channel,
             @QueryParam("startTime") String startTime,
-            @QueryParam("endTime") String endTime,
-            @QueryParam("format") String format) throws Exception {
+            @QueryParam("endTime") String endTime) throws Exception {
         String terminal = getCmsDeviceId(deviceId);
         int cnmsChannel = channel + 1;
         boolean mp4 = cmsv9Manager.isFfmpegAvailable();
-        // "share" re-encodes to H.264 with the index at the front, which is
-        // what a phone or WhatsApp will accept; the default streams the
-        // camera's own H.265 straight through, which starts instantly and is
-        // what the review player scrubs through.
-        boolean shareable = mp4 && "share".equalsIgnoreCase(format);
-        InputStream input;
-        if (shareable) {
-            input = cmsv9Manager.openPlaybackShareableMp4(terminal, cnmsChannel, startTime, endTime);
-        } else if (mp4) {
-            input = cmsv9Manager.openPlaybackMp4(terminal, cnmsChannel, startTime, endTime);
-        } else {
-            input = cmsv9Manager.openPlaybackStream(terminal, cnmsChannel, startTime, endTime);
-        }
+        InputStream input = mp4
+                ? cmsv9Manager.openPlaybackMp4(terminal, cnmsChannel, startTime, endTime)
+                : cmsv9Manager.openPlaybackStream(terminal, cnmsChannel, startTime, endTime);
         if (input == null) {
             return Response.status(Response.Status.NOT_FOUND).build();
         }
@@ -198,46 +187,6 @@ public class Cmsv9Resource extends BaseResource {
                 .build();
     }
 
-
-    /**
-     * Wakes a camera's own settings page and says where it will appear.
-     *
-     * <p>Two steps, and the first one is the one that matters: the camera is
-     * told to dial out and open a tunnel, and only then does the address mean
-     * anything. Opening the address on its own - which is what this used to do -
-     * reaches a proxy with nothing registered behind it and answers 404.
-     *
-     * <p>The camera takes some seconds to bring the tunnel up, so the caller is
-     * told how long to wait rather than being left to guess. It must be online:
-     * this is a live order, not a stored setting.
-     */
-    @POST
-    @Path("device-web/{deviceId}")
-    public Map<String, Object> deviceWeb(@PathParam("deviceId") long deviceId) throws Exception {
-        String terminal = getCmsDeviceId(deviceId);
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("url", cmsv9Manager.deviceWebUrl(terminal));
-        result.put("waitSeconds", 20);
-
-        // Asked first, because an offline camera cannot answer and the caller
-        // would otherwise wait the full twenty seconds only to meet a 404 that
-        // says nothing about why. A vehicle parked with the ignition off is
-        // still online; only a camera CNMS cannot see at all is refused, and an
-        // unreadable status is not treated as offline.
-        if (Boolean.FALSE.equals(cmsv9Manager.isDeviceOnline(terminal))) {
-            result.put("sent", false);
-            result.put("detail", "This camera is offline, so it cannot open its settings page. "
-                    + "It has to be powered up and connected before this will work.");
-            return result;
-        }
-
-        boolean sent = cmsv9Manager.wsOpenDeviceWeb(terminal);
-        result.put("sent", sent);
-        if (!sent) {
-            result.put("detail", "The camera did not acknowledge the request. Try again in a moment.");
-        }
-        return result;
-    }
 
     @POST
     @Path("stop/{deviceId}/{channel}")

@@ -90,7 +90,7 @@ const SummaryReportPage = () => {
     [daily],
   );
 
-  const onExport = useCatch(async () => {
+  const onExport = useCatch(async ({ format = 'xlsx' } = {}) => {
     const rows = [];
     const deviceHeader = t('sharedDevice');
     items.forEach((item) => {
@@ -107,7 +107,7 @@ const SummaryReportPage = () => {
     const titleKey = daily ? 'reportDaily' : 'reportSummary';
     const title = t(titleKey);
     const sheets = new Map([[title, rows]]);
-    await exportExcel(title, 'summary.xlsx', sheets, theme);
+    await exportExcel(title, 'summary.xlsx', sheets, theme, format);
   });
 
   const onSchedule = useCatch(async (deviceIds, groupIds, report) => {
@@ -151,7 +151,7 @@ const SummaryReportPage = () => {
           onSchedule={onSchedule}
           deviceType="multiple"
           loading={loading}
-          formats={['xlsx']}
+          formats={['xlsx', 'pdf']}
         >
           <div className={classes.filterItem}>
             <FormControl fullWidth>

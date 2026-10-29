@@ -1,8 +1,8 @@
 {
   "build.gradle": {
-    "mtime": 1787613698.0,
-    "seen": 1788186085.4716098,
-    "ast_hash": "19ac53941278836a20a1df0d3d5a1ba2",
+    "mtime": 1788459357.276713,
+    "seen": 1788462611.0011775,
+    "ast_hash": "d58dfda78bbb668b439b0479b0d93880",
     "semantic_hash": ""
   },
   "deploy/deploy.ps1": {
@@ -114,9 +114,9 @@
     "semantic_hash": ""
   },
   "src/main/java/org/traccar/Main.java": {
-    "mtime": 1787613698.0,
-    "seen": 1788186085.4716449,
-    "ast_hash": "60007325e325157a97136160be430d58",
+    "mtime": 1788460040.9125493,
+    "seen": 1788462611.0032353,
+    "ast_hash": "399167b6f87dd11e9fe74a4813675b53",
     "semantic_hash": ""
   },
   "src/main/java/org/traccar/MainModule.java": {
@@ -408,9 +408,9 @@
     "semantic_hash": ""
   },
   "src/main/java/org/traccar/api/resource/TachographResource.java": {
-    "mtime": 1787862554.81079,
-    "seen": 1788186085.471714,
-    "ast_hash": "1e98a629aba1d0b77d35093628a61ca8",
+    "mtime": 1788461731.553696,
+    "seen": 1788462611.0084777,
+    "ast_hash": "445223b61090542bb1c5fce01ee39c59",
     "semantic_hash": ""
   },
   "src/main/java/org/traccar/api/resource/UserResource.java": {
@@ -594,9 +594,9 @@
     "semantic_hash": ""
   },
   "src/main/java/org/traccar/config/Keys.java": {
-    "mtime": 1787861589.4703445,
-    "seen": 1788186085.4717555,
-    "ast_hash": "1b6f96925255ec3760c913334b27bc56",
+    "mtime": 1788458705.0951054,
+    "seen": 1788462611.011814,
+    "ast_hash": "bb86277f36ab5cada6249c50bed73784",
     "semantic_hash": ""
   },
   "src/main/java/org/traccar/config/LookupContext.java": {
@@ -1470,9 +1470,9 @@
     "semantic_hash": ""
   },
   "src/main/java/org/traccar/media/Cmsv9Manager.java": {
-    "mtime": 1787841698.2175276,
-    "seen": 1788186085.4719894,
-    "ast_hash": "c93530a4c9494f97b7850f2a0281eea3",
+    "mtime": 1788460166.3769445,
+    "seen": 1788462611.0275478,
+    "ast_hash": "03fb877b2d5c0b8e35bf520c561ff454",
     "semantic_hash": ""
   },
   "src/main/java/org/traccar/media/VideoStreamManager.java": {
@@ -1704,9 +1704,9 @@
     "semantic_hash": ""
   },
   "src/main/java/org/traccar/model/TachographBridge.java": {
-    "mtime": 1787861892.5106685,
-    "seen": 1788186085.4720364,
-    "ast_hash": "3197b86b72329cd26eb4beb8d1694633",
+    "mtime": 1788459112.3482008,
+    "seen": 1788462611.0316305,
+    "ast_hash": "6fc406eca293aa5ebd70f38f0da18a6c",
     "semantic_hash": ""
   },
   "src/main/java/org/traccar/model/TachographConfiguration.java": {
@@ -1716,15 +1716,15 @@
     "semantic_hash": ""
   },
   "src/main/java/org/traccar/model/TachographDownloadJob.java": {
-    "mtime": 1787861873.910914,
-    "seen": 1788186085.4720387,
-    "ast_hash": "160b38234d04b3bdd3e7cd2c66f5bcee",
+    "mtime": 1788459051.774407,
+    "seen": 1788462611.0317476,
+    "ast_hash": "2c0bc66ff24b0c9de1308a5c78ba5337",
     "semantic_hash": ""
   },
   "src/main/java/org/traccar/model/TachographFile.java": {
-    "mtime": 1787861495.4720614,
-    "seen": 1788186085.47204,
-    "ast_hash": "ae844c46c76d0f041d3690c2a5c32256",
+    "mtime": 1788459034.1290734,
+    "seen": 1788462611.0317497,
+    "ast_hash": "1ef465952aa54a6ddf7f9ec484128488",
     "semantic_hash": ""
   },
   "src/main/java/org/traccar/model/Typed.java": {
@@ -6042,9 +6042,9 @@
     "semantic_hash": ""
   },
   "src/main/java/org/traccar/schedule/ScheduleManager.java": {
-    "mtime": 1787862849.2061155,
-    "seen": 1788186085.4730093,
-    "ast_hash": "629c724d5077669d1f1aa3a63fba41a0",
+    "mtime": 1788460034.5808134,
+    "seen": 1788462611.1105173,
+    "ast_hash": "d461a98e4a57d43b660efa5f0da03b40",
     "semantic_hash": ""
   },
   "src/main/java/org/traccar/schedule/ScheduleTask.java": {
@@ -6066,9 +6066,9 @@
     "semantic_hash": ""
   },
   "src/main/java/org/traccar/schedule/TaskCnmsSync.java": {
-    "mtime": 1787782762.5474837,
-    "seen": 1788186085.4730146,
-    "ast_hash": "5c0dce379575fcd2ceb35a3366725465",
+    "mtime": 1788460181.041872,
+    "seen": 1788462611.1108394,
+    "ast_hash": "d36bad536ea8132179819392f1a07ade",
     "semantic_hash": ""
   },
   "src/main/java/org/traccar/schedule/TaskDeleteTemporary.java": {
@@ -6114,9 +6114,9 @@
     "semantic_hash": ""
   },
   "src/main/java/org/traccar/schedule/TaskTachographScheduler.java": {
-    "mtime": 1787862796.1438575,
-    "seen": 1788186085.4730248,
-    "ast_hash": "60cbe5a5aae9cc4e791811fd2a38fe15",
+    "mtime": 1788460001.2196052,
+    "seen": 1788462611.1116183,
+    "ast_hash": "e48cb81cf9e85c43639eabd8955c120e",
     "semantic_hash": ""
   },
   "src/main/java/org/traccar/schedule/TaskWebSocketKeepalive.java": {
@@ -6318,33 +6318,33 @@
     "semantic_hash": ""
   },
   "src/main/java/org/traccar/tachograph/MockAuthenticationProvider.java": {
-    "mtime": 1787862098.3546877,
-    "seen": 1788186085.4730685,
-    "ast_hash": "a9be3392349f01cbb3ccad62f4729efb",
+    "mtime": 1788460137.2215192,
+    "seen": 1788462611.1152241,
+    "ast_hash": "252375f20108839604397b25bfb1ce60",
     "semantic_hash": ""
   },
   "src/main/java/org/traccar/tachograph/SimulatedTachographDeviceClient.java": {
-    "mtime": 1787862148.833645,
-    "seen": 1788186085.47307,
-    "ast_hash": "309ea07596c95a69712554af56648b00",
+    "mtime": 1788458916.0233254,
+    "seen": 1788462611.115226,
+    "ast_hash": "5325cb631f39c666143565ef56d3c43c",
     "semantic_hash": ""
   },
   "src/main/java/org/traccar/tachograph/TachographAuthenticationProvider.java": {
-    "mtime": 1787862085.9965787,
-    "seen": 1788186085.473071,
-    "ast_hash": "6f8ff5062867a499e2397a854a285c30",
+    "mtime": 1788460105.9370236,
+    "seen": 1788462611.1152303,
+    "ast_hash": "8f12311f78d8b4d1a97a68b4ec43cb4e",
     "semantic_hash": ""
   },
   "src/main/java/org/traccar/tachograph/TachographDeviceClient.java": {
-    "mtime": 1787862124.3479495,
-    "seen": 1788186085.4730723,
-    "ast_hash": "c96ca06a764a6bd8d656caa1daaa6f66",
+    "mtime": 1788458187.0484562,
+    "seen": 1788462611.1152332,
+    "ast_hash": "9028f7c5bece8bf79e484f797d5a7415",
     "semantic_hash": ""
   },
   "src/main/java/org/traccar/tachograph/TachographDownloadResult.java": {
-    "mtime": 1787862114.745674,
-    "seen": 1788186085.4730737,
-    "ast_hash": "dcbbbb342960f0867addf1977c8f160b",
+    "mtime": 1788458175.543259,
+    "seen": 1788462611.1152372,
+    "ast_hash": "90fff7d59ca468534c303b7c0acf50dd",
     "semantic_hash": ""
   },
   "src/main/java/org/traccar/tachograph/TachographException.java": {
@@ -6354,9 +6354,9 @@
     "semantic_hash": ""
   },
   "src/main/java/org/traccar/tachograph/TachographManager.java": {
-    "mtime": 1787862829.277394,
-    "seen": 1788186085.473076,
-    "ast_hash": "d5cb3ce0a66865407a588b0c419ff5f3",
+    "mtime": 1788461380.2516792,
+    "seen": 1788462611.1153522,
+    "ast_hash": "c72688e86bdcf0582c36a15e48950103",
     "semantic_hash": ""
   },
   "src/main/java/org/traccar/tachograph/TachographStorage.java": {
@@ -9018,9 +9018,9 @@
     "semantic_hash": ""
   },
   "tacho-bridge/src/main/java/com/dhfleetview/bridge/Main.java": {
-    "mtime": 1787862979.7972567,
-    "seen": 1788186085.4736586,
-    "ast_hash": "ba68bfaffd4a24cbb8207a84815fddb4",
+    "mtime": 1788460311.0527635,
+    "seen": 1788462611.1648605,
+    "ast_hash": "4970759207460e35b098ea94c1496598",
     "semantic_hash": ""
   },
   "tacho-bridge/src/main/java/com/dhfleetview/bridge/MockSmartCardReader.java": {
@@ -9822,9 +9822,9 @@
     "semantic_hash": ""
   },
   "traccar-web/src/common/util/tachograph.js": {
-    "mtime": 1787862700.884245,
-    "seen": 1788186085.4738314,
-    "ast_hash": "721fcea49eefa1b5fe3e1b99eb4ae446",
+    "mtime": 1788460684.748804,
+    "seen": 1788462611.1791136,
+    "ast_hash": "70a76b90044173819b3472372288cb11",
     "semantic_hash": ""
   },
   "traccar-web/src/common/util/useFeatures.js": {
@@ -9906,9 +9906,9 @@
     "semantic_hash": ""
   },
   "traccar-web/src/main/FleetDashboard.jsx": {
-    "mtime": 1788077900.222952,
-    "seen": 1788186085.473865,
-    "ast_hash": "ad04ba69cb2aadc1174283235029a277",
+    "mtime": 1788433689.1555355,
+    "seen": 1788462611.1804523,
+    "ast_hash": "0bf1fde705c5f67fc0889f3670071bd3",
     "semantic_hash": ""
   },
   "traccar-web/src/main/MainMap.jsx": {
@@ -9918,15 +9918,15 @@
     "semantic_hash": ""
   },
   "traccar-web/src/main/MainPage.jsx": {
-    "mtime": 1788084464.911317,
-    "seen": 1788186085.4738803,
-    "ast_hash": "3d92d7c86cc6d42b241b0f6aa5ef3b12",
+    "mtime": 1788433689.1565325,
+    "seen": 1788462611.1805558,
+    "ast_hash": "e5f8036a27f2a434652417b44e8bd294",
     "semantic_hash": ""
   },
   "traccar-web/src/main/MainToolbar.jsx": {
-    "mtime": 1788084427.8824615,
-    "seen": 1788186085.4738815,
-    "ast_hash": "87a89407f5e6903f98a9fe02d1d6d15c",
+    "mtime": 1788433689.1575296,
+    "seen": 1788462611.1805577,
+    "ast_hash": "41931e44f97990b3750bf0e03ee30c70",
     "semantic_hash": ""
   },
   "traccar-web/src/main/MotionController.jsx": {
@@ -10176,9 +10176,9 @@
     "semantic_hash": ""
   },
   "traccar-web/src/other/TachographPage.jsx": {
-    "mtime": 1787862731.5170677,
-    "seen": 1788186085.4739478,
-    "ast_hash": "7c5a91896a9ec6d59ab50ecc509170dc",
+    "mtime": 1788460684.748804,
+    "seen": 1788462611.1849637,
+    "ast_hash": "3704d76b6f87192def55f70d765a41ae",
     "semantic_hash": ""
   },
   "traccar-web/src/reactHelper.js": {
@@ -12168,8 +12168,8 @@
     "semantic_hash": ""
   },
   "web/assets/af-_QmHRjNt.js": {
-    "mtime": 1788084495.4661796,
-    "seen": 1788186085.4743757,
+    "mtime": 1788433653.3315318,
+    "seen": 1788462611.220355,
     "ast_hash": "50236cada450c70746d0f7c8e3c60fd9",
     "semantic_hash": ""
   },
@@ -12192,8 +12192,8 @@
     "semantic_hash": ""
   },
   "web/assets/ar-b6qkiiiq.js": {
-    "mtime": 1788084495.4661796,
-    "seen": 1788186085.4743803,
+    "mtime": 1788433653.3315318,
+    "seen": 1788462611.2206593,
     "ast_hash": "69b2ac784f13c345aef92e1ecc04c8bb",
     "semantic_hash": ""
   },
@@ -12210,8 +12210,8 @@
     "semantic_hash": ""
   },
   "web/assets/az-yC7Ej28B.js": {
-    "mtime": 1788084495.4661796,
-    "seen": 1788186085.4743838,
+    "mtime": 1788433653.3315318,
+    "seen": 1788462611.2208602,
     "ast_hash": "dc7d109913cb005d94490f1df3c72219",
     "semantic_hash": ""
   },
@@ -12228,14 +12228,14 @@
     "semantic_hash": ""
   },
   "web/assets/bg-UqnpUWym.js": {
-    "mtime": 1788084495.4661796,
-    "seen": 1788186085.4743874,
+    "mtime": 1788433653.3315318,
+    "seen": 1788462611.2210622,
     "ast_hash": "b876ba375fbde8a254debc2bdaad66ee",
     "semantic_hash": ""
   },
   "web/assets/bn-C7G2gIkh.js": {
-    "mtime": 1788084495.4661796,
-    "seen": 1788186085.4743888,
+    "mtime": 1788433653.3315318,
+    "seen": 1788462611.221066,
     "ast_hash": "03847d898d8bff395800fc8e23efdc7a",
     "semantic_hash": ""
   },
@@ -12264,8 +12264,8 @@
     "semantic_hash": ""
   },
   "web/assets/ca-Dago_WQF.js": {
-    "mtime": 1788084495.4661796,
-    "seen": 1788186085.4743946,
+    "mtime": 1788433653.3315318,
+    "seen": 1788462611.2214983,
     "ast_hash": "a0db46729c5fcbf2d9b2a24a3c5fa1a6",
     "semantic_hash": ""
   },
@@ -12282,14 +12282,14 @@
     "semantic_hash": ""
   },
   "web/assets/cs-Di3WnN2M.js": {
-    "mtime": 1788084495.4661796,
-    "seen": 1788186085.4743981,
+    "mtime": 1788433653.3315318,
+    "seen": 1788462611.2216995,
     "ast_hash": "ef702d9baea8807336a6318b38ff5b7f",
     "semantic_hash": ""
   },
   "web/assets/da-0L4OSY8T.js": {
-    "mtime": 1788084495.4661796,
-    "seen": 1788186085.4743996,
+    "mtime": 1788433653.3315318,
+    "seen": 1788462611.2217028,
     "ast_hash": "e26a5fbb50b4e95d5cf17b95e88e6d9c",
     "semantic_hash": ""
   },
@@ -12318,14 +12318,14 @@
     "semantic_hash": ""
   },
   "web/assets/de-DFcEh-ZV.js": {
-    "mtime": 1788084495.4661796,
-    "seen": 1788186085.4744053,
+    "mtime": 1788433653.3315318,
+    "seen": 1788462611.222104,
     "ast_hash": "357df2884390af8e36ace991d7c040ac",
     "semantic_hash": ""
   },
   "web/assets/deviceEquality-BAhI2NwW.js": {
-    "mtime": 1788084495.4691713,
-    "seen": 1788186085.4744067,
+    "mtime": 1788433653.3345234,
+    "seen": 1788462611.222108,
     "ast_hash": "80ca526d0bb996c4076618abdfb95f73",
     "semantic_hash": ""
   },
@@ -12342,14 +12342,14 @@
     "semantic_hash": ""
   },
   "web/assets/el-DMSJVJuO.js": {
-    "mtime": 1788084495.4661796,
-    "seen": 1788186085.4744103,
+    "mtime": 1788433653.3315318,
+    "seen": 1788462611.2223423,
     "ast_hash": "2dae6b88af2ed4190cc432b8fe90a2fb",
     "semantic_hash": ""
   },
   "web/assets/es-CPPTl59O.js": {
-    "mtime": 1788084495.4661796,
-    "seen": 1788186085.4744115,
+    "mtime": 1788433653.3315318,
+    "seen": 1788462611.2223458,
     "ast_hash": "28c9528bc773ad6e7ec06ded09c40850",
     "semantic_hash": ""
   },
@@ -12366,8 +12366,8 @@
     "semantic_hash": ""
   },
   "web/assets/et-DCFqCVGu.js": {
-    "mtime": 1788084495.4661796,
-    "seen": 1788186085.474415,
+    "mtime": 1788433653.3315318,
+    "seen": 1788462611.2225475,
     "ast_hash": "c5289245b4c0553b43b8444cbe598e5e",
     "semantic_hash": ""
   },
@@ -12408,8 +12408,8 @@
     "semantic_hash": ""
   },
   "web/assets/fa-n3ByvdFS.js": {
-    "mtime": 1788084495.4661796,
-    "seen": 1788186085.4744241,
+    "mtime": 1788433653.3315318,
+    "seen": 1788462611.2231524,
     "ast_hash": "ed4a68c04c766994b970e004b3178a27",
     "semantic_hash": ""
   },
@@ -12420,8 +12420,8 @@
     "semantic_hash": ""
   },
   "web/assets/fi-ChHfzBtY.js": {
-    "mtime": 1788084495.4661796,
-    "seen": 1788186085.4744263,
+    "mtime": 1788433653.3315318,
+    "seen": 1788462611.2232854,
     "ast_hash": "3c7edd0409430547555d3849de382257",
     "semantic_hash": ""
   },
@@ -12450,8 +12450,8 @@
     "semantic_hash": ""
   },
   "web/assets/fr-CR4T1kQB.js": {
-    "mtime": 1788084495.4661796,
-    "seen": 1788186085.4744325,
+    "mtime": 1788433653.3315318,
+    "seen": 1788462611.2236886,
     "ast_hash": "0ef87fdda139a83a6e0103e0ffb5adc2",
     "semantic_hash": ""
   },
@@ -12474,8 +12474,8 @@
     "semantic_hash": ""
   },
   "web/assets/gl-ZeX4noXp.js": {
-    "mtime": 1788084495.4661796,
-    "seen": 1788186085.474544,
+    "mtime": 1788433653.3315318,
+    "seen": 1788462611.2239878,
     "ast_hash": "3de70e709e53c3de62a5506a7194e4a4",
     "semantic_hash": ""
   },
@@ -12492,8 +12492,8 @@
     "semantic_hash": ""
   },
   "web/assets/he-DnEWF40B.js": {
-    "mtime": 1788084495.4661796,
-    "seen": 1788186085.4745479,
+    "mtime": 1788433653.3315318,
+    "seen": 1788462611.2241871,
     "ast_hash": "6623f984aa7da101f5b8ed3892ac6d66",
     "semantic_hash": ""
   },
@@ -12504,8 +12504,8 @@
     "semantic_hash": ""
   },
   "web/assets/hi-Bdktzw1X.js": {
-    "mtime": 1788084495.4661796,
-    "seen": 1788186085.4745502,
+    "mtime": 1788433653.3315318,
+    "seen": 1788462611.2243266,
     "ast_hash": "679aa568a771b1f80a4f914c4e318692",
     "semantic_hash": ""
   },
@@ -12522,8 +12522,8 @@
     "semantic_hash": ""
   },
   "web/assets/hr-Dc2FVTY1.js": {
-    "mtime": 1788084495.4661796,
-    "seen": 1788186085.4745538,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.22453,
     "ast_hash": "4940622c1c4f6b37db08cd86b1eef93d",
     "semantic_hash": ""
   },
@@ -12546,14 +12546,14 @@
     "semantic_hash": ""
   },
   "web/assets/hu-dHOI70Z2.js": {
-    "mtime": 1788084495.4661796,
-    "seen": 1788186085.4745588,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.224829,
     "ast_hash": "9d6618052d0a37a12f38cc8477902c0a",
     "semantic_hash": ""
   },
   "web/assets/hy-Dez8Fh69.js": {
-    "mtime": 1788084495.4661796,
-    "seen": 1788186085.4745598,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2248306,
     "ast_hash": "5267afa16b0abc41a87abab49f49dd5b",
     "semantic_hash": ""
   },
@@ -12564,8 +12564,8 @@
     "semantic_hash": ""
   },
   "web/assets/id-BmsZdUry.js": {
-    "mtime": 1788084495.4661796,
-    "seen": 1788186085.4745624,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.224936,
     "ast_hash": "ecb7ba77368892845a07e2c3d317eb91",
     "semantic_hash": ""
   },
@@ -12588,8 +12588,8 @@
     "semantic_hash": ""
   },
   "web/assets/it-B6MLO8W1.js": {
-    "mtime": 1788084495.4661796,
-    "seen": 1788186085.4745674,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.225271,
     "ast_hash": "3b4320c6a865073c8a3124cf77769f34",
     "semantic_hash": ""
   },
@@ -12606,8 +12606,8 @@
     "semantic_hash": ""
   },
   "web/assets/ja-D6gI2W6Y.js": {
-    "mtime": 1788084495.4661796,
-    "seen": 1788186085.4745715,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.225473,
     "ast_hash": "0fc24158a7511b5c8f23fa4644b66b92",
     "semantic_hash": ""
   },
@@ -12630,8 +12630,8 @@
     "semantic_hash": ""
   },
   "web/assets/ka-BhI8zrl2.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.4745765,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2257724,
     "ast_hash": "6304760bbe8febd9a91c3a4f96665140",
     "semantic_hash": ""
   },
@@ -12654,8 +12654,8 @@
     "semantic_hash": ""
   },
   "web/assets/kk-C0GiOE87.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.4745815,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2260687,
     "ast_hash": "d25c4e4e93f0a2f3add120161aff2f33",
     "semantic_hash": ""
   },
@@ -12672,14 +12672,14 @@
     "semantic_hash": ""
   },
   "web/assets/km-egjcQc33.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.474585,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2263079,
     "ast_hash": "8116c48f7c9a782cff92f47c4c1a927b",
     "semantic_hash": ""
   },
   "web/assets/ko-CBpGKMl8.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.4745867,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2263112,
     "ast_hash": "3d966480e9e44f4437a856d91c8b2746",
     "semantic_hash": ""
   },
@@ -12696,8 +12696,8 @@
     "semantic_hash": ""
   },
   "web/assets/lo-C50qig-Q.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.4745903,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2265103,
     "ast_hash": "1588fb94ad4693bde71f29d43c3cc8c3",
     "semantic_hash": ""
   },
@@ -12714,8 +12714,8 @@
     "semantic_hash": ""
   },
   "web/assets/lt-CvLqjDyr.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.474594,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2267072,
     "ast_hash": "eeef9bc2e3144222181b0835b471c5fc",
     "semantic_hash": ""
   },
@@ -12738,8 +12738,8 @@
     "semantic_hash": ""
   },
   "web/assets/lv-JSnf5pp7.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.4745994,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2270088,
     "ast_hash": "f38b56b5ad97980d424ab4adee8e8f58",
     "semantic_hash": ""
   },
@@ -12750,14 +12750,14 @@
     "semantic_hash": ""
   },
   "web/assets/maplibre-gl-worker-BHNN-cXQ.js": {
-    "mtime": 1788084495.471166,
-    "seen": 1788186085.4746017,
+    "mtime": 1788433653.3365185,
+    "seen": 1788462611.2271116,
     "ast_hash": "92f84c06b3bb0197af9bb0a1a57d59a6",
     "semantic_hash": ""
   },
   "web/assets/mk-B7hd8JCE.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.474603,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2271132,
     "ast_hash": "9ca24e14f71c1eaab217e70cb80d56be",
     "semantic_hash": ""
   },
@@ -12786,14 +12786,14 @@
     "semantic_hash": ""
   },
   "web/assets/ml-lNZEIGyT.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.474609,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2275462,
     "ast_hash": "3b8f8f6e60dbc1e299b850b984659c7f",
     "semantic_hash": ""
   },
   "web/assets/mn-BVFQEWw9.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.47461,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2275488,
     "ast_hash": "0eb4b0d8963bed38e0076d87dc511f56",
     "semantic_hash": ""
   },
@@ -12816,8 +12816,8 @@
     "semantic_hash": ""
   },
   "web/assets/ms-CArpGQ4X.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.4746153,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2278442,
     "ast_hash": "44c57c89bb54676d91db6c408e6bc751",
     "semantic_hash": ""
   },
@@ -12840,14 +12840,14 @@
     "semantic_hash": ""
   },
   "web/assets/nb-DxDZOaEz.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.47462,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2281437,
     "ast_hash": "d49c335e5c94234bd0a5b4d31f841147",
     "semantic_hash": ""
   },
   "web/assets/ne-BSHIgY8T.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.4746215,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2281454,
     "ast_hash": "531ca4ebdef6b0370bba1b078bbd79f8",
     "semantic_hash": ""
   },
@@ -12870,8 +12870,8 @@
     "semantic_hash": ""
   },
   "web/assets/nl-BrMzqEKM.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.4746268,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.228481,
     "ast_hash": "b1f75c3f097bef3963797eb06c715a9c",
     "semantic_hash": ""
   },
@@ -12888,8 +12888,8 @@
     "semantic_hash": ""
   },
   "web/assets/nn-Bn2kwEDB.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.4746306,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.228682,
     "ast_hash": "05235fb43f790cd5f23b304e45ae348b",
     "semantic_hash": ""
   },
@@ -12900,8 +12900,8 @@
     "semantic_hash": ""
   },
   "web/assets/pl-IzGn-X8Z.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.4746332,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2287858,
     "ast_hash": "7e2e7351fecee865f4b81850c5ac3f84",
     "semantic_hash": ""
   },
@@ -12924,8 +12924,8 @@
     "semantic_hash": ""
   },
   "web/assets/pt-E8Ou6sQc.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.474638,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2290823,
     "ast_hash": "1c50bc64a9f8cb66f7d7916122d51b88",
     "semantic_hash": ""
   },
@@ -12948,8 +12948,8 @@
     "semantic_hash": ""
   },
   "web/assets/pt_BR-U5oeY7rN.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.4746437,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2294703,
     "ast_hash": "446714230ebba8859ca7f01cadd6cfc1",
     "semantic_hash": ""
   },
@@ -12960,8 +12960,8 @@
     "semantic_hash": ""
   },
   "web/assets/ro-BHW6wPlP.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.474646,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2295725,
     "ast_hash": "1bb6a24a6bc08f4e6301b39f21ec84b1",
     "semantic_hash": ""
   },
@@ -12978,8 +12978,8 @@
     "semantic_hash": ""
   },
   "web/assets/ru-DJbxVuds.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.4746497,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.229771,
     "ast_hash": "9dd1c9be1743c3f11fd307dc9889db39",
     "semantic_hash": ""
   },
@@ -13008,8 +13008,8 @@
     "semantic_hash": ""
   },
   "web/assets/si-DaGtP3z6.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.4746556,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2301776,
     "ast_hash": "067e87ff410a611209bb0b32e1d0f648",
     "semantic_hash": ""
   },
@@ -13026,8 +13026,8 @@
     "semantic_hash": ""
   },
   "web/assets/sk-Dr0_KjjK.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.4746594,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2304144,
     "ast_hash": "cbcaae571decf55f9149ad53120d8bbe",
     "semantic_hash": ""
   },
@@ -13038,8 +13038,8 @@
     "semantic_hash": ""
   },
   "web/assets/sl-BBDTs_HD.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.4746618,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2305136,
     "ast_hash": "7e446d18c0f640bfec469630b5d2284c",
     "semantic_hash": ""
   },
@@ -13062,8 +13062,8 @@
     "semantic_hash": ""
   },
   "web/assets/sq-DfgdP6HG.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.4746666,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.230814,
     "ast_hash": "3739f86f37e1da9afc97b4b8c4511401",
     "semantic_hash": ""
   },
@@ -13086,8 +13086,8 @@
     "semantic_hash": ""
   },
   "web/assets/sr-M7M-cXG-.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.4746716,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2311103,
     "ast_hash": "f8b6bea455ae39c6c6d40de9f13e56da",
     "semantic_hash": ""
   },
@@ -13098,8 +13098,8 @@
     "semantic_hash": ""
   },
   "web/assets/sv-ZfHLi30D.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.4746742,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.231236,
     "ast_hash": "d5f490e7d56fb3b8199e7b7115e45203",
     "semantic_hash": ""
   },
@@ -13110,14 +13110,14 @@
     "semantic_hash": ""
   },
   "web/assets/sw-vgKwmPdS.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.4746768,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2313547,
     "ast_hash": "cc25e86066c4f4a3debf500e84cd7c73",
     "semantic_hash": ""
   },
   "web/assets/ta-CV6Uco-m.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.474678,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2313583,
     "ast_hash": "5d73b27c5c858cd2b014612537a04477",
     "semantic_hash": ""
   },
@@ -13140,8 +13140,8 @@
     "semantic_hash": ""
   },
   "web/assets/th-CDdIF3Bm.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.4746826,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2316551,
     "ast_hash": "da46533482ef38814f9ecd03bcad1293",
     "semantic_hash": ""
   },
@@ -13152,8 +13152,8 @@
     "semantic_hash": ""
   },
   "web/assets/tk-Cj3-aY1M.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.474685,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2317557,
     "ast_hash": "e7f8ad1025d7a5848f64c8b80c8f1ee9",
     "semantic_hash": ""
   },
@@ -13170,8 +13170,8 @@
     "semantic_hash": ""
   },
   "web/assets/tr-QyCwIYAs.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.4746885,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2319574,
     "ast_hash": "28aed0494825d8b30befe495632a6f4e",
     "semantic_hash": ""
   },
@@ -13188,8 +13188,8 @@
     "semantic_hash": ""
   },
   "web/assets/uk-RuEYv6OB.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.474692,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2321563,
     "ast_hash": "b7ef1c8f308c67ad43acc33ddfa56f25",
     "semantic_hash": ""
   },
@@ -13242,8 +13242,8 @@
     "semantic_hash": ""
   },
   "web/assets/uz-BYnJ2-Zl.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.4747028,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2330084,
     "ast_hash": "b76de7c0b34b27fac2382652acd7028f",
     "semantic_hash": ""
   },
@@ -13260,8 +13260,8 @@
     "semantic_hash": ""
   },
   "web/assets/vi-BkSbU1x2.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.4747062,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2332425,
     "ast_hash": "d61aa6613b7f8a232b1df9b213b9d74f",
     "semantic_hash": ""
   },
@@ -13278,8 +13278,8 @@
     "semantic_hash": ""
   },
   "web/assets/workbox-window.prod.es5-BBnX5xw4.js": {
-    "mtime": 1788084495.4701686,
-    "seen": 1788186085.47471,
+    "mtime": 1788433653.3365185,
+    "seen": 1788462611.2334437,
     "ast_hash": "b63a6c814e11c0837136540cf08ca10f",
     "semantic_hash": ""
   },
@@ -13296,8 +13296,8 @@
     "semantic_hash": ""
   },
   "web/assets/zh-nBjZIwpk.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.4747136,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.2336411,
     "ast_hash": "6b7956aa4f2dbf8ebab3bef7dcff3c29",
     "semantic_hash": ""
   },
@@ -13314,8 +13314,8 @@
     "semantic_hash": ""
   },
   "web/assets/zh_TW-BS1Wfgrb.js": {
-    "mtime": 1788084495.4671779,
-    "seen": 1788186085.474717,
+    "mtime": 1788433653.332528,
+    "seen": 1788462611.233846,
     "ast_hash": "420d08fbcbbe4d637dca7637b1f0c1f8",
     "semantic_hash": ""
   },
@@ -13398,14 +13398,14 @@
     "semantic_hash": ""
   },
   "web/sw.js": {
-    "mtime": 1788084499.0299616,
-    "seen": 1788186085.4747338,
-    "ast_hash": "eefc6f9c5e07847aaa83d738e6d59ee1",
+    "mtime": 1788433689.2573917,
+    "seen": 1788462611.2351708,
+    "ast_hash": "88c047dbecb75761484374ca281cba80",
     "semantic_hash": ""
   },
   "web/workbox-9c191d2f.js": {
-    "mtime": 1788084499.0299616,
-    "seen": 1788186085.474735,
+    "mtime": 1788433671.2848928,
+    "seen": 1788462611.2351727,
     "ast_hash": "7a1aa01199d2aa7e9b6ea21e69efb658",
     "semantic_hash": ""
   },
@@ -13416,9 +13416,9 @@
     "semantic_hash": ""
   },
   ".github/workflows/build-mobile.yml": {
-    "mtime": 1787793449.6441085,
-    "seen": 1788186085.4747374,
-    "ast_hash": "7cc133b9808fe78aca5cf32c12fa29d5",
+    "mtime": 1788436316.7701051,
+    "seen": 1788462611.235308,
+    "ast_hash": "3347257969f583d337831231e17c74ce",
     "semantic_hash": ""
   },
   ".github/workflows/gradle.yml": {
@@ -13434,9 +13434,9 @@
     "semantic_hash": ""
   },
   "LICENSE.txt": {
-    "mtime": 1787613698.0,
-    "seen": 1788186085.474741,
-    "ast_hash": "3b83ef96387f14655fc854ddc3c6bd57",
+    "mtime": 1788433689.1106546,
+    "seen": 1788462611.235508,
+    "ast_hash": "7c5844cafd73e3151806b94e3e8ef686",
     "semantic_hash": ""
   },
   "README.md": {
@@ -13458,27 +13458,27 @@
     "semantic_hash": ""
   },
   "docs/tachograph/API.md": {
-    "mtime": 1787863080.3436048,
-    "seen": 1788186085.4747462,
-    "ast_hash": "07fffd41b9483d06c35d214952936d9f",
+    "mtime": 1788462242.722441,
+    "seen": 1788462611.2358086,
+    "ast_hash": "8549d4f8582d1f005b4949e184a9928c",
     "semantic_hash": ""
   },
   "docs/tachograph/ARCHITECTURE.md": {
-    "mtime": 1787863029.608469,
-    "seen": 1788186085.4747472,
-    "ast_hash": "d844fc471cc13e5febec2f667c16cda0",
+    "mtime": 1788462271.5765822,
+    "seen": 1788462611.2358105,
+    "ast_hash": "6762a2fae4f9ccd4ca9a7b426313681b",
     "semantic_hash": ""
   },
   "docs/tachograph/DATABASE.md": {
-    "mtime": 1787863065.3536544,
-    "seen": 1788186085.4747484,
-    "ast_hash": "36905d4b618888453ada6f9dd46fa588",
+    "mtime": 1788462363.1473444,
+    "seen": 1788462611.2358124,
+    "ast_hash": "c98ff13f2af0fee43ec2b865acc3612d",
     "semantic_hash": ""
   },
   "docs/tachograph/FMC650-INTEGRATION.md": {
-    "mtime": 1787863055.8837645,
-    "seen": 1788186085.4747493,
-    "ast_hash": "ead7abed3eada11cdab05d601d9c2f0d",
+    "mtime": 1788462155.4549422,
+    "seen": 1788462611.2358139,
+    "ast_hash": "833e59661c4e9d528b0432f615612108",
     "semantic_hash": ""
   },
   "docs/tachograph/STORAGE.md": {
@@ -13488,21 +13488,21 @@
     "semantic_hash": ""
   },
   "docs/tachograph/TACHO-BRIDGE.md": {
-    "mtime": 1787863107.8314903,
-    "seen": 1788186085.4747517,
-    "ast_hash": "28d39d3f74116160a458d289148a36b0",
+    "mtime": 1788462185.5845778,
+    "seen": 1788462611.2359195,
+    "ast_hash": "d17174ed5ba9a53c7a550807c3ba9446",
     "semantic_hash": ""
   },
   "docs/tachograph/TESTING.md": {
-    "mtime": 1787863127.0283651,
-    "seen": 1788186085.4747527,
-    "ast_hash": "5456574ebe122b908791bb6bef28d394",
+    "mtime": 1788462330.4011476,
+    "seen": 1788462611.235921,
+    "ast_hash": "13cc4b1d3a13603681efa4fe0bebf7b9",
     "semantic_hash": ""
   },
   "docs/tachograph/TROUBLESHOOTING.md": {
-    "mtime": 1787863152.7347786,
-    "seen": 1788186085.4747539,
-    "ast_hash": "6ca9349f9d39bb0854672639cd9bb104",
+    "mtime": 1788462394.9811068,
+    "seen": 1788462611.235923,
+    "ast_hash": "eaa0ba71b293e45c975e381b3f0892f0",
     "semantic_hash": ""
   },
   "openapi.yaml": {
@@ -13644,9 +13644,9 @@
     "semantic_hash": ""
   },
   "web/index.html": {
-    "mtime": 1788084495.4701686,
-    "seen": 1788186085.4747834,
-    "ast_hash": "954a6c2236f2ea7b6c36894b47bad220",
+    "mtime": 1788433689.2573917,
+    "seen": 1788462611.2383118,
+    "ast_hash": "fab21a1ca03220061181231110e09f63",
     "semantic_hash": ""
   },
   "web/privacy.html": {
@@ -14064,9 +14064,1317 @@
     "semantic_hash": ""
   },
   "web/assets/alarm-DM0YUa2r.mp3": {
-    "mtime": 1788084495.4661796,
-    "seen": 1788186085.4749215,
+    "mtime": 1788433653.3315318,
+    "seen": 1788462611.2457044,
     "ast_hash": "f951bfd30aa33014310746dfb0ef7978",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/model/TachographAudit.java": {
+    "mtime": 1788459180.7189252,
+    "seen": 1788462611.0315177,
+    "ast_hash": "306f2490e4a85252aafafb4dd3963ede",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/model/TachographForward.java": {
+    "mtime": 1788459163.9985867,
+    "seen": 1788462611.0317516,
+    "ast_hash": "204d27d37fc89e77bc732224d843f5cd",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/model/TachographForwardTarget.java": {
+    "mtime": 1788462006.8875456,
+    "seen": 1788462611.0317535,
+    "ast_hash": "9eaebbe1d0bbba7e5b17909d094a1e6f",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/schedule/TaskTachographForwarder.java": {
+    "mtime": 1788460014.5447352,
+    "seen": 1788462611.111506,
+    "ast_hash": "e083e3aa84d8e702aba1dfe3253ea576",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/BridgeAuthenticationProvider.java": {
+    "mtime": 1788460116.8679743,
+    "seen": 1788462611.1152217,
+    "ast_hash": "44db0974fe158117b95cafc27b20095c",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/TachographAuditService.java": {
+    "mtime": 1788459212.0886157,
+    "seen": 1788462611.1152284,
+    "ast_hash": "116e09e84d116f37c92c6e1896af231d",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/TachographBridgeManager.java": {
+    "mtime": 1788461380.3007367,
+    "seen": 1788462611.1152318,
+    "ast_hash": "cdf1cab2845ab724e60f1774928e85bf",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/TachographDownloadRequest.java": {
+    "mtime": 1788458161.5881197,
+    "seen": 1788462611.115235,
+    "ast_hash": "1b358aa2927b2ad8ee5ecaa102c05f3e",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/card/CardApdu.java": {
+    "mtime": 1788458065.518938,
+    "seen": 1788462611.1154602,
+    "ast_hash": "2ccb96b231d0253aeffde50676f9fb41",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/card/CardCommand.java": {
+    "mtime": 1788457962.2551968,
+    "seen": 1788462611.1154618,
+    "ast_hash": "c760addfa18623bf4e26d7da32571712",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/card/CardIdentity.java": {
+    "mtime": 1788458084.6152167,
+    "seen": 1788462611.1154652,
+    "ast_hash": "8bada2f7fbe17ec9658f0853aae8e348",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/card/CardIdentityReader.java": {
+    "mtime": 1788458114.58155,
+    "seen": 1788462611.1154678,
+    "ast_hash": "e4414b7a4fe9ed8b85d5e6313176d417",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/card/CardResponse.java": {
+    "mtime": 1788457979.807505,
+    "seen": 1788462611.1154706,
+    "ast_hash": "46d2692e8d4bbe403f74f37a016edb5f",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/card/CardUnavailableException.java": {
+    "mtime": 1788458029.7193103,
+    "seen": 1788462611.115474,
+    "ast_hash": "70275ac303532431238904f7b99c1588",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/card/RemoteCardService.java": {
+    "mtime": 1788458021.7564926,
+    "seen": 1788462611.1154764,
+    "ast_hash": "05c9d064bbd7f9424391ee143ce9e1a5",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/device/Fmc650TachographClient.java": {
+    "mtime": 1788458892.886616,
+    "seen": 1788462611.1154916,
+    "ast_hash": "48456cfefb4ee5886b263a71e7b9251d",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/device/VirtualVehicleUnit.java": {
+    "mtime": 1788458857.6931605,
+    "seen": 1788462611.1154935,
+    "ast_hash": "4e67048a54012a4453262ba2f3970553",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/device/VuDownloadRunner.java": {
+    "mtime": 1788458868.023409,
+    "seen": 1788462611.1154954,
+    "ast_hash": "279a0c5a46910e70a0e0ec22fc10107d",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/forward/ForwardCredentials.java": {
+    "mtime": 1788459424.6967206,
+    "seen": 1788462611.1154976,
+    "ast_hash": "5c126aebca6107bb8f9dec34a94ad0f5",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/forward/ForwardException.java": {
+    "mtime": 1788459438.22307,
+    "seen": 1788462611.1154995,
+    "ast_hash": "9acd911d994650ba5b724aacee75c0f6",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/forward/HttpsForwarder.java": {
+    "mtime": 1788459557.1639528,
+    "seen": 1788462611.115514,
+    "ast_hash": "ebba64df33db1937aee4db138c5edcd2",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/forward/SecretCipher.java": {
+    "mtime": 1788459401.7717414,
+    "seen": 1788462611.1155157,
+    "ast_hash": "b0648b0dd0df80adabf99e7f3badbe4a",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/forward/SftpForwarder.java": {
+    "mtime": 1788459725.2782614,
+    "seen": 1788462611.1155171,
+    "ast_hash": "187bf57398cf92f211f57cd9078fb83f",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/forward/SshKeyLoader.java": {
+    "mtime": 1788459703.3388894,
+    "seen": 1788462611.1155188,
+    "ast_hash": "967795ff3d3fcdabb05f00da0056dc9d",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/forward/TachographForwardService.java": {
+    "mtime": 1788461380.4308407,
+    "seen": 1788462611.1155207,
+    "ast_hash": "13ae14084d44e867400b71a935203520",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/forward/TachographForwarder.java": {
+    "mtime": 1788459414.786897,
+    "seen": 1788462611.115535,
+    "ast_hash": "84f1c14ad5f2c8eb3b91f4988ca926f3",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/protocol/ContinuationMode.java": {
+    "mtime": 1788458304.8676271,
+    "seen": 1788462611.115537,
+    "ast_hash": "0c51fa7697d1ac785d69ef7d60896f58",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/protocol/DddBlock.java": {
+    "mtime": 1788457663.3928778,
+    "seen": 1788462611.1155384,
+    "ast_hash": "106c1486a9a2c9f1ce9677233219d32a",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/protocol/DddFileBuilder.java": {
+    "mtime": 1788457676.6034825,
+    "seen": 1788462611.1155403,
+    "ast_hash": "4e090bcd8de78204dcb25a26f9045323",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/protocol/DddInspector.java": {
+    "mtime": 1788457746.1002245,
+    "seen": 1788462611.1155415,
+    "ast_hash": "b2f031b9126b9cb5d566cd5fd5544f16",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/protocol/DddMetadata.java": {
+    "mtime": 1788457705.4176097,
+    "seen": 1788462611.1155431,
+    "ast_hash": "b07b6d9b365fc93a5347491ef40af7b6",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/protocol/TrepType.java": {
+    "mtime": 1788457462.4727993,
+    "seen": 1788462611.1155574,
+    "ast_hash": "dbb980e77b72f0ff3ad935941e0ac0f6",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/protocol/VuChannel.java": {
+    "mtime": 1788457546.771052,
+    "seen": 1788462611.115559,
+    "ast_hash": "3cdba366a2d5858966409e91a037f141",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/protocol/VuDownloadSession.java": {
+    "mtime": 1788458695.1342754,
+    "seen": 1788462611.1155608,
+    "ast_hash": "b64355187fdb7f3a9f8d3bb5ac722203",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/protocol/VuMessage.java": {
+    "mtime": 1788457525.20069,
+    "seen": 1788462611.115562,
+    "ast_hash": "1a4a8ae4027bf713526a631a6d839257",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/protocol/VuProtocolException.java": {
+    "mtime": 1788457533.8028727,
+    "seen": 1788462611.1155636,
+    "ast_hash": "0d41a62f23bbe65edb0731ab5d997ff8",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/protocol/VuTimings.java": {
+    "mtime": 1788457578.1880026,
+    "seen": 1788462611.1155646,
+    "ast_hash": "c2baea337a092ea00d6c65f9959572dc",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/tunnel/TachographTunnelHandler.java": {
+    "mtime": 1788457864.110092,
+    "seen": 1788462611.115566,
+    "ast_hash": "d175d9859b59464708ca36da026f3e37",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/tunnel/TachographTunnelRegistry.java": {
+    "mtime": 1788457830.7971995,
+    "seen": 1788462611.1155682,
+    "ast_hash": "1cbce9681e9714c8865fc05e2277d483",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/tunnel/TachographTunnelServer.java": {
+    "mtime": 1788457885.3710377,
+    "seen": 1788462611.1155696,
+    "ast_hash": "c6346aeb6aad09f6c019c2ff28c52549",
+    "semantic_hash": ""
+  },
+  "src/main/java/org/traccar/tachograph/tunnel/TunnelConnection.java": {
+    "mtime": 1788457815.252182,
+    "seen": 1788462611.1155713,
+    "ast_hash": "7095ef355da972f9bc64b0a1e1c1e124",
+    "semantic_hash": ""
+  },
+  "src/test/java/org/traccar/tachograph/forward/SecretCipherTest.java": {
+    "mtime": 1788460910.9919639,
+    "seen": 1788462611.164432,
+    "ast_hash": "00b3b575bb45711a611564e99f06fe26",
+    "semantic_hash": ""
+  },
+  "src/test/java/org/traccar/tachograph/protocol/VuDownloadSessionTest.java": {
+    "mtime": 1788460866.887946,
+    "seen": 1788462611.1644344,
+    "ast_hash": "c33d69ca9f43b1aa1bff9945d7d80fa6",
+    "semantic_hash": ""
+  },
+  "src/test/java/org/traccar/tachograph/protocol/VuMessageTest.java": {
+    "mtime": 1788460795.9812257,
+    "seen": 1788462611.1644363,
+    "ast_hash": "c1d2f8ac1fa0691f4177a755134615d2",
+    "semantic_hash": ""
+  },
+  "tacho-bridge/src/main/java/com/dhfleetview/bridge/ServerClient.java": {
+    "mtime": 1788460268.1815996,
+    "seen": 1788462611.16517,
+    "ast_hash": "dfd267636c267b87e37dac113cee5bd7",
+    "semantic_hash": ""
+  },
+  "traccar-web/src/tachograph/TachographAuditTab.jsx": {
+    "mtime": 1788460684.748804,
+    "seen": 1788462611.1993484,
+    "ast_hash": "aa3baa6daefdddf8811846ce11d41dd9",
+    "semantic_hash": ""
+  },
+  "traccar-web/src/tachograph/TachographBridgesTab.jsx": {
+    "mtime": 1788460684.748804,
+    "seen": 1788462611.1993508,
+    "ast_hash": "0cdf89104a30de838ff352a562227940",
+    "semantic_hash": ""
+  },
+  "traccar-web/src/tachograph/TachographDeliveryTab.jsx": {
+    "mtime": 1788460684.748804,
+    "seen": 1788462611.1993525,
+    "ast_hash": "f438f0053df6e4ac4b66a2aa3d651768",
+    "semantic_hash": ""
+  },
+  "traccar-web/src/tachograph/TachographDownloadsTab.jsx": {
+    "mtime": 1788460703.2466853,
+    "seen": 1788462611.1993544,
+    "ast_hash": "5c85d2c918676c5e25246265fc64dfcf",
+    "semantic_hash": ""
+  },
+  "traccar-web/src/tachograph/TachographFilesTab.jsx": {
+    "mtime": 1788460684.748804,
+    "seen": 1788462611.1993558,
+    "ast_hash": "b17d84888788e8bea201b51df881841b",
+    "semantic_hash": ""
+  },
+  "traccar-web/src/tachograph/TachographStatCards.jsx": {
+    "mtime": 1788460405.9553678,
+    "seen": 1788462611.1993573,
+    "ast_hash": "3d2f08b93d10f051d8b1c05996525d22",
+    "semantic_hash": ""
+  },
+  "traccar-web/src/tachograph/TachographVehiclesTab.jsx": {
+    "mtime": 1788460684.748804,
+    "seen": 1788462611.1993594,
+    "ast_hash": "5f39f24cada52866c3912e9cb6f71be1",
+    "semantic_hash": ""
+  },
+  "web/assets/AccumulatorsPage-KnmXdjn1.js": {
+    "mtime": 1788433689.1585271,
+    "seen": 1788462611.1996677,
+    "ast_hash": "70d3ee0a3a7f69686c1588f6bc1e4830",
+    "semantic_hash": ""
+  },
+  "web/assets/Add-Ds6E0UHs.js": {
+    "mtime": 1788433689.1585271,
+    "seen": 1788462611.199907,
+    "ast_hash": "f18aff30a851c6d25d1ea0fd4ef6e86d",
+    "semantic_hash": ""
+  },
+  "web/assets/AnnouncementPage-D4eU3tji.js": {
+    "mtime": 1788433689.1595242,
+    "seen": 1788462611.2000086,
+    "ast_hash": "d5283582e490787ebb5829797fa51253",
+    "semantic_hash": ""
+  },
+  "web/assets/AppBar-C4n4veBg.js": {
+    "mtime": 1788433689.1595242,
+    "seen": 1788462611.2002106,
+    "ast_hash": "a749111ad254d943db43e6427e7764d7",
+    "semantic_hash": ""
+  },
+  "web/assets/AuditPage-BXH033Mc.js": {
+    "mtime": 1788433689.1605258,
+    "seen": 1788462611.2003117,
+    "ast_hash": "23a358dc9d5a98df42d4017675fcd38b",
+    "semantic_hash": ""
+  },
+  "web/assets/Autocomplete-Cwqu75nt.js": {
+    "mtime": 1788433689.1605258,
+    "seen": 1788462611.2006125,
+    "ast_hash": "386cc315101fed940029923f49251dd4",
+    "semantic_hash": ""
+  },
+  "web/assets/BackIcon-BDLmDYh9.js": {
+    "mtime": 1788433689.1615193,
+    "seen": 1788462611.200715,
+    "ast_hash": "730678ff6813cf8a51879a37d4d8f732",
+    "semantic_hash": ""
+  },
+  "web/assets/BaseCommandView-Bm361-P1.js": {
+    "mtime": 1788433689.1615193,
+    "seen": 1788462611.2010539,
+    "ast_hash": "75be79651083f45ef038db78f554b99f",
+    "semantic_hash": ""
+  },
+  "web/assets/Cached-CDBt8sL1.js": {
+    "mtime": 1788433689.1625166,
+    "seen": 1788462611.2012548,
+    "ast_hash": "7d9c07e07b3caf1455cdf7ddbdb6b543",
+    "semantic_hash": ""
+  },
+  "web/assets/CalendarPage-Cv9WuvO8.js": {
+    "mtime": 1788433689.1625166,
+    "seen": 1788462611.2014565,
+    "ast_hash": "dc3b33d0cc585321fed46aed7ea5ce85",
+    "semantic_hash": ""
+  },
+  "web/assets/CalendarsPage-n759ncXD.js": {
+    "mtime": 1788433689.163514,
+    "seen": 1788462611.2017605,
+    "ast_hash": "213722259b6345e2484224d8bb488fee",
+    "semantic_hash": ""
+  },
+  "web/assets/ChangeServerPage-vFsl3o8n.js": {
+    "mtime": 1788433689.1655085,
+    "seen": 1788462611.2019992,
+    "ast_hash": "caa04b2cad456f836a5f92e311a658b3",
+    "semantic_hash": ""
+  },
+  "web/assets/ChartReportPage--hJZV73O.js": {
+    "mtime": 1788433689.1694987,
+    "seen": 1788462611.2020009,
+    "ast_hash": "150d7fe44b6ac3b66179e1a0a518cc30",
+    "semantic_hash": ""
+  },
+  "web/assets/Cmsv9VideoPage-DMrLR9PA.js": {
+    "mtime": 1788433689.1694987,
+    "seen": 1788462611.2023027,
+    "ast_hash": "572c5f177f0373a2562b36ff6e3e4dde",
+    "semantic_hash": ""
+  },
+  "web/assets/CollectionActions-CcFJ76aS.js": {
+    "mtime": 1788433689.1704998,
+    "seen": 1788462611.2026048,
+    "ast_hash": "753a95276754c6c139b27ade0ea93313",
+    "semantic_hash": ""
+  },
+  "web/assets/ColumnSelect-CjhAlA7A.js": {
+    "mtime": 1788433689.1704998,
+    "seen": 1788462611.2028477,
+    "ast_hash": "f721074bfe7ea647b8b210e28065114b",
+    "semantic_hash": ""
+  },
+  "web/assets/CombinedReportPage-DoFz2UUi.js": {
+    "mtime": 1788433689.1714928,
+    "seen": 1788462611.2030516,
+    "ast_hash": "ead689466d0a30bdd9dccea7dc1706a9",
+    "semantic_hash": ""
+  },
+  "web/assets/CommandDevicePage-D2qiXvYP.js": {
+    "mtime": 1788433689.1714928,
+    "seen": 1788462611.2031524,
+    "ast_hash": "975084bbdf9f804f303dfd3d6a44a19f",
+    "semantic_hash": ""
+  },
+  "web/assets/CommandGroupPage-CRIGVDrl.js": {
+    "mtime": 1788433689.1724906,
+    "seen": 1788462611.2032545,
+    "ast_hash": "77cf4f0eba54b3e02128730cbe7ab074",
+    "semantic_hash": ""
+  },
+  "web/assets/CommandPage-B2Zx8Fy5.js": {
+    "mtime": 1788433689.1724906,
+    "seen": 1788462611.2035232,
+    "ast_hash": "1d6ccd54a227425c9b9c19984187fa42",
+    "semantic_hash": ""
+  },
+  "web/assets/CommandsPage-BXb9lzZI.js": {
+    "mtime": 1788433689.1734922,
+    "seen": 1788462611.2038267,
+    "ast_hash": "1b9036a9af9488746ef26b3324c13096",
+    "semantic_hash": ""
+  },
+  "web/assets/ComputedAttributePage-DfS-2KHu.js": {
+    "mtime": 1788433689.1734922,
+    "seen": 1788462611.2041326,
+    "ast_hash": "0e4a3313c7b980c3398d1edfe64ea3fb",
+    "semantic_hash": ""
+  },
+  "web/assets/ComputedAttributesPage-DQjVbPj_.js": {
+    "mtime": 1788433689.1744843,
+    "seen": 1788462611.2042356,
+    "ast_hash": "a6e021d248cf43dac1182c57a835b7d7",
+    "semantic_hash": ""
+  },
+  "web/assets/Container-Cs-Ws__L.js": {
+    "mtime": 1788433689.1744843,
+    "seen": 1788462611.2044756,
+    "ast_hash": "6cb88fa13e88c3ecfd8e96311fa985d3",
+    "semantic_hash": ""
+  },
+  "web/assets/DeviceConnectionsPage-CP15URJG.js": {
+    "mtime": 1788433689.1754868,
+    "seen": 1788462611.204577,
+    "ast_hash": "2e3cf452caa3bd7b4e9fd56d884991f8",
+    "semantic_hash": ""
+  },
+  "web/assets/DevicePage-CMPwnRFf.js": {
+    "mtime": 1788433689.1754868,
+    "seen": 1788462611.204978,
+    "ast_hash": "ffe874a86507c466619a1b73ed99926c",
+    "semantic_hash": ""
+  },
+  "web/assets/DevicesPage-7VHh8pu2.js": {
+    "mtime": 1788433689.1764798,
+    "seen": 1788462611.2049801,
+    "ast_hash": "4e36d1b9934d09974d953528d6709ff1",
+    "semantic_hash": ""
+  },
+  "web/assets/DriverPage-D01uf2it.js": {
+    "mtime": 1788433689.1764798,
+    "seen": 1788462611.205302,
+    "ast_hash": "9a7c3d88789bf8054f375ffec8b9f1d9",
+    "semantic_hash": ""
+  },
+  "web/assets/DriversPage-D876NgFk.js": {
+    "mtime": 1788433689.177477,
+    "seen": 1788462611.2054167,
+    "ast_hash": "6394aaa3b77e8d5471de6ac9e1446e3a",
+    "semantic_hash": ""
+  },
+  "web/assets/EditAttributesAccordion-ByUf110C.js": {
+    "mtime": 1788433689.177477,
+    "seen": 1788462611.2057211,
+    "ast_hash": "3d5e6ea19377577caea22b22b9596ba8",
+    "semantic_hash": ""
+  },
+  "web/assets/EditItemView-B4Olk1Xb.js": {
+    "mtime": 1788433689.177477,
+    "seen": 1788462611.2059228,
+    "ast_hash": "d4abe9fefee7c770cbde57da25a30280",
+    "semantic_hash": ""
+  },
+  "web/assets/EmulatorPage-4t9v-TGF.js": {
+    "mtime": 1788433689.1784742,
+    "seen": 1788462611.2060258,
+    "ast_hash": "790c19cec66877835caf42b90bd4f1cb",
+    "semantic_hash": ""
+  },
+  "web/assets/EventPage-G7vvc1cH.js": {
+    "mtime": 1788433689.1784742,
+    "seen": 1788462611.206462,
+    "ast_hash": "85f5f63adf93269812446e8e64701e9d",
+    "semantic_hash": ""
+  },
+  "web/assets/EventReportPage-D4HYJBhZ.js": {
+    "mtime": 1788433689.179472,
+    "seen": 1788462611.2065644,
+    "ast_hash": "7a0560de09244e3ed3a1e36d5de9bbc1",
+    "semantic_hash": ""
+  },
+  "web/assets/ExpandMore-DvyqN-K_.js": {
+    "mtime": 1788433689.179472,
+    "seen": 1788462611.2067668,
+    "ast_hash": "39b7069b1a6b095da813f0955fff0e46",
+    "semantic_hash": ""
+  },
+  "web/assets/FileInput-BuYMgTsk.js": {
+    "mtime": 1788433689.180469,
+    "seen": 1788462611.2068684,
+    "ast_hash": "953eaa4c35de41c2af9b488488958728",
+    "semantic_hash": ""
+  },
+  "web/assets/GeofencePage-mOw3h9iD.js": {
+    "mtime": 1788433689.180469,
+    "seen": 1788462611.2072852,
+    "ast_hash": "e73c85399870206ec1c9829ee24d06cf",
+    "semantic_hash": ""
+  },
+  "web/assets/GeofenceReportPage-DeltNhxf.js": {
+    "mtime": 1788433689.180469,
+    "seen": 1788462611.207507,
+    "ast_hash": "a4ea6337f79ffaa633607f2edc708d64",
+    "semantic_hash": ""
+  },
+  "web/assets/GeofencesPage-dGeLJwwV.js": {
+    "mtime": 1788433689.1814666,
+    "seen": 1788462611.2077081,
+    "ast_hash": "405571e93bf83e53f2a3857972d46243",
+    "semantic_hash": ""
+  },
+  "web/assets/Grid-BSZAXSvr.js": {
+    "mtime": 1788433689.182464,
+    "seen": 1788462611.2078104,
+    "ast_hash": "9f5a04e0160017afa241cb5664be1cdc",
+    "semantic_hash": ""
+  },
+  "web/assets/GroupConnectionsPage-D9TTb4YN.js": {
+    "mtime": 1788433689.182464,
+    "seen": 1788462611.2080145,
+    "ast_hash": "b153a516176b1f251fc209b9c0452082",
+    "semantic_hash": ""
+  },
+  "web/assets/GroupPage-CBNWKV7E.js": {
+    "mtime": 1788433689.182464,
+    "seen": 1788462611.2082145,
+    "ast_hash": "feb259542ae31c4c64dd381aa6295947",
+    "semantic_hash": ""
+  },
+  "web/assets/GroupsPage-H4Oqe2qw.js": {
+    "mtime": 1788433689.1834612,
+    "seen": 1788462611.2085512,
+    "ast_hash": "b1a520fb29071ba5057be103ae082683",
+    "semantic_hash": ""
+  },
+  "web/assets/Link-DkPgRicd.js": {
+    "mtime": 1788433689.1834612,
+    "seen": 1788462611.2087522,
+    "ast_hash": "6448f6ac9258d90dedbc0794b64eec08",
+    "semantic_hash": ""
+  },
+  "web/assets/LinkField-j-oNnzhM.js": {
+    "mtime": 1788433689.1844673,
+    "seen": 1788462611.2088552,
+    "ast_hash": "9080a387db8b8907bee21a81fb5df388",
+    "semantic_hash": ""
+  },
+  "web/assets/ListItem-CsV6ZKga.js": {
+    "mtime": 1788433689.1844673,
+    "seen": 1788462611.2091548,
+    "ast_hash": "4a0385ac46d0f92013f247f50ef79dee",
+    "semantic_hash": ""
+  },
+  "web/assets/LoginLayout-CyAVvnI7.js": {
+    "mtime": 1788433689.1854558,
+    "seen": 1788462611.2093954,
+    "ast_hash": "480c8c7cc7a4ce601fee062dbc7d7fb5",
+    "semantic_hash": ""
+  },
+  "web/assets/LoginPage-d_trxdDQ.js": {
+    "mtime": 1788433689.1854558,
+    "seen": 1788462611.2095997,
+    "ast_hash": "a37b940bac101a22550a638ebe3ceaaa",
+    "semantic_hash": ""
+  },
+  "web/assets/LogsPage-Cp1qrn2Y.js": {
+    "mtime": 1788433689.186456,
+    "seen": 1788462611.2097013,
+    "ast_hash": "0d26ae397bf1710d4d6ec12ea0285b13",
+    "semantic_hash": ""
+  },
+  "web/assets/MainMap-BPJbWFli.js": {
+    "mtime": 1788433689.186456,
+    "seen": 1788462611.2098043,
+    "ast_hash": "cb23216b6955daa77b717a8e1b72354e",
+    "semantic_hash": ""
+  },
+  "web/assets/MaintenancePage-BN7wzI9k.js": {
+    "mtime": 1788433689.1874497,
+    "seen": 1788462611.210006,
+    "ast_hash": "dab596c42c620a246fe2f4d291d3506f",
+    "semantic_hash": ""
+  },
+  "web/assets/MaintenancesPage-Ddftd5MR.js": {
+    "mtime": 1788433689.1874497,
+    "seen": 1788462611.2103455,
+    "ast_hash": "20309fe557c5571c54ea098d3367380f",
+    "semantic_hash": ""
+  },
+  "web/assets/MapCamera-CSAyGlzD.js": {
+    "mtime": 1788433689.1884482,
+    "seen": 1788462611.2105477,
+    "ast_hash": "9a47d21b5b8df1302b89a02ceafde16e",
+    "semantic_hash": ""
+  },
+  "web/assets/MapGeocoder-BaKI7kaI.js": {
+    "mtime": 1788433689.1884482,
+    "seen": 1788462611.2106483,
+    "ast_hash": "0bbbcf84977910ed90d58fea1f0e0e8b",
+    "semantic_hash": ""
+  },
+  "web/assets/MapGeofence-BwhduCky.js": {
+    "mtime": 1788433689.1884482,
+    "seen": 1788462611.21095,
+    "ast_hash": "fc7abb9a756cb5c88f3f8d1e5204c792",
+    "semantic_hash": ""
+  },
+  "web/assets/MapMarkers-BuDFwm7n.js": {
+    "mtime": 1788433689.1894453,
+    "seen": 1788462611.211051,
+    "ast_hash": "8c8a1b935419441cc0822d23d9db8ca5",
+    "semantic_hash": ""
+  },
+  "web/assets/MapOverlay-XoWp_Tf0.js": {
+    "mtime": 1788433689.1894453,
+    "seen": 1788462611.211486,
+    "ast_hash": "5cdd8ae94e33673fca20787dc61414df",
+    "semantic_hash": ""
+  },
+  "web/assets/MapPositionMarkers-DHb4TsMP.js": {
+    "mtime": 1788433689.1904428,
+    "seen": 1788462611.211688,
+    "ast_hash": "6d24855ef736034ea2fc9b82e54886ff",
+    "semantic_hash": ""
+  },
+  "web/assets/MapRoutePath-BCKEAqbM.js": {
+    "mtime": 1788433689.1904428,
+    "seen": 1788462611.21169,
+    "ast_hash": "62c8a1c30c8d026c6db697ca0c73f8c0",
+    "semantic_hash": ""
+  },
+  "web/assets/MapRoutePoints-OPIkAL3_.js": {
+    "mtime": 1788433689.1910598,
+    "seen": 1788462611.2120926,
+    "ast_hash": "c9e1a9d520624e7a7066753103ca6e7e",
+    "semantic_hash": ""
+  },
+  "web/assets/MapScale-DCf9C4is.js": {
+    "mtime": 1788433689.191564,
+    "seen": 1788462611.212195,
+    "ast_hash": "b85d2deb875dbc2efb4203d9c6e80005",
+    "semantic_hash": ""
+  },
+  "web/assets/MenuItem-gvyHVi_c.js": {
+    "mtime": 1788433689.191564,
+    "seen": 1788462611.21253,
+    "ast_hash": "1ab0c34f7826f33bff865e9b89fbc2a8",
+    "semantic_hash": ""
+  },
+  "web/assets/NetworkPage-rGar89Yd.js": {
+    "mtime": 1788433689.1925647,
+    "seen": 1788462611.2127304,
+    "ast_hash": "5fc3bb2a85a84e82da340798b59433a9",
+    "semantic_hash": ""
+  },
+  "web/assets/NotificationPage-CXxZTGFI.js": {
+    "mtime": 1788433689.1925647,
+    "seen": 1788462611.213131,
+    "ast_hash": "24e4887d174526226d0f8f9a103d8f0e",
+    "semantic_hash": ""
+  },
+  "web/assets/Notifications-BM0kaeJH.js": {
+    "mtime": 1788433689.1925647,
+    "seen": 1788462611.2131329,
+    "ast_hash": "08a6b5ac2333a85828f0e8364a73d653",
+    "semantic_hash": ""
+  },
+  "web/assets/NotificationsPage-8FR8I05C.js": {
+    "mtime": 1788433689.193566,
+    "seen": 1788462611.2134736,
+    "ast_hash": "8b557f5f1234fe7879aa7de5d7b2af46",
+    "semantic_hash": ""
+  },
+  "web/assets/PasswordField-DDgVQAKs.js": {
+    "mtime": 1788433689.193566,
+    "seen": 1788462611.2136724,
+    "ast_hash": "8f588b59b94dbcf86d654e54209e13ce",
+    "semantic_hash": ""
+  },
+  "web/assets/PlayArrow-DJn6cIxS.js": {
+    "mtime": 1788433689.193566,
+    "seen": 1788462611.2138743,
+    "ast_hash": "289057243cfec0a2e1ab75dd6b21e2c7",
+    "semantic_hash": ""
+  },
+  "web/assets/PositionPage-Bk7tiFE7.js": {
+    "mtime": 1788433689.194559,
+    "seen": 1788462611.213976,
+    "ast_hash": "3219a2658f095c30cb649719b4d9198b",
+    "semantic_hash": ""
+  },
+  "web/assets/PositionsReportPage-CjPTHAsp.js": {
+    "mtime": 1788433689.194559,
+    "seen": 1788462611.2143111,
+    "ast_hash": "14cc5f76ac11217bd9bf734e50fc93e1",
+    "semantic_hash": ""
+  },
+  "web/assets/PreferencesPage-COEkDgfI.js": {
+    "mtime": 1788433689.1955566,
+    "seen": 1788462611.214513,
+    "ast_hash": "288803007b72577b7d78303bb75a96d0",
+    "semantic_hash": ""
+  },
+  "web/assets/QrCodeDialog-DWQlYLSc.js": {
+    "mtime": 1788433689.1955566,
+    "seen": 1788462611.2148116,
+    "ast_hash": "704cf7259618a1c9050889f621873217",
+    "semantic_hash": ""
+  },
+  "web/assets/RegisterPage-DxUFpnGo.js": {
+    "mtime": 1788433689.196554,
+    "seen": 1788462611.2149122,
+    "ast_hash": "e5004a96b369b59d4dbc75b256c55cfe",
+    "semantic_hash": ""
+  },
+  "web/assets/ReplayPage-BF0_i5Ms.js": {
+    "mtime": 1788433689.1975508,
+    "seen": 1788462611.2150133,
+    "ast_hash": "50860ab9827b52619812a417338d144c",
+    "semantic_hash": ""
+  },
+  "web/assets/ReportFilter-BJciz7XP.js": {
+    "mtime": 1788433689.1975508,
+    "seen": 1788462611.2152152,
+    "ast_hash": "3610d329452e446a8bd3b2dc751ffeda",
+    "semantic_hash": ""
+  },
+  "web/assets/ReportsMenu-3K-22KEn.js": {
+    "mtime": 1788433689.1985483,
+    "seen": 1788462611.2154505,
+    "ast_hash": "c873416646c6f283353dc7a037fd241f",
+    "semantic_hash": ""
+  },
+  "web/assets/ResetPasswordPage-Bjn4lmwB.js": {
+    "mtime": 1788433689.1985483,
+    "seen": 1788462611.2156508,
+    "ast_hash": "bee0fc1ea86826fad233682559b4c8c8",
+    "semantic_hash": ""
+  },
+  "web/assets/ResizeHandle-zsGN8iCd.js": {
+    "mtime": 1788433689.1985483,
+    "seen": 1788462611.2160494,
+    "ast_hash": "3efef30b46006fdac6a2e7778a07f894",
+    "semantic_hash": ""
+  },
+  "web/assets/ScheduledPage-Bks8WcNd.js": {
+    "mtime": 1788433689.19955,
+    "seen": 1788462611.216051,
+    "ast_hash": "19fada838cc6a7809a79313ff40b5f19",
+    "semantic_hash": ""
+  },
+  "web/assets/SearchHeader-CWQJUwWo.js": {
+    "mtime": 1788433689.19955,
+    "seen": 1788462611.2164912,
+    "ast_hash": "a5083b4e13e4a3ed497f5e77134024b2",
+    "semantic_hash": ""
+  },
+  "web/assets/SelectField-B-vYrQtr.js": {
+    "mtime": 1788433689.2005432,
+    "seen": 1788462611.2164934,
+    "ast_hash": "0aced5be3fb1f012bb5c3c11c9bc16e5",
+    "semantic_hash": ""
+  },
+  "web/assets/ServerPage-B4vx4Ok_.js": {
+    "mtime": 1788433689.2005432,
+    "seen": 1788462611.2166944,
+    "ast_hash": "aca2937a79f1463e0796a06fcfaaa898",
+    "semantic_hash": ""
+  },
+  "web/assets/SettingsMenu-BYqe2FGo.js": {
+    "mtime": 1788433689.2005432,
+    "seen": 1788462611.2168934,
+    "ast_hash": "5104b10e2780b40be3674fe6fd802f69",
+    "semantic_hash": ""
+  },
+  "web/assets/SharePage-CBwM6euT.js": {
+    "mtime": 1788433689.2015405,
+    "seen": 1788462611.2171907,
+    "ast_hash": "b51235fadde5609009b87fb305de69be",
+    "semantic_hash": ""
+  },
+  "web/assets/Skeleton-B5EzS6rr.js": {
+    "mtime": 1788433689.2015405,
+    "seen": 1788462611.2174282,
+    "ast_hash": "39d684b216011c3ab1d42031cd127b7f",
+    "semantic_hash": ""
+  },
+  "web/assets/StatisticsPage-BnftHHPX.js": {
+    "mtime": 1788433689.2025378,
+    "seen": 1788462611.2175295,
+    "ast_hash": "d28cc30cfb5c54eb45145bfcd51e8d9b",
+    "semantic_hash": ""
+  },
+  "web/assets/Stop-DJ9L0zBB.js": {
+    "mtime": 1788433689.2025378,
+    "seen": 1788462611.217832,
+    "ast_hash": "3273460a3850291ee940747ea44d0a28",
+    "semantic_hash": ""
+  },
+  "web/assets/StopReportPage-CTvfCZ4r.js": {
+    "mtime": 1788433689.2025378,
+    "seen": 1788462611.2179322,
+    "ast_hash": "1501f67bea4dd4250d789fd0ddb87728",
+    "semantic_hash": ""
+  },
+  "web/assets/StreamPage-DZFYo1Xa.js": {
+    "mtime": 1788433689.2055295,
+    "seen": 1788462611.218366,
+    "ast_hash": "e119c93a94c2adf47b6b97ab94360fdb",
+    "semantic_hash": ""
+  },
+  "web/assets/SummaryReportPage-CZ-4QOy9.js": {
+    "mtime": 1788433689.2065272,
+    "seen": 1788462611.2183678,
+    "ast_hash": "9456e7f919f53f0a749fd038fd922bfc",
+    "semantic_hash": ""
+  },
+  "web/assets/TableHead-DhjgDqib.js": {
+    "mtime": 1788433689.2065272,
+    "seen": 1788462611.2187648,
+    "ast_hash": "3adcc0f97e215de20db54caf795f190d",
+    "semantic_hash": ""
+  },
+  "web/assets/TableShimmer-DgWrDtdq.js": {
+    "mtime": 1788433689.2075245,
+    "seen": 1788462611.2189653,
+    "ast_hash": "74ad2b03e45d959c32de9f39a0609ac4",
+    "semantic_hash": ""
+  },
+  "web/assets/TachographPage-DV_k0DLw.js": {
+    "mtime": 1788433689.2075245,
+    "seen": 1788462611.21917,
+    "ast_hash": "21435adc34c522c8d1462a0365340f1a",
+    "semantic_hash": ""
+  },
+  "web/assets/TextField-RAUkO5Al.js": {
+    "mtime": 1788433689.2085218,
+    "seen": 1788462611.2194073,
+    "ast_hash": "c34144529c49f72deec3e2b060e33c47",
+    "semantic_hash": ""
+  },
+  "web/assets/TripReportPage-CjEKZabI.js": {
+    "mtime": 1788433689.2085218,
+    "seen": 1788462611.2195077,
+    "ast_hash": "a6bbe8a7e75cf153c32641b63a44d90a",
+    "semantic_hash": ""
+  },
+  "web/assets/UserConnectionsPage-F61eTlLL.js": {
+    "mtime": 1788433689.2085218,
+    "seen": 1788462611.2197092,
+    "ast_hash": "ba3350de2143443c6fecf1c7ba48e25f",
+    "semantic_hash": ""
+  },
+  "web/assets/UserPage-DzmmNkgJ.js": {
+    "mtime": 1788433689.2095232,
+    "seen": 1788462611.2200084,
+    "ast_hash": "c0c276adf5595708b7b9871cc4eb9055",
+    "semantic_hash": ""
+  },
+  "web/assets/UsersPage-DbS3NEaJ.js": {
+    "mtime": 1788433689.2095232,
+    "seen": 1788462611.2201102,
+    "ast_hash": "3028eec909b4629d53661479aaa683e3",
+    "semantic_hash": ""
+  },
+  "web/assets/af-CXohdKMC.js": {
+    "mtime": 1788433689.2105184,
+    "seen": 1788462611.2203526,
+    "ast_hash": "f95064b20868b1604c79d16dd329e5f0",
+    "semantic_hash": ""
+  },
+  "web/assets/ar-BjQaaDdK.js": {
+    "mtime": 1788433689.2105184,
+    "seen": 1788462611.2204595,
+    "ast_hash": "ee8b36e18e490c395443528be12f72b4",
+    "semantic_hash": ""
+  },
+  "web/assets/az-a6VzXsmU.js": {
+    "mtime": 1788433689.2115147,
+    "seen": 1788462611.2208576,
+    "ast_hash": "e2c2f8cf8c6894fc7de76abf95d8db82",
+    "semantic_hash": ""
+  },
+  "web/assets/bg-CqlDwDh4.js": {
+    "mtime": 1788433689.2115147,
+    "seen": 1788462611.2210598,
+    "ast_hash": "687f3a3b79b1afeb8ceb706af107f2e4",
+    "semantic_hash": ""
+  },
+  "web/assets/bn-Bb3umFfG.js": {
+    "mtime": 1788433689.2115147,
+    "seen": 1788462611.2210639,
+    "ast_hash": "2f335c14cb226a79afad95fd5c5e7a3c",
+    "semantic_hash": ""
+  },
+  "web/assets/ca-Dd84K9u8.js": {
+    "mtime": 1788433689.2125118,
+    "seen": 1788462611.2215002,
+    "ast_hash": "4d36dfb34b3a5a497c47033691461deb",
+    "semantic_hash": ""
+  },
+  "web/assets/cs-pK8QWcZO.js": {
+    "mtime": 1788433689.2125118,
+    "seen": 1788462611.2217011,
+    "ast_hash": "8df41200dcd508d9541ba89a27d20bad",
+    "semantic_hash": ""
+  },
+  "web/assets/da-BpQuEaa8.js": {
+    "mtime": 1788433689.21351,
+    "seen": 1788462611.2218065,
+    "ast_hash": "8773e2684986cc84d6edf16b385c5ee6",
+    "semantic_hash": ""
+  },
+  "web/assets/de-DxJAfsdo.js": {
+    "mtime": 1788433689.21351,
+    "seen": 1788462611.2221062,
+    "ast_hash": "b12b10474e6300e82eded7377396b318",
+    "semantic_hash": ""
+  },
+  "web/assets/el-Ij19Ccul.js": {
+    "mtime": 1788433689.2145188,
+    "seen": 1788462611.2223437,
+    "ast_hash": "cc0d1aff13d291b954c3b7ea9de6f5f8",
+    "semantic_hash": ""
+  },
+  "web/assets/es-KAx76xaK.js": {
+    "mtime": 1788433689.2145188,
+    "seen": 1788462611.2224467,
+    "ast_hash": "ed686f104d055a439fe707175182dc01",
+    "semantic_hash": ""
+  },
+  "web/assets/exceljs.min-DXV7UN19.js": {
+    "mtime": 1788433689.2214878,
+    "seen": 1788462611.2226493,
+    "ast_hash": "6d18cc19fbd77e7f800ec788853c97c2",
+    "semantic_hash": ""
+  },
+  "web/assets/exportExcel-DkgBcGKz.js": {
+    "mtime": 1788433689.2224855,
+    "seen": 1788462611.2229486,
+    "ast_hash": "fd939c845831314907b4fa3cfce749fb",
+    "semantic_hash": ""
+  },
+  "web/assets/fa-BjkuiFOp.js": {
+    "mtime": 1788433689.2224855,
+    "seen": 1788462611.2229505,
+    "ast_hash": "3263be923c26ce6c3192f632e6cf7003",
+    "semantic_hash": ""
+  },
+  "web/assets/fi-Dc0TuShx.js": {
+    "mtime": 1788433689.2234964,
+    "seen": 1788462611.2233856,
+    "ast_hash": "9ef9cca27d53936a78bb7323b6bebc48",
+    "semantic_hash": ""
+  },
+  "web/assets/formatEventData-DUHHd1lX.js": {
+    "mtime": 1788433689.2234964,
+    "seen": 1788462611.2235863,
+    "ast_hash": "4669096b2a093f66f54d9ab5fec5718c",
+    "semantic_hash": ""
+  },
+  "web/assets/fr-ByvNBPHP.js": {
+    "mtime": 1788433689.224481,
+    "seen": 1788462611.2236867,
+    "ast_hash": "3782b190ce0fe4f4f611d2f2373c9b41",
+    "semantic_hash": ""
+  },
+  "web/assets/gl-4AQfGdWS.js": {
+    "mtime": 1788433689.224481,
+    "seen": 1788462611.2238872,
+    "ast_hash": "0d304e492c204a67611505125a846319",
+    "semantic_hash": ""
+  },
+  "web/assets/he-CikODG1A.js": {
+    "mtime": 1788433689.2254777,
+    "seen": 1788462611.2241845,
+    "ast_hash": "ee08b660e11658886c39d088dcc52609",
+    "semantic_hash": ""
+  },
+  "web/assets/hi-3i95tY7R.js": {
+    "mtime": 1788433689.2254777,
+    "seen": 1788462611.2241893,
+    "ast_hash": "cd3a26c92793ea9a7017beeecf441bae",
+    "semantic_hash": ""
+  },
+  "web/assets/hr-BSHasAz4.js": {
+    "mtime": 1788433689.2254777,
+    "seen": 1788462611.224427,
+    "ast_hash": "f39dd9108f84d70145b362ca67b1b960",
+    "semantic_hash": ""
+  },
+  "web/assets/hu-1WdOmu0O.js": {
+    "mtime": 1788433689.2264748,
+    "seen": 1788462611.2246306,
+    "ast_hash": "900c18fe7b4230fa4c683d341a5201c5",
+    "semantic_hash": ""
+  },
+  "web/assets/id-B-bcHNvk.js": {
+    "mtime": 1788433689.2264748,
+    "seen": 1788462611.2248325,
+    "ast_hash": "5f8535aa375dabf820f4a1d1abc25446",
+    "semantic_hash": ""
+  },
+  "web/assets/index-Bh9QGtkt.js": {
+    "mtime": 1788433689.239441,
+    "seen": 1788462611.225135,
+    "ast_hash": "1c6caa0ce46d8f8094177141cbf721e9",
+    "semantic_hash": ""
+  },
+  "web/assets/it-CTPpeZgO.js": {
+    "mtime": 1788433689.2404497,
+    "seen": 1788462611.225273,
+    "ast_hash": "3283b4ff916b0c0bb0af331ffbe28fbc",
+    "semantic_hash": ""
+  },
+  "web/assets/ja-dLJKAcNl.js": {
+    "mtime": 1788433689.2404497,
+    "seen": 1788462611.2255728,
+    "ast_hash": "dc9d6ecd15c328d077fa64247eebeb46",
+    "semantic_hash": ""
+  },
+  "web/assets/ka-BN4x18uI.js": {
+    "mtime": 1788433689.2414348,
+    "seen": 1788462611.2256725,
+    "ast_hash": "96ab331e1914e055829b11c1df794247",
+    "semantic_hash": ""
+  },
+  "web/assets/kk-DOFKgpaL.js": {
+    "mtime": 1788433689.2414348,
+    "seen": 1788462611.226071,
+    "ast_hash": "6e7c8283d8d344355e557b25fb0fabd7",
+    "semantic_hash": ""
+  },
+  "web/assets/km-DAhiUa-W.js": {
+    "mtime": 1788433689.2424324,
+    "seen": 1788462611.2261708,
+    "ast_hash": "3713f302aaf1cde10093c21cfe373aa1",
+    "semantic_hash": ""
+  },
+  "web/assets/ko-ACTU35nW.js": {
+    "mtime": 1788433689.2424324,
+    "seen": 1788462611.2263093,
+    "ast_hash": "6e7ff4a5ccf6d3336c5903af1e1d6ab3",
+    "semantic_hash": ""
+  },
+  "web/assets/lo-BBp4WNgn.js": {
+    "mtime": 1788433689.2424324,
+    "seen": 1788462611.2265084,
+    "ast_hash": "6f17a632d38f9b4e0c42e28402002d08",
+    "semantic_hash": ""
+  },
+  "web/assets/lt-rldd2Diu.js": {
+    "mtime": 1788433689.24343,
+    "seen": 1788462611.226906,
+    "ast_hash": "52db3cbc47645f829a30407346b46f56",
+    "semantic_hash": ""
+  },
+  "web/assets/lv-CCAOJBcG.js": {
+    "mtime": 1788433689.24343,
+    "seen": 1788462611.2269082,
+    "ast_hash": "913afedc3ca3673b1afd652e93ed329a",
+    "semantic_hash": ""
+  },
+  "web/assets/mk-dVwMM1eM.js": {
+    "mtime": 1788433689.2444272,
+    "seen": 1788462611.2273464,
+    "ast_hash": "b4f4b16bdc250b051eb0d618d2dce8c4",
+    "semantic_hash": ""
+  },
+  "web/assets/ml-MGfk-yP6.js": {
+    "mtime": 1788433689.2444272,
+    "seen": 1788462611.2274463,
+    "ast_hash": "78f1a680d6aa38b730ffb31fc3499076",
+    "semantic_hash": ""
+  },
+  "web/assets/mn-BH8uKgqF.js": {
+    "mtime": 1788433689.2444272,
+    "seen": 1788462611.2275474,
+    "ast_hash": "d3a5087ce957e31e64488299594a8b84",
+    "semantic_hash": ""
+  },
+  "web/assets/ms-BDC85kbo.js": {
+    "mtime": 1788433689.2454255,
+    "seen": 1788462611.227745,
+    "ast_hash": "2d973d6abb063178feee7fa2e68c95fb",
+    "semantic_hash": ""
+  },
+  "web/assets/nb-Ci3Lm7ZG.js": {
+    "mtime": 1788433689.2454255,
+    "seen": 1788462611.2279446,
+    "ast_hash": "4534488218a498b69ca0f45eeada448a",
+    "semantic_hash": ""
+  },
+  "web/assets/ne-BgnzwqDN.js": {
+    "mtime": 1788433689.2454255,
+    "seen": 1788462611.228147,
+    "ast_hash": "e5a9bea3a9c0ba5dfce6ed4192894990",
+    "semantic_hash": ""
+  },
+  "web/assets/nl-CDKj-uzX.js": {
+    "mtime": 1788433689.2464218,
+    "seen": 1788462611.2284825,
+    "ast_hash": "3aa020ae42421b8ded203e0249613592",
+    "semantic_hash": ""
+  },
+  "web/assets/nn-DFwLVTbY.js": {
+    "mtime": 1788433689.2464218,
+    "seen": 1788462611.228782,
+    "ast_hash": "975a6cd5f434254bd5b9f2ddadf5a2e2",
+    "semantic_hash": ""
+  },
+  "web/assets/pl-COES8Wrb.js": {
+    "mtime": 1788433689.247419,
+    "seen": 1788462611.2287836,
+    "ast_hash": "b5f678f5f0a3e703333c89ad4dcc8fa7",
+    "semantic_hash": ""
+  },
+  "web/assets/pt-B59aX8G2.js": {
+    "mtime": 1788433689.247419,
+    "seen": 1788462611.2289824,
+    "ast_hash": "6cd38ce558eb7f4ce566945160f99a44",
+    "semantic_hash": ""
+  },
+  "web/assets/pt-br-DUSI9dcI.js": {
+    "mtime": 1788433689.247419,
+    "seen": 1788462611.2291813,
+    "ast_hash": "e5200535ea7e29d902ae45a4597658f7",
+    "semantic_hash": ""
+  },
+  "web/assets/ro-84wNcdYX.js": {
+    "mtime": 1788433689.2484164,
+    "seen": 1788462611.229472,
+    "ast_hash": "57d0aae49f7d4cb7e01f1bd098a64d05",
+    "semantic_hash": ""
+  },
+  "web/assets/ru-ygf0KGwe.js": {
+    "mtime": 1788433689.2484164,
+    "seen": 1788462611.229873,
+    "ast_hash": "d84c3ebb4d71fb4e3384239d0b4fd508",
+    "semantic_hash": ""
+  },
+  "web/assets/scheduleReport-Ck9-MG57.js": {
+    "mtime": 1788433689.2494137,
+    "seen": 1788462611.229975,
+    "ast_hash": "2d6b5162630db1599818f8c5d5aeecb0",
+    "semantic_hash": ""
+  },
+  "web/assets/si-BlIiI4i2.js": {
+    "mtime": 1788433689.2494137,
+    "seen": 1788462611.2300763,
+    "ast_hash": "78bafa2cfcdfa06e88b27f3bf6d405de",
+    "semantic_hash": ""
+  },
+  "web/assets/sk-Bmo8TMmu.js": {
+    "mtime": 1788433689.2494137,
+    "seen": 1788462611.2303135,
+    "ast_hash": "252f22bd85c79866c03cbfccbc554761",
+    "semantic_hash": ""
+  },
+  "web/assets/sl-C2_fNT-i.js": {
+    "mtime": 1788433689.2504113,
+    "seen": 1788462611.2306125,
+    "ast_hash": "e7d5c7f98193d282d3b3a76486e5578b",
+    "semantic_hash": ""
+  },
+  "web/assets/sq-D0cHXS0o.js": {
+    "mtime": 1788433689.2504113,
+    "seen": 1788462611.2308118,
+    "ast_hash": "093e881989d8766bb4d9fbbcab1ed66a",
+    "semantic_hash": ""
+  },
+  "web/assets/sr-C8hFtd-Y.js": {
+    "mtime": 1788433689.2504113,
+    "seen": 1788462611.231011,
+    "ast_hash": "237b2bb3f2ab0d354604724aefa5046d",
+    "semantic_hash": ""
+  },
+  "web/assets/sv-CdzifiRw.js": {
+    "mtime": 1788433689.2514086,
+    "seen": 1788462611.231234,
+    "ast_hash": "d2978bb93f6dbbd7d671051ea8545969",
+    "semantic_hash": ""
+  },
+  "web/assets/ta-CPIh_lqH.js": {
+    "mtime": 1788433689.2514086,
+    "seen": 1788462611.2313564,
+    "ast_hash": "1a46be26eb5775f854b7988f58b378a7",
+    "semantic_hash": ""
+  },
+  "web/assets/th-BuPcVjwP.js": {
+    "mtime": 1788433689.2524056,
+    "seen": 1788462611.2316532,
+    "ast_hash": "94f2c1103f32e2147c020e602ff9e8a1",
+    "semantic_hash": ""
+  },
+  "web/assets/tr-B9HQdtAM.js": {
+    "mtime": 1788433689.2524056,
+    "seen": 1788462611.2317579,
+    "ast_hash": "f98c3301854c419c950566e955596b77",
+    "semantic_hash": ""
+  },
+  "web/assets/uk-Co01CIds.js": {
+    "mtime": 1788433689.2534032,
+    "seen": 1788462611.2320569,
+    "ast_hash": "c9b956728011c2ad255a79c7bb90f90f",
+    "semantic_hash": ""
+  },
+  "web/assets/useCommonDeviceAttributes-C9DN5Nbn.js": {
+    "mtime": 1788433689.2534032,
+    "seen": 1788462611.2323012,
+    "ast_hash": "1997790c42aa9163f9b430dc7a64463b",
+    "semantic_hash": ""
+  },
+  "web/assets/useCommonUserAttributes-vd_fF6yz.js": {
+    "mtime": 1788433689.2534032,
+    "seen": 1788462611.2326076,
+    "ast_hash": "b99eff5eed55154b695aea93c2e17131",
+    "semantic_hash": ""
+  },
+  "web/assets/useMapOverlays-Bg-vAUuy.js": {
+    "mtime": 1788433689.2544005,
+    "seen": 1788462611.2326093,
+    "ast_hash": "ed187ab1c48bd039d5dfe5ccb2c51dc3",
+    "semantic_hash": ""
+  },
+  "web/assets/useSettingsStyles-DplHfmti.js": {
+    "mtime": 1788433689.2544005,
+    "seen": 1788462611.2330062,
+    "ast_hash": "ec570ab4aa3c3291182e04610115d566",
+    "semantic_hash": ""
+  },
+  "web/assets/uz-C4P4qTuz.js": {
+    "mtime": 1788433689.2553983,
+    "seen": 1788462611.2330098,
+    "ast_hash": "a7d4e508487c4a0a18c56f52310f132b",
+    "semantic_hash": ""
+  },
+  "web/assets/vi-DY3SlmIV.js": {
+    "mtime": 1788433689.2553983,
+    "seen": 1788462611.2332442,
+    "ast_hash": "b3878b4e000eb8a7cbb4bc2ab8ca8c84",
+    "semantic_hash": ""
+  },
+  "web/assets/zh-tnTH-EPg.js": {
+    "mtime": 1788433689.2563941,
+    "seen": 1788462611.2336433,
+    "ast_hash": "0b3e59e117ad80be7342c711398bf876",
+    "semantic_hash": ""
+  },
+  "web/assets/zh-tw-Dftqarf9.js": {
+    "mtime": 1788433689.2563941,
+    "seen": 1788462611.2337446,
+    "ast_hash": "7cd50f9a6ebd215cf7d626b2800093e4",
+    "semantic_hash": ""
+  },
+  "PROJECT_STRUCTURE_FOR_AI.md": {
+    "mtime": 1788186124.6036446,
+    "seen": 1788462611.2355103,
+    "ast_hash": "6dff1fe6464be9636c3a07f5e3f5c38f",
+    "semantic_hash": ""
+  },
+  "docs/tachograph/FORWARDING.md": {
+    "mtime": 1788462213.6677623,
+    "seen": 1788462611.2358158,
+    "ast_hash": "ea3ad894b276d1ba17ab1bb56a6bd795",
+    "semantic_hash": ""
+  },
+  "docs/tachograph/VU-PROTOCOL.md": {
+    "mtime": 1788460989.8513043,
+    "seen": 1788462611.2359247,
+    "ast_hash": "73dab2ee7e3684714222ce2355666911",
     "semantic_hash": ""
   }
 }

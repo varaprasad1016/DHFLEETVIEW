@@ -17,13 +17,11 @@ import {
   ListItemText,
   ListItemButton,
   Chip,
-  Slider,
 } from '@mui/material';
 import { makeStyles } from 'tss-react/mui';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
-import PauseIcon from '@mui/icons-material/Pause';
 import StopIcon from '@mui/icons-material/Stop';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import VideocamIcon from '@mui/icons-material/Videocam';
@@ -230,19 +228,6 @@ const gridShape = (count) => {
   };
 };
 
-// Speeds offered when reviewing a clip. Browsers honour playbackRate up to
-// 16, which is where this stops.
-const REVIEW_RATES = [1, 2, 4, 8, 16];
-
-const clockOf = (seconds) => {
-  const whole = Math.max(0, Math.floor(seconds || 0));
-  const h = Math.floor(whole / 3600);
-  const m = Math.floor((whole % 3600) / 60);
-  const s = whole % 60;
-  const pad = (n) => String(n).padStart(2, '0');
-  return h ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
-};
-
 // How often a stalled tile is restarted from the DVR before it gives up, and
 // how long a tile may show nothing before it counts as stalled.
 const GRID_RESTART_LIMIT = 3;
@@ -401,14 +386,6 @@ const Cmsv9VideoPage = () => {
   const [playing, setPlaying] = useState(false);
   const [liveError, setLiveError] = useState(false);
   const [playbackActive, setPlaybackActive] = useState(false);
-  // The clip being reviewed, and where we are in it.
-  const reviewRef = useRef(null);
-  const [reviewUrl, setReviewUrl] = useState('');
-  const [reviewRate, setReviewRate] = useState(1);
-  const [reviewAt, setReviewAt] = useState(0);
-  const [reviewLength, setReviewLength] = useState(0);
-  const [reviewRunning, setReviewRunning] = useState(false);
-  const [reviewWaiting, setReviewWaiting] = useState(false);
   const [playerMsg, setPlayerMsg] = useState('');
 
   const [gridActive, setGridActive] = useState(false);
@@ -810,35 +787,10 @@ const Cmsv9VideoPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, timelineDate, channel, cmsv9DeviceId]);
 
-  // Reviewing a clip is a different job from watching a live picture, and it
-  // needs a different player. The relay pushes recorded footage as a live FLV
-  // stream, so Jessibuca can only ever show it at normal speed with no way to
-  // move about in it. The same clip fetched as MP4 plays in the browser's own
-  // video element, which brings real seeking and any speed we ask for.
-  const reviewClip = useCallback((startStr, endStr) => {
-    cancelledRef.current = true;
-    stopPlayback();
-    setPlaybackActive(false);
-    setLiveError(false);
-    setReviewRate(1);
-    setReviewUrl(`/api/cmsv9/download/${deviceId}/${channel}`
-      + `?startTime=${encodeURIComponent(startStr)}`
-      + `&endTime=${encodeURIComponent(endStr)}`);
-  }, [deviceId, channel, stopPlayback]);
-
-  const setRate = useCallback((rate) => {
-    setReviewRate(rate);
-    if (reviewRef.current) reviewRef.current.playbackRate = rate;
-  }, []);
-
-  // format=share re-encodes to H.264 with the index at the front. Without it
-  // the file is the camera's own H.265 in a fragmented container: fine in VLC
-  // or on a PC, but WhatsApp and the phone galleries refuse it.
   const downloadSegment = useCallback((startStr, endStr) => {
     const url = `/api/cmsv9/download/${deviceId}/${channel}`
       + `?startTime=${encodeURIComponent(startStr)}`
-      + `&endTime=${encodeURIComponent(endStr)}`
-      + '&format=share';
+      + `&endTime=${encodeURIComponent(endStr)}`;
     const a = document.createElement('a');
     a.href = url;
     a.download = '';
@@ -1147,107 +1099,7 @@ const Cmsv9VideoPage = () => {
           )}
           {tab === 2 && (
             <>
-              {reviewUrl && (
-                <Box sx={{ px: 2, pt: 2 }}>
-                  <Box sx={{ bgcolor: '#000', borderRadius: 2, overflow: 'hidden' }}>
-                    <video
-                      ref={reviewRef}
-                      src={reviewUrl}
-                      autoPlay
-                      playsInline
-                      style={{ width: '100%', maxHeight: 360, display: 'block', background: '#000' }}
-                      onLoadedMetadata={(e) => {
-                        e.currentTarget.playbackRate = reviewRate;
-                        // A clip still arriving reports Infinity; the slider
-                        // then follows what has been received so far.
-                        const d = e.currentTarget.duration;
-                        setReviewLength(Number.isFinite(d) ? d : 0);
-                      }}
-                      onDurationChange={(e) => {
-                        const d = e.currentTarget.duration;
-                        if (Number.isFinite(d)) setReviewLength(d);
-                      }}
-                      onTimeUpdate={(e) => setReviewAt(e.currentTarget.currentTime)}
-                      onPlay={() => setReviewRunning(true)}
-                      onPause={() => setReviewRunning(false)}
-                      onWaiting={() => setReviewWaiting(true)}
-                      onPlaying={() => setReviewWaiting(false)}
-                      onError={() => {
-                        // No ffmpeg on the server means the clip comes back as
-                        // FLV, which no browser will play. Fall back to the
-                        // relay stream so the footage is still watchable -
-                        // without the seeking and speed this player adds.
-                        setReviewUrl('');
-                        setError('This clip cannot be scrubbed on this server; '
-                          + 'playing it at normal speed instead.');
-                        cancelledRef.current = false;
-                        playRecording({
-                          startTime: trimStart.format('YYYY-MM-DD HH:mm:ss'),
-                          endTime: trimEnd.format('YYYY-MM-DD HH:mm:ss'),
-                        });
-                      }}
-                    />
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1, flexWrap: 'wrap' }}>
-                    <IconButton
-                      size="small"
-                      onClick={() => {
-                        const v = reviewRef.current;
-                        if (!v) return;
-                        if (v.paused) v.play(); else v.pause();
-                      }}
-                    >
-                      {reviewRunning ? <PauseIcon /> : <PlayArrowIcon />}
-                    </IconButton>
-                    <Typography variant="caption" sx={{ fontVariantNumeric: 'tabular-nums', minWidth: 92 }}>
-                      {`${clockOf(reviewAt)} / ${reviewLength ? clockOf(reviewLength) : '—'}`}
-                    </Typography>
-                    <Slider
-                      size="small"
-                      min={0}
-                      max={reviewLength || Math.max(reviewAt, 1)}
-                      step={0.1}
-                      value={Math.min(reviewAt, reviewLength || reviewAt)}
-                      onChange={(_e, value) => {
-                        const v = reviewRef.current;
-                        if (v) v.currentTime = value;
-                        setReviewAt(value);
-                      }}
-                      sx={{ flex: '1 1 200px', mx: 1 }}
-                      disabled={!reviewLength}
-                    />
-                    {/* Fast forward is the browser's own playback rate, so it
-                        works on whatever has been received without asking the
-                        vehicle for anything. */}
-                    {REVIEW_RATES.map((rate) => (
-                      <Button
-                        key={rate}
-                        size="small"
-                        variant={reviewRate === rate ? 'contained' : 'outlined'}
-                        onClick={() => setRate(rate)}
-                        sx={{ minWidth: 44, px: 0.5 }}
-                      >
-                        {`${rate}×`}
-                      </Button>
-                    ))}
-                    {reviewWaiting && <CircularProgress size={16} />}
-                    <Button
-                      size="small"
-                      color="inherit"
-                      startIcon={<StopIcon />}
-                      onClick={() => { setReviewUrl(''); setReviewRunning(false); }}
-                    >
-                      Close
-                    </Button>
-                  </Box>
-                  <Typography variant="caption" color="textSecondary">
-                    The clip plays back off the camera&apos;s card in real time, so a long
-                    one fills in as it arrives — you can scrub and speed through whatever
-                    has already come down.
-                  </Typography>
-                </Box>
-              )}
-              {!reviewUrl && (playing || liveError) && (
+              {(playing || liveError) && (
                 <Box sx={{ px: 2, pt: 2 }}>
                   <Box sx={{ position: 'relative', width: '100%', height: 320, background: '#000', borderRadius: 2, overflow: 'hidden' }}>
                     {!liveError && (
@@ -1361,7 +1213,7 @@ const Cmsv9VideoPage = () => {
                       size="small"
                       variant="outlined"
                       startIcon={<PlayArrowIcon />}
-                      onClick={() => reviewClip(trimStart.format('YYYY-MM-DD HH:mm:ss'), trimEnd.format('YYYY-MM-DD HH:mm:ss'))}
+                      onClick={() => playRecording({ startTime: trimStart.format('YYYY-MM-DD HH:mm:ss'), endTime: trimEnd.format('YYYY-MM-DD HH:mm:ss') })}
                     >
                       Preview
                     </Button>

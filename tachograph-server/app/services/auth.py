@@ -1,0 +1,242 @@
+"""Who is calling: office staff (a DH FleetView / Traccar session) or a driver
+(a driver-app token issued after name + PIN sign-in).
+
+Office staff never get separate credentials here. Their browser already holds
+the Traccar session cookie for this origin, so we ask Traccar who it belongs
+to (`GET /api/session`) and cache the answer briefly. Drivers get an opaque
+`drv_` bearer token; only its SHA-256 is stored.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import hmac
+import json
+import secrets
+import time
+import urllib.error
+import urllib.request
+from dataclasses import dataclass
+
+from app.config import settings
+
+DRIVER_TOKEN_PREFIX = "drv_"
+_SCRYPT = {"n": 2**14, "r": 8, "p": 1, "dklen": 32}
+
+
+@dataclass(frozen=True)
+class Principal:
+    kind: str                 # "manager" | "driver"
+    name: str                 # Traccar user name/email, or the driver's account name
+    user_id: int | None = None
+    driver_id: str | None = None
+    administrator: bool = False
+    email: str = ""
+    # Drivers: the company driver records (DH FleetView driver ids) this login belongs to.
+    driver_ids: tuple[int, ...] = ()
+    # A standard DH FleetView user (not an administrator or manager): only the compliance
+    # modules the super administrator has ticked for them.
+    limited: bool = False
+    cookie: str = ""          # the caller's DH FleetView session, to act as them in Traccar
+    authorization: str = ""
+
+    @property
+    def is_manager(self) -> bool:
+        return self.kind == "manager"
+
+
+# --- driver PINs & tokens --------------------------------------------------------
+
+def generate_pin() -> str:
+    return f"{secrets.randbelow(10**6):06d}"
+
+
+def hash_pin(pin: str) -> str:
+    salt = secrets.token_bytes(16)
+    digest = hashlib.scrypt(pin.encode(), salt=salt, **_SCRYPT)
+    return f"scrypt${salt.hex()}${digest.hex()}"
+
+
+def verify_pin(pin: str, stored: str) -> bool:
+    try:
+        scheme, salt_hex, digest_hex = stored.split("$")
+        if scheme != "scrypt":
+            return False
+        digest = hashlib.scrypt(pin.encode(), salt=bytes.fromhex(salt_hex), **_SCRYPT)
+        return hmac.compare_digest(digest.hex(), digest_hex)
+    except (ValueError, TypeError):
+        return False
+
+
+def new_driver_token() -> tuple[str, str]:
+    """(token for the device, sha256 hex to store)."""
+    token = DRIVER_TOKEN_PREFIX + secrets.token_urlsafe(32)
+    return token, token_hash(token)
+
+
+def token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+# --- office staff via Traccar ----------------------------------------------------
+
+_CACHE_TTL = 30.0
+_cache: dict[str, tuple[float, dict | None]] = {}
+
+
+def session_cookie(cookie_header: str) -> str:
+    """Only forward Traccar's session cookie, never anything else the browser holds."""
+    parts = [c.strip() for c in cookie_header.split(";")]
+    return "; ".join(c for c in parts if c.upper().startswith("JSESSIONID="))
+
+
+def _traccar_get(path: str, cookie: str, authorization: str):
+    headers = {"Accept": "application/json"}
+    if cookie:
+        headers["Cookie"] = cookie
+    if authorization:
+        headers["Authorization"] = authorization
+    req = urllib.request.Request(settings.traccar_url.rstrip("/") + path, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403, 404):
+            return None  # not signed in
+        raise
+    # URLError (Traccar down) propagates: callers turn it into 503, never into access.
+
+
+def _traccar_send(method: str, path: str, body: dict, cookie: str, authorization: str):
+    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    if cookie:
+        headers["Cookie"] = cookie
+    if authorization:
+        headers["Authorization"] = authorization
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    req = urllib.request.Request(settings.traccar_url.rstrip("/") + path, data=data, headers=headers, method=method)
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        raw = resp.read().decode("utf-8")
+        return json.loads(raw) if raw else {}
+
+
+async def traccar_send(principal: "Principal", method: str, path: str, body: dict | None = None):
+    """POST/PUT to Traccar as the signed-in office user, so Traccar applies its own
+    permissions. HTTP errors are raised for the caller to turn into a message."""
+    return await asyncio.to_thread(_traccar_send, method, path, body, principal.cookie, principal.authorization)
+
+
+async def traccar_get(principal: "Principal", path: str):
+    """GET a Traccar API path as the signed-in office user, so Traccar's own
+    permissions decide what they can see. None when not found / not allowed."""
+    return await asyncio.to_thread(_traccar_get, path, principal.cookie, principal.authorization)
+
+
+async def traccar_user(cookie_header: str | None, authorization: str | None) -> dict | None:
+    cookie = session_cookie(cookie_header or "")
+    auth = authorization if authorization and not authorization.startswith("Bearer " + DRIVER_TOKEN_PREFIX) else ""
+    if not cookie and not auth:
+        return None
+    key = hashlib.sha256(f"{cookie}|{auth}".encode()).hexdigest()
+    now = time.monotonic()
+    hit = _cache.get(key)
+    if hit and hit[0] > now:
+        return hit[1]
+    user = await asyncio.to_thread(_traccar_get, "/api/session", cookie, auth)
+    if len(_cache) > 2000:
+        _cache.clear()
+    _cache[key] = (now + _CACHE_TTL, user)
+    return user
+
+
+_list_cache: dict[str, tuple[float, list[dict]]] = {}
+
+
+async def _visible_list(principal: "Principal", path: str) -> list[dict]:
+    key = hashlib.sha256(f"{path}|{principal.cookie}|{principal.authorization}".encode()).hexdigest()
+    now = time.monotonic()
+    hit = _list_cache.get(key)
+    if hit and hit[0] > now:
+        return hit[1]
+    items = await traccar_get(principal, path)
+    items = [d for d in (items or []) if isinstance(d, dict) and "id" in d]
+    if len(_list_cache) > 2000:
+        _list_cache.clear()
+    _list_cache[key] = (now + _CACHE_TTL, items)
+    return items
+
+
+async def visible_drivers(principal: "Principal") -> list[dict]:
+    """The DH FleetView drivers linked to this office user (the ones they added)."""
+    return await _visible_list(principal, "/api/drivers")
+
+
+async def visible_devices(principal: "Principal") -> list[dict]:
+    """The DH FleetView vehicles (devices) this office user can see."""
+    return await _visible_list(principal, "/api/devices")
+
+
+def office_user(user: dict) -> bool:
+    """Any active, editable DH FleetView account (read-only accounts are view-only)."""
+    return not user.get("disabled") and not user.get("readonly")
+
+
+def manager_allowed(user: dict) -> bool:
+    if user.get("disabled"):
+        return False
+    role = (settings.manager_role or "manager").lower()
+    if role == "user":
+        return True
+    if user.get("administrator"):
+        return True
+    if role == "manager":
+        return (user.get("userLimit") or 0) != 0
+    return False
+
+
+def service_principal() -> "Principal | None":
+    """The identity the scheduled jobs act as.
+
+    Nobody is signed in at six on a Monday morning, so the invoice and report
+    jobs cannot borrow a browser session the way every request-driven path
+    does. They carry an API token instead, generated by an administrator in DH
+    FleetView under Settings -> Account, which Traccar accepts as a bearer
+    credential and applies its own permissions to.
+
+    None when no token is set, which is the safe answer: a job that cannot say
+    who it is does not run, and says why on the schedule screen.
+    """
+    token = (settings.traccar_api_token or "").strip()
+    if not token:
+        return None
+    return Principal(kind="manager", name="scheduled jobs", administrator=True,
+                     email=settings.smtp_from or "", authorization=f"Bearer {token}")
+
+
+async def service_token_works() -> tuple[bool, str]:
+    """Whether DH FleetView still accepts the jobs' API token, and what to say.
+
+    Checked before a job leans on the token, so a revoked or mistyped one is
+    reported as exactly that rather than as "no customers to invoice". The
+    token is never put in a URL - it goes in the header, where it stays out of
+    access logs.
+    """
+    principal = service_principal()
+    if principal is None:
+        return False, ("No DH FleetView API token is set, so the scheduled jobs "
+                       "cannot read your accounts. Generate one under Settings -> "
+                       "Account and put it in TRACCAR_API_TOKEN.")
+    try:
+        users = await traccar_get(principal, "/api/users")
+    except OSError as exc:
+        return False, f"DH FleetView could not be reached to check the token: {exc}"
+    if users is None:
+        return False, ("DH FleetView would not accept the API token. It may have "
+                       "expired or been regenerated; make a new one under "
+                       "Settings -> Account.")
+    return True, f"Accepted by DH FleetView; it can see {len(users)} account(s)."
+
+
+def allowed_origins() -> list[str]:
+    return [o.strip().rstrip("/") for o in (settings.allowed_origins or "").split(",") if o.strip()]

@@ -18,6 +18,9 @@ import 'package:traccar_manager/error_screen.dart';
 import 'package:traccar_manager/token_store.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+// White-label app name: flutter build ... --dart-define=APP_TITLE="Your Brand"
+const kAppTitle = String.fromEnvironment('APP_TITLE', defaultValue: 'DH FleetView');
+
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
 
@@ -106,71 +109,225 @@ class _MainScreenState extends State<MainScreen> {
     return url.endsWith('/') ? url.substring(0, url.length - 1) : url;
   }
 
+  static const _downloadExtensions = [
+    'xlsx', 'xls', 'csv', 'gpx', 'kml', 'kmz', 'pdf', 'exe', 'msi', 'ddd', 'mp4', 'mov', 'avi', 'zip', 'png', 'jpg', 'jpeg',
+  ];
+
   bool _isDownloadable(Uri uri) {
     final path = uri.path.toLowerCase();
     final lastSegment = uri.pathSegments.isNotEmpty ? uri.pathSegments.last.toLowerCase() : '';
-    const exts = ['xlsx', 'kml', 'csv', 'gpx', 'mp4', 'ddd', 'exe', 'pdf', 'zip', 'kmz'];
-    return exts.contains(lastSegment)
-        || exts.any((e) => lastSegment.endsWith('.$e'))
-        || path.endsWith('/download')
-        || path.contains('/download/');
+    final extension = lastSegment.contains('.') ? lastSegment.split('.').last : '';
+    final format = uri.queryParameters['format']?.toLowerCase();
+    final downloadQuery = uri.queryParameters['download'] == 'true'
+        || (format != null && _downloadExtensions.contains(format));
+    // Report exports end in the format itself, e.g. /api/reports/route/xlsx
+    // or /api/positions/kml, without a file extension.
+    final exportPath = (path.startsWith('/api/reports/') || path.startsWith('/api/positions/'))
+        && _downloadExtensions.contains(lastSegment);
+    return (extension.isNotEmpty && _downloadExtensions.contains(extension) && !path.startsWith('/assets/'))
+        || exportPath
+        || lastSegment == 'download'
+        || path.contains('/download/')
+        || downloadQuery
+        || path.contains('/export/');
   }
 
-  Future<void> _shareFile(String fileName, Uint8List bytes) async {
-    final directory = Platform.isAndroid
-      ? await getExternalStorageDirectory()
-      : await getApplicationDocumentsDirectory();
-    if (directory == null) {
-      throw StateError('No writable storage directory is available');
+  String _safeFileName(String value) {
+    final cleaned = value.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+    return cleaned.isEmpty ? 'download' : cleaned;
+  }
+
+  String _extensionForMime(String? mimeType) {
+    switch (mimeType?.split(';').first.trim().toLowerCase()) {
+      case 'application/pdf':
+        return 'pdf';
+      case 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
+        return 'xlsx';
+      case 'text/csv':
+        return 'csv';
+      case 'application/gpx+xml':
+        return 'gpx';
+      case 'application/vnd.google-earth.kml+xml':
+        return 'kml';
+      case 'application/vnd.google-earth.kmz':
+        return 'kmz';
+      case 'video/mp4':
+        return 'mp4';
+      case 'image/png':
+        return 'png';
+      case 'image/jpeg':
+        return 'jpg';
+      case 'application/zip':
+        return 'zip';
+      default:
+        return 'bin';
     }
-    final file = File('${directory.path}/$fileName');
-    await file.writeAsBytes(bytes, flush: true);
-    await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
   }
 
-  String _fileNameFor(Uri uri, String? contentDisposition) {
-    if (contentDisposition != null) {
-      final encodedMatch = RegExp(r"filename\*=UTF-8''([^;]+)", caseSensitive: false)
-        .firstMatch(contentDisposition);
-      if (encodedMatch != null) {
-        return Uri.decodeComponent(encodedMatch.group(1)!).trim();
-      }
-      final match = RegExp(r'filename="?([^";]+)"?', caseSensitive: false)
-        .firstMatch(contentDisposition);
-      if (match != null && match.group(1)!.trim().isNotEmpty) {
-        return match.group(1)!.trim();
-      }
+  // Pick a sensible file name: server header, then the page's suggestion, then the URL.
+  String _fileNameFor({String? contentDisposition, String? suggested, Uri? uri, String? mimeType}) {
+    String? name;
+    if (contentDisposition != null && contentDisposition.isNotEmpty) {
+      final encoded = RegExp(r"filename\*=(?:UTF-8|utf-8)''([^;]+)").firstMatch(contentDisposition);
+      final plain = RegExp(r'filename="?([^";]+)"?').firstMatch(contentDisposition);
+      name = encoded != null ? Uri.decodeComponent(encoded.group(1)!) : plain?.group(1);
     }
-    final last = uri.pathSegments.isNotEmpty ? uri.pathSegments.last : 'download';
-    if (last.contains('.')) return last;
-    return '${DateTime.now().millisecondsSinceEpoch}_$last';
+    if ((name == null || name.trim().isEmpty) && suggested != null && suggested.trim().isNotEmpty) {
+      name = suggested;
+    }
+    if ((name == null || name.trim().isEmpty) && uri != null && uri.pathSegments.isNotEmpty) {
+      final last = uri.pathSegments.last;
+      name = last.contains('.') ? last : '${last}_${DateTime.now().millisecondsSinceEpoch}';
+    }
+    name = _safeFileName((name ?? 'download').trim());
+    if (!name.contains('.') && mimeType != null) {
+      name = '$name.${_extensionForMime(mimeType)}';
+    }
+    return name;
   }
 
-  void _showDownloadMessage(String message) {
+  Future<Directory> _downloadDirectory() async {
+    final base = Platform.isAndroid
+        ? (await getExternalStorageDirectory() ?? await getApplicationDocumentsDirectory())
+        : await getApplicationDocumentsDirectory();
+    final dir = Directory('${base.path}/Downloads');
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return dir;
+  }
+
+  void _showMessage(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(SnackBar(content: Text(message), duration: const Duration(seconds: 3)));
   }
 
-  Future<void> _downloadFile(Uri uri, {String? contentDisposition}) async {
+  // Hand the saved file to the system share sheet (Save to Files, Drive, email...).
+  // iPad needs an anchor rectangle or the sheet fails to open.
+  Future<void> _shareSavedFile(File file, {String? mimeType}) async {
+    Rect? origin;
+    final box = context.findRenderObject() as RenderBox?;
+    if (box != null && box.hasSize) {
+      final size = box.size;
+      origin = Rect.fromCenter(center: box.localToGlobal(Offset(size.width / 2, size.height / 2)), width: 1, height: 1);
+    }
+    await SharePlus.instance.share(ShareParams(
+      files: [XFile(file.path, mimeType: mimeType)],
+      sharePositionOrigin: origin,
+    ));
+  }
+
+  Future<void> _saveDownloadedBytes(
+    Uint8List bytes, {
+    String? fileName,
+    String? mimeType,
+  }) async {
     try {
+      final name = _fileNameFor(suggested: fileName, mimeType: mimeType);
+      final file = File('${(await _downloadDirectory()).path}/$name');
+      await file.writeAsBytes(bytes, flush: true);
+      await _shareSavedFile(file, mimeType: mimeType);
+    } catch (e) {
+      developer.log('Failed to save downloaded file', error: e);
+      _showMessage('The file could not be saved. Please try again.');
+    }
+  }
+
+  Future<void> _saveDataUrl(String url) async {
+    try {
+      final data = UriData.parse(url);
+      final bytes = data.contentAsBytes();
+      String? mime = data.mimeType;
+      if (mime == 'attachment/file' || mime == 'application/octet-stream') {
+        // file-saver drops the type; the app's exports are PDFs or Excel (zip) files.
+        final head = String.fromCharCodes(bytes.take(4));
+        mime = head == '%PDF'
+            ? 'application/pdf'
+            : head.startsWith('PK')
+                ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                : null;
+      }
+      await _saveDownloadedBytes(bytes, fileName: 'download', mimeType: mime);
+    } catch (e) {
+      developer.log('Failed to save data url', error: e);
+      _showMessage('The file could not be saved. Please try again.');
+    }
+  }
+
+  // Cookies the WebView holds for this URL, so downloads use the same signed-in
+  // session as the page (DH FleetView and the /tacho pages).
+  Future<String?> _cookieHeaderFor(Uri uri) async {
+    try {
+      final cookies = await CookieManager.instance().getCookies(url: WebUri(uri.toString()));
+      if (cookies.isEmpty) return null;
+      return cookies.map((c) => '${c.name}=${c.value}').join('; ');
+    } catch (e) {
+      developer.log('Failed to read cookies', error: e);
+      return null;
+    }
+  }
+
+  final Set<String> _activeDownloads = {};
+
+  Future<void> _downloadFile(
+    Uri uri, {
+    String? suggestedFileName,
+    String? mimeType,
+  }) async {
+    final key = uri.toString();
+    if (!_activeDownloads.add(key)) return; // same file already downloading
+    final client = http.Client();
+    File? file;
+    try {
+      _showMessage('Downloading…');
+      final headers = <String, String>{};
+      final cookie = await _cookieHeaderFor(uri);
+      if (cookie != null) headers['Cookie'] = cookie;
       final token = await _loginTokenStore.read(false);
-      if (token == null) {
-        _showDownloadMessage('Please log in again before downloading a file.');
+      if (token != null && cookie == null) headers['Authorization'] = 'Bearer $token';
+      final driverToken = await _driverToken();
+      if (driverToken != null && uri.path.startsWith('/tacho/')) headers['Authorization'] = 'Bearer $driverToken';
+
+      final request = http.Request('GET', uri)..headers.addAll(headers);
+      final response = await client.send(request);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        developer.log('Failed file download request: ${response.statusCode} $uri');
+        await response.stream.drain<void>();
+        _showMessage(response.statusCode == 401 || response.statusCode == 403
+            ? 'Please sign in again, then retry the download.'
+            : 'The file could not be downloaded (${response.statusCode}).');
         return;
       }
-      final response = await http.get(uri, headers: {'Authorization': 'Bearer $token'});
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        await _shareFile(
-          _fileNameFor(uri, contentDisposition ?? response.headers['content-disposition']),
-          response.bodyBytes,
-        );
-      } else {
-        developer.log('Failed file download request: HTTP ${response.statusCode}');
-        _showDownloadMessage('The file could not be downloaded (${response.statusCode}).');
-      }
+      final type = mimeType ?? response.headers['content-type'];
+      final name = _fileNameFor(
+        contentDisposition: response.headers['content-disposition'],
+        suggested: suggestedFileName,
+        uri: uri,
+        mimeType: type,
+      );
+      file = File('${(await _downloadDirectory()).path}/$name');
+      final sink = file.openWrite();
+      await response.stream.pipe(sink);
+      await _shareSavedFile(file, mimeType: type);
     } catch (e) {
       developer.log('Failed to download file', error: e);
-      _showDownloadMessage('The file could not be downloaded. Please try again.');
+      _showMessage('The file could not be downloaded. Please try again.');
+    } finally {
+      client.close();
+      _activeDownloads.remove(key);
+    }
+  }
+
+  // The driver screens keep their sign-in token in localStorage.
+  Future<String?> _driverToken() async {
+    try {
+      final value = await _controller?.evaluateJavascript(
+          source: "(function(){try{return JSON.parse(localStorage.getItem('drv:token')||'null')}catch(e){return null}})()");
+      return value is String && value.isNotEmpty ? value : null;
+    } catch (_) {
+      return null;
     }
   }
 
@@ -223,12 +380,33 @@ class _MainScreenState extends State<MainScreen> {
       case 'logout':
         await _loginTokenStore.delete();
       case 'download':
+        // download|mime|name|base64 (blob: and data: files built in the page)
         try {
-          if (parts.length < 2) throw const FormatException('Missing download data');
-          await _shareFile('report.xlsx', base64Decode(parts[1]));
+          if (parts.length >= 4) {
+            await _saveDownloadedBytes(
+              base64Decode(parts.sublist(3).join('|')),
+              fileName: parts[2],
+              mimeType: parts[1],
+            );
+          } else if (parts.length > 1) {
+            // Backwards-compatible format used by older injected pages.
+            await _saveDownloadedBytes(
+              base64Decode(parts[1]),
+              fileName: 'report.xlsx',
+              mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            );
+          }
         } catch (e) {
           developer.log('Failed to save downloaded file', error: e);
-          _showDownloadMessage('The report could not be downloaded. Please try again.');
+          _showMessage('The file could not be saved. Please try again.');
+        }
+      case 'downloadUrl':
+        // downloadUrl|suggested name|absolute url (links with a download attribute)
+        if (parts.length >= 3) {
+          final target = Uri.tryParse(parts.sublist(2).join('|'));
+          if (target != null && (target.scheme == 'https' || target.scheme == 'http')) {
+            await _downloadFile(target, suggestedFileName: parts[1].isEmpty ? null : parts[1]);
+          }
         }
       case 'server':
         final url = parts[1];
@@ -265,7 +443,7 @@ class _MainScreenState extends State<MainScreen> {
           ),
           const SizedBox(height: 24),
           const Text(
-            'DH FleetView',
+            kAppTitle,
             style: TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.w700,
@@ -342,6 +520,7 @@ class _MainScreenState extends State<MainScreen> {
             initialSettings: InAppWebViewSettings(
               javaScriptEnabled: true,
               useShouldOverrideUrlLoading: true,
+              useOnDownloadStart: true,
               supportZoom: false,
               builtInZoomControls: false,
             ),
@@ -358,18 +537,75 @@ class _MainScreenState extends State<MainScreen> {
                       }
                     }
                   };
-                  const excelType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-                  const originalCreateObjectURL = URL.createObjectURL;
-                  URL.createObjectURL = function(object) {
-                    if (object instanceof Blob && object.type === excelType) {
-                      const reader = new FileReader();
-                      reader.onload = () => {
-                        window.appInterface.postMessage('download|' + reader.result.split(',')[1]);
+                  (function() {
+                    if (window.__dhfvDownloads) return;
+                    window.__dhfvDownloads = true;
+                    var blobs = new Map();
+                    var originalCreateObjectURL = URL.createObjectURL;
+                    URL.createObjectURL = function(object) {
+                      var url = originalCreateObjectURL.apply(this, arguments);
+                      if (object instanceof Blob) blobs.set(url, object);
+                      return url;
+                    };
+                    var clean = function(value) { return String(value || '').replace(/[|\\r\\n]/g, '_'); };
+                    var post = function(message) { window.appInterface.postMessage(message); };
+                    var sendBlob = function(blob, name) {
+                      var reader = new FileReader();
+                      reader.onload = function() {
+                        post('download|' + clean(blob.type || 'application/octet-stream') + '|' + clean(name || 'download')
+                          + '|' + String(reader.result).split(',')[1]);
                       };
-                      reader.readAsDataURL(object);
-                    }
-                    return originalCreateObjectURL.apply(this, arguments);
-                  };
+                      reader.readAsDataURL(blob);
+                    };
+                    // blob: and data: files exist only inside the page, so read them here.
+                    var handleInPage = function(href, name) {
+                      if (href.indexOf('blob:') === 0) {
+                        var blob = blobs.get(href);
+                        if (blob) { sendBlob(blob, name); return true; }
+                        fetch(href).then(function(r) { return r.blob(); }).then(function(b) { sendBlob(b, name); });
+                        return true;
+                      }
+                      if (href.indexOf('data:') === 0) {
+                        var match = /^data:([^;,]*)((?:;[^;,]*)*?)(;base64)?,([\\s\\S]*)\$/.exec(href);
+                        if (!match) return false;
+                        var b64 = match[3] ? match[4] : btoa(unescape(encodeURIComponent(decodeURIComponent(match[4]))));
+                        post('download|' + clean(match[1] || 'application/octet-stream') + '|' + clean(name || 'download') + '|' + b64);
+                        return true;
+                      }
+                      return false;
+                    };
+                    var handleAnchor = function(anchor) {
+                      var href = anchor.href || '';
+                      var name = anchor.getAttribute('download');
+                      if (href.indexOf('blob:') === 0 || href.indexOf('data:') === 0) return handleInPage(href, name);
+                      if (name !== null && /^https?:/.test(href)) { post('downloadUrl|' + clean(name) + '|' + href); return true; }
+                      return false;
+                    };
+                    document.addEventListener('click', function(event) {
+                      var anchor = event.target && event.target.closest ? event.target.closest('a[href]') : null;
+                      if (anchor && handleAnchor(anchor)) { event.preventDefault(); event.stopImmediatePropagation(); }
+                    }, true);
+                    // Code-triggered downloads (e.g. file-saver) click links that aren't in the page.
+                    var originalClick = HTMLAnchorElement.prototype.click;
+                    HTMLAnchorElement.prototype.click = function() {
+                      if (handleAnchor(this)) return;
+                      return originalClick.apply(this, arguments);
+                    };
+                    var originalDispatch = EventTarget.prototype.dispatchEvent;
+                    EventTarget.prototype.dispatchEvent = function(event) {
+                      if (event && event.type === 'click' && this instanceof HTMLAnchorElement && !this.isConnected && handleAnchor(this)) {
+                        return false;
+                      }
+                      return originalDispatch.apply(this, arguments);
+                    };
+                    var originalOpen = window.open;
+                    window.open = function(url) {
+                      if (typeof url === 'string' && (url.indexOf('blob:') === 0 || url.indexOf('data:') === 0) && handleInPage(url, 'download')) {
+                        return null;
+                      }
+                      return originalOpen.apply(this, arguments);
+                    };
+                  })();
                   window.addEventListener('flutterInAppWebViewPlatformReady', function() {
                     if (window.__traccarMessageQueue && window.flutter_inappwebview && window.flutter_inappwebview.callHandler) {
                       window.__traccarMessageQueue.forEach(function(message) {
@@ -404,6 +640,16 @@ class _MainScreenState extends State<MainScreen> {
                 return NavigationActionPolicy.ALLOW;
               }
               final uri = Uri.parse(target.toString());
+              if (uri.scheme == 'data') {
+                // A page navigating to a data: file (file-saver's fallback in
+                // desktop-mode WebViews, e.g. iPad): save it instead.
+                await _saveDataUrl(target.toString());
+                return NavigationActionPolicy.CANCEL;
+              }
+              if (uri.scheme == 'blob') {
+                // Handled by the injected page script; never navigate to them.
+                return NavigationActionPolicy.CANCEL;
+              }
               if (['response_type', 'client_id', 'redirect_uri', 'scope'].every(uri.queryParameters.containsKey)) {
                 _launchAuthorizeRequest(uri);
                 return NavigationActionPolicy.CANCEL;
@@ -439,10 +685,17 @@ class _MainScreenState extends State<MainScreen> {
               final uri = Uri.parse(target.toString());
               if (_isDownloadable(uri)) {
                 await _downloadFile(uri);
-              } else {
-                await launchUrl(uri, mode: LaunchMode.externalApplication);
+                return NavigationActionPolicy.CANCEL;
               }
               return false;
+            },
+            onDownloadStartRequest: (controller, request) async {
+              final uri = Uri.parse(request.url.toString());
+              await _downloadFile(
+                uri,
+                suggestedFileName: request.suggestedFilename,
+                mimeType: request.mimeType,
+              );
             },
             onReceivedError: (controller, request, error) {
               if (request.isForMainFrame == true) {

@@ -34,8 +34,8 @@ const renderIndex = (data) =>
   Buffer.from(
     data
       .toString('utf8')
-      .replaceAll('${title}', 'DH FleetView')
-      .replaceAll('${description}', 'Tracking and Live View')
+      .replaceAll('${title}', '${title}')
+      .replaceAll('${description}', '${description}')
       .replaceAll('${colorPrimary}', '#4f46e5'),
   );
 

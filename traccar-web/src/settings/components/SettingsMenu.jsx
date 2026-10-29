@@ -17,6 +17,7 @@ import CampaignIcon from '@mui/icons-material/Campaign';
 import CalculateIcon from '@mui/icons-material/Calculate';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import SmsIcon from '@mui/icons-material/Sms';
+import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import SimCardIcon from '@mui/icons-material/SimCard';
 import { useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
@@ -154,11 +155,12 @@ const SettingsMenu = () => {
                   icon={<PhotoCameraIcon />}
                   selected={location.pathname === '/add-vehicle'}
                 />
-                {/* Invoicing is hidden for now. The page and its /invoicing
-                    route are left in place; to put it back, restore a MenuItem
-                    here with ReceiptLongIcon from '@mui/icons-material/ReceiptLong'.
-                    Hiding it changes nothing about the quarterly run: invoices
-                    are raised and sent by the scheduler, not by this page. */}
+                <MenuItem
+                  title="Invoicing"
+                  link="/invoicing"
+                  icon={<ReceiptLongIcon />}
+                  selected={location.pathname === '/invoicing'}
+                />
                 <MenuItem
                   title="SIM management"
                   link="/sims"

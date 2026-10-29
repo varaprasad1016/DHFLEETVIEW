@@ -1,0 +1,18 @@
+# Secrets & local runtime
+.env
+.runtime/
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Tacho file archive (real driver-card/VU downloads)
+data/

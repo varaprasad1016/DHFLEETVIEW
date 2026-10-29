@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>${title} — Driver records</title>
+<style>
+  :root{color-scheme:dark;--bg:#0b1220;--card:#131c2e;--line:#22304a;--fg:#e6edf7;--mut:#8aa0c0;--acc:#38bdf8;--ok:#34d399;--warn:#f59e0b;--bad:#f87171;}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif;}
+  header{padding:16px;max-width:1300px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;gap:10px;}
+  h1{font-size:19px;margin:0;} a.back{color:var(--acc);text-decoration:none;font-size:13px;}
+  main{padding:0 16px 60px;max-width:1300px;margin:0 auto;}
+  .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:12px;}
+  @media (max-width:700px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr));}}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;}
+  .kpi b{display:block;font-size:22px;} .kpi span{color:var(--mut);font-size:12px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:12px;}
+  .wrap{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th{text-align:left;color:var(--mut);font-weight:600;font-size:12px;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap;}
+  td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top;white-space:nowrap;}
+  tr:last-child td{border-bottom:0;}
+  .mut{color:var(--mut);font-size:12px;} .name{font-weight:700;white-space:normal;}
+  .s-expired,.s-overdue{color:var(--bad);font-weight:700;} .s-due_soon{color:var(--warn);font-weight:700;}
+  .s-missing{color:var(--mut);} .s-ok{color:var(--fg);} .s-not_applicable{color:var(--mut);}
+  .chip{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;}
+  .c-expired,.c-overdue{background:#f8717122;color:var(--bad);} .c-due_soon{background:#f59e0b22;color:var(--warn);}
+  .c-missing{background:#64748b22;color:var(--mut);} .c-ok{background:#34d39922;color:var(--ok);}
+  .btn{background:var(--acc);color:var(--on-acc);font-weight:700;border:none;border-radius:8px;padding:9px 14px;font:inherit;cursor:pointer;}
+  .btn.small{background:transparent;color:var(--acc);border:1px solid var(--line);padding:5px 10px;font-size:12px;font-weight:600;}
+  .btn.bad{background:transparent;color:var(--bad);border:1px solid var(--line);}
+  input,select,textarea{background:var(--input,#0f172a);border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:8px;font:inherit;width:100%;}
+  label{display:block;font-size:12px;color:var(--mut);margin:0 0 3px;}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;}
+  .panel{position:fixed;inset:0;background:#000b;z-index:40;overflow-y:auto;padding:16px;}
+  .panel .inner{max-width:900px;margin:0 auto;background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:16px;}
+  h2{font-size:17px;margin:0;} h3{font-size:14px;margin:0 0 10px;}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;}
+  .msg{font-size:13px;margin-left:8px;} .msg.ok{color:var(--ok);} .msg.bad{color:var(--bad);}
+  .bar{height:8px;border-radius:4px;background:var(--line);overflow:hidden;margin-top:4px;} .bar i{display:block;height:100%;background:var(--acc);}
+  .empty{color:var(--mut);padding:20px;text-align:center;}
+  .lock{text-align:center;color:var(--mut);padding:40px 16px;} .lock a{color:var(--acc);}
+  .hidden{display:none!important;}
+</style>
+</head>
+<body>
+<header><h1>Driver records</h1><a class="back" href="compliance">← Compliance</a></header>
+<main>
+  <div id="lock" class="lock hidden"></div>
+  <div id="app" class="hidden">
+    <div class="kpis">
+      <div class="kpi"><b id="kExp">0</b><span>Expired / overdue</span></div>
+      <div class="kpi"><b id="kSoon">0</b><span>Expiring within 60 days</span></div>
+      <div class="kpi"><b id="kChecks">0</b><span>Licence checks due</span></div>
+      <div class="kpi"><b id="kMissing">0</b><span>Drivers with details missing</span></div>
+    </div>
+    <div id="list"></div>
+  </div>
+</main>
+<div id="panel" class="panel hidden"><div class="inner" id="panelBody"></div></div>
+<script>
+  const $=(id)=>document.getElementById(id);
+  const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const dd=s=>s?new Date(s+'T12:00:00Z').toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric',timeZone:'UTC'}):'';
+  const today=()=>new Date().toLocaleDateString('en-CA',{timeZone:'Europe/London'});
+  const STATUS={expired:'Expired',overdue:'Overdue',due_soon:'Due soon',missing:'Details missing',ok:'Up to date'};
+
+  async function api(path, opts){
+    const r=await fetch('api/driver-records'+path,{cache:'no-store',...(opts||{})});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok){ const e=new Error((d.detail&&d.detail.message)||(typeof d.detail==='string'?d.detail:'')||(Array.isArray(d.detail)?d.detail.map(x=>x.msg).join('; '):'')||'Request failed ('+r.status+')'); e.detail=d.detail; throw e; }
+    return d;
+  }
+  const cell=(i)=>{
+    if(!i) return '';
+    if(i.status==='not_applicable') return '<span class="mut">—</span>';
+    if(i.status==='missing') return '<span class="s-missing">Not entered</span>';
+    const when=i.date||i.next_due;
+    const tail=i.days_left==null?'':i.days_left<0?` (${-i.days_left}d ago)`:i.days_left<=60?` (${i.days_left}d)`:'';
+    return `<span class="s-${i.status}">${dd(when)}${tail}</span>${i.source==='driver card download'?'<div class="mut">from card download</div>':''}`;
+  };
+  async function load(){
+    let list;
+    try{ list=await api('/drivers'); }
+    catch(e){ $('app').classList.add('hidden'); $('lock').classList.remove('hidden');
+      $('lock').innerHTML=e.detail&&e.detail.error==='licence_suspended'?'🔒 Locked. <a href="approver">Approve this month\'s licence</a> to use driver records.':esc(e.message||'Sign in to DH FleetView to see driver records.'); return; }
+    $('lock').classList.add('hidden'); $('app').classList.remove('hidden');
+    try{ const s=await api('/summary'); $('kExp').textContent=s.expired; $('kSoon').textContent=s.due_soon; $('kChecks').textContent=s.licence_checks_due; $('kMissing').textContent=s.missing; }catch{}
+    if(!list.length){ $('list').innerHTML='<div class="card empty">No drivers yet. Add drivers in DH FleetView Settings → Drivers.</div>'; return; }
+    $('list').innerHTML='<div class="card wrap"><table><tr><th>Driver</th><th>Status</th><th>Licence expiry</th><th>Next licence check</th><th>DQC expiry</th><th>CPC hours (5 yrs)</th><th>Tacho card</th><th>Medical</th><th>ADR</th><th></th></tr>'+
+      list.map(d=>{ const it=d.items, c=it.cpc_training;
+        return `<tr><td class="name">${esc(d.name)}<div class="mut">${esc(d.identifier||'')}</div></td>
+          <td><span class="chip c-${d.status}">${STATUS[d.status]||d.status}</span></td>
+          <td>${cell(it.licence)}</td>
+          <td>${it.licence_check.status==='missing'?'<span class="s-missing">Never checked</span>':cell({...it.licence_check,date:it.licence_check.next_due})}${it.licence_check.points?`<div class="mut">${it.licence_check.points} points</div>`:''}</td>
+          <td>${cell(it.dqc)}</td>
+          <td><span class="s-${c.status}">${c.hours} / ${c.required}</span><div class="bar"><i style="width:${Math.min(100,c.hours/c.required*100)}%"></i></div></td>
+          <td>${cell(it.tacho_card)}</td><td>${cell(it.medical)}</td><td>${cell(it.adr)}</td>
+          <td><button class="btn small" data-open="${d.traccar_driver_id}">Edit</button></td></tr>`; }).join('')+'</table></div>';
+    document.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>open(Number(b.dataset.open)));
+  }
+
+  let cur=null;
+  async function open(id){
+    try{ cur=await api('/drivers/'+id); }catch(e){ alert(e.message); return; }
+    $('panel').classList.remove('hidden'); document.body.style.overflow='hidden'; draw();
+  }
+  function close(){ $('panel').classList.add('hidden'); document.body.style.overflow=''; cur=null; load(); }
+  function draw(){
+    const r=cur.record||{}, it=cur.items, c=it.cpc_training;
+    const f=(id,label,type,val,extra='')=>`<div><label for="${id}">${label}</label><input id="${id}" type="${type}" value="${esc(val??'')}" ${extra}></div>`;
+    $('panelBody').innerHTML=`
+      <div class="row" style="margin-bottom:12px"><div><h2>${esc(cur.name)}</h2><div class="mut">${esc(cur.identifier||'')}</div></div><button class="btn small" id="pClose">Close</button></div>
+      <div class="card"><h3>Driving licence</h3><div class="grid">
+        ${f('fLicNo','Licence number','text',r.licence_number,'maxlength="24" autocapitalize="characters"')}
+        ${f('fLicCat','Categories','text',r.licence_categories,'maxlength="80" placeholder="e.g. B, C, CE"')}
+        ${f('fLicExp','Photocard expiry','date',r.licence_expiry)}
+        ${f('fLicChecked','Last licence check','date',r.licence_checked_on,`max="${today()}"`)}
+        ${f('fLicPoints','Penalty points','number',r.licence_points,'min="0" max="36"')}
+        <div><label for="fLicEvery">Check every</label><select id="fLicEvery">${[1,3,6,12].map(m=>`<option value="${m}"${(r.licence_check_months||6)===m?' selected':''}>${m} month${m===1?'':'s'}</option>`).join('')}</select></div>
+      </div></div>
+      <div class="card"><h3>Qualifications &amp; cards</h3><div class="grid">
+        ${f('fDqc','Driver CPC card (DQC) expiry','date',r.dqc_expiry)}
+        ${f('fCard','Tachograph card expiry','date',r.card_expiry)}
+        ${f('fMed','Medical (D4) due','date',r.medical_expiry)}
+        ${f('fAdr','ADR certificate expiry','date',r.adr_expiry)}
+      </div>${cur.card_expiry_from_downloads?`<div class="mut" style="margin-top:6px">Tachograph card expiry from the latest card download: ${dd(cur.card_expiry_from_downloads)} (used when the box above is empty).</div>`:''}
+        <div style="margin-top:10px"><label for="fNotes">Notes</label><textarea id="fNotes" maxlength="4000">${esc(r.notes||'')}</textarea></div>
+        <div style="margin-top:10px"><button class="btn" id="save">Save</button><span class="msg" id="saveMsg"></span></div></div>
+      <div class="card"><div class="row"><h3>Driver CPC training</h3><span class="mut">${c.hours} of ${c.required} hours between ${dd(c.window_start)} and ${dd(c.window_end)}</span></div>
+        <div class="bar" style="margin-bottom:10px"><i style="width:${Math.min(100,c.hours/c.required*100)}%"></i></div>
+        ${cur.courses.length?`<div class="wrap"><table><tr><th>Date</th><th>Course</th><th>Hours</th><th>Provider</th><th>Certificate</th><th></th></tr>${cur.courses.map(k=>`<tr><td>${dd(k.course_date)}</td><td style="white-space:normal">${esc(k.title)}</td><td>${k.hours}</td><td>${esc(k.provider||'')}</td>
+          <td>${k.has_certificate?`<a href="api/driver-records/courses/${k.id}/certificate" target="_blank" style="color:var(--acc)">View</a>`:''}</td><td><button class="btn small bad" data-del="${k.id}">Delete</button></td></tr>`).join('')}</table></div>`:'<div class="mut">No courses recorded.</div>'}
+        <div class="grid" style="margin-top:12px">
+          ${f('cDate','Course date','date',today(),`max="${today()}"`)}
+          ${f('cHours','Hours','number','7','min="0.5" max="35" step="0.5"')}
+          ${f('cTitle','Course','text','','maxlength="160" placeholder="e.g. Drivers\' hours & tachographs"')}
+          ${f('cProv','Provider','text','','maxlength="160"')}
+          <div><label for="cCert">Certificate (PDF or photo)</label><input id="cCert" type="file" accept="application/pdf,image/*"></div>
+        </div>
+        <div style="margin-top:10px"><button class="btn" id="addCourse">Add course</button><span class="msg" id="courseMsg"></span></div></div>`;
+    $('pClose').onclick=close;
+    const val=id=>$(id).value.trim()||null;
+    $('save').onclick=async()=>{
+      const body={licence_number:val('fLicNo'),licence_categories:val('fLicCat'),licence_expiry:val('fLicExp'),licence_checked_on:val('fLicChecked'),
+        licence_points:$('fLicPoints').value===''?null:Number($('fLicPoints').value),licence_check_months:Number($('fLicEvery').value),
+        dqc_expiry:val('fDqc'),card_expiry:val('fCard'),medical_expiry:val('fMed'),adr_expiry:val('fAdr'),notes:val('fNotes')};
+      try{ cur={...(await api('/drivers/'+cur.traccar_driver_id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}))}; draw();
+        $('saveMsg').className='msg ok'; $('saveMsg').textContent='Saved.'; }
+      catch(e){ $('saveMsg').className='msg bad'; $('saveMsg').textContent=e.message; }
+    };
+    $('addCourse').onclick=async()=>{
+      const msg=$('courseMsg'); const file=$('cCert').files[0];
+      const body={course_date:val('cDate'),hours:Number($('cHours').value),title:val('cTitle'),provider:val('cProv')};
+      if(!body.title){ msg.className='msg bad'; msg.textContent='Enter the course name.'; return; }
+      if(file){ if(file.size>15*1024*1024){ msg.className='msg bad'; msg.textContent='The file is over 15 MB.'; return; }
+        body.certificate=await new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=()=>res(fr.result); fr.onerror=rej; fr.readAsDataURL(file); }); body.certificate_name=file.name; }
+      try{ cur=await api('/drivers/'+cur.traccar_driver_id+'/courses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); draw();
+        $('courseMsg').className='msg ok'; $('courseMsg').textContent='Course added.'; }
+      catch(e){ msg.className='msg bad'; msg.textContent=e.message; }
+    };
+    document.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{
+      if(!confirm('Delete this course?')) return;
+      try{ await api('/courses/'+b.dataset.del,{method:'DELETE'}); cur=await api('/drivers/'+cur.traccar_driver_id); draw(); }catch(e){ alert(e.message); }
+    });
+  }
+  $('panel').onclick=e=>{ if(e.target===$('panel')) close(); };
+  load();
+</script>
+</body>
+</html>
