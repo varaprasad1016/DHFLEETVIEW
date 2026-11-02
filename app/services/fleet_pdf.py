@@ -314,3 +314,123 @@ def render_wtd_grid(grid: dict, company: str | None = None,
 
     doc.build(story)
     return buffer.getvalue()
+
+
+MILEAGE_COLUMNS = [
+    ("Registration", 86), ("Card<br/>sessions", 54), ("Accounted<br/>km", 70),
+    ("Missing<br/>km", 70), ("Gaps", 44), ("Biggest<br/>gap (km)", 64),
+    ("First seen", 72), ("Last seen", 72), ("Status", 60),
+]
+
+
+def _km(value) -> str:
+    return "" if value is None else f"{value:,}"
+
+
+def render_missing_mileage(rows: list[dict], threshold_km: int,
+                           company: str | None = None,
+                           generated: datetime | None = None) -> bytes:
+    """Summary table of unaccounted mileage, then the gap detail per vehicle."""
+    st = _styles()
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=landscape(A4),
+        leftMargin=12 * mm, rightMargin=12 * mm,
+        topMargin=10 * mm, bottomMargin=12 * mm,
+        title="Missing VU Mileage", author=company or "")
+
+    stamp = (generated or datetime.now(LOCAL_TZ)).strftime("%d/%m/%Y %H:%M")
+    story: list = []
+    if company:
+        story.append(Paragraph(escape(company), st["title"]))
+    story.append(Paragraph("Missing VU Mileage", st["title"]))
+    story.append(Paragraph(f"Generated {stamp}.", st["meta"]))
+    story.append(Paragraph(
+        "Distance each vehicle moved with no driver card in either slot, read "
+        f"from the vehicle unit's own odometer. Gaps under {threshold_km} km are "
+        "treated as yard movement and ignored. Counted only between this "
+        "operator's recorded card sessions, so mileage from before the vehicle "
+        "was acquired is not included.", st["meta"]))
+    story.append(Spacer(1, 6))
+
+    if not rows:
+        story.append(Paragraph("No vehicle units to analyse.", st["empty"]))
+        doc.build(story)
+        return buffer.getvalue()
+
+    header = [Paragraph(label, st["head"]) for label, _ in MILEAGE_COLUMNS]
+    data = [header]
+    styles = [
+        ("GRID", (0, 0), (-1, -1), 0.4, LINE),
+        ("BACKGROUND", (0, 0), (-1, 0), HEAD_BG),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 2.5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+    ]
+    status_word = {"green": "Clean", "amber": "Check", "red": "Missing", "grey": "No data"}
+    for i, r in enumerate(rows, start=1):
+        data.append([Paragraph(escape(_fmt(c)), st["cell"]) for c in (
+            r["registration"], r["sessions"],
+            _km(r["covered_km"]), _km(r["missing_km"]), r["gap_count"],
+            _km(r["biggest_gap_km"]) if r["biggest_gap_km"] else "",
+            _d(r["first_seen"]), _d(r["last_seen"]), status_word.get(r["band"], ""))])
+        band = BANDS.get(r["band"])
+        if band:
+            styles.append(("BACKGROUND", (0, i), (-1, i), band[0]))
+            styles.append(("TEXTCOLOR", (0, i), (-1, i), band[1]))
+    table = Table(data, colWidths=[w for _, w in MILEAGE_COLUMNS], repeatRows=1)
+    table.setStyle(TableStyle(styles))
+    story.append(table)
+
+    story.append(Spacer(1, 7))
+    for key, label in (("amber", "Some unaccounted mileage — worth checking"),
+                       ("red", "50 km or more with no card — a likely breach"),
+                       ("grey", "No odometer data in the download")):
+        fill, text = BANDS.get(key, (HEAD_BG, MUTED))
+        story.append(Paragraph(
+            f'<font backColor="#{fill.hexval()[2:]}" color="#{text.hexval()[2:]}">'
+            f'&nbsp;&nbsp;&nbsp;&nbsp;</font> {escape(label)}', st["meta"]))
+
+    # Gap detail: only vehicles that actually have gaps, each as its own block.
+    detail = [r for r in rows if r.get("gaps")]
+    if detail:
+        story.append(Spacer(1, 10))
+        story.append(Paragraph("Where the mileage is missing", st["title"]))
+        for r in detail:
+            story.append(Spacer(1, 6))
+            story.append(Paragraph(
+                f"<b>{escape(r['registration'])}</b> — {r['gap_count']} gap(s), "
+                f"{_km(r['missing_km'])} km unaccounted", st["head"]))
+            gdata = [[Paragraph(x, st["head"]) for x in
+                      ("From (last card out)", "To (next card in)", "Odometer", "Missing km")]]
+            for g in r["gaps"]:
+                gdata.append([
+                    Paragraph(_fmt_dt(g["from_time"]), st["cell"]),
+                    Paragraph(_fmt_dt(g["to_time"]), st["cell"]),
+                    Paragraph(f"{g['from_odo']:,} → {g['to_odo']:,}", st["cell"]),
+                    Paragraph(_km(g["km"]), st["cell"]),
+                ])
+            gt = Table(gdata, colWidths=[200, 200, 200, 120], repeatRows=1)
+            gt.setStyle(TableStyle([
+                ("GRID", (0, 0), (-1, -1), 0.4, LINE),
+                ("BACKGROUND", (0, 0), (-1, 0), HEAD_BG),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING", (0, 0), (-1, -1), 2.5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ]))
+            story.append(gt)
+
+    doc.build(story)
+    return buffer.getvalue()
+
+
+def _fmt_dt(iso: str | None) -> str:
+    if not iso:
+        return "—"
+    try:
+        return datetime.fromisoformat(iso).astimezone(LOCAL_TZ).strftime("%d/%m/%Y %H:%M")
+    except ValueError:
+        return iso

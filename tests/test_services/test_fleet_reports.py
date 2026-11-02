@@ -140,3 +140,66 @@ def test_the_fortnight_total_sits_under_its_own_heading():
     # fortnight's driving as though the driver had worked it that day.
     assert COLUMNS[FORTNIGHT_COLUMN][0].startswith("Fort")
     assert "WTD" in COLUMNS[15][0]
+
+
+# ----------------------------------------------------- missing VU mileage
+
+from app.services.vu_mileage import _band as mm_band, _dedupe, _merge, gaps_for
+from datetime import datetime, timezone
+
+
+def _sess(odo_in, odo_out, slot=0, mins=0):
+    # `mins` orders sessions in time, which is how the real ones are ordered.
+    t = datetime(2026, 10, 1, tzinfo=timezone.utc) + timedelta(minutes=mins)
+    return {"slot": slot, "ref": "X", "inserted": t, "withdrawn": t,
+            "odo_in": odo_in, "odo_out": odo_out}
+
+
+def test_a_gap_between_two_card_sessions_is_missing_mileage():
+    # Withdraw at 1000, next insertion at 1040 → 40 km driven on no card.
+    gaps = gaps_for([_sess(900, 1000, mins=0), _sess(1040, 1100, mins=60)], threshold_km=3)
+    assert len(gaps) == 1
+    assert gaps[0]["km"] == 40
+    assert gaps[0]["from_odo"] == 1000 and gaps[0]["to_odo"] == 1040
+
+
+def test_back_to_back_sessions_leave_no_gap():
+    assert gaps_for([_sess(900, 1000, mins=0), _sess(1000, 1100, mins=60)], threshold_km=3) == []
+
+
+def test_yard_shunting_under_the_threshold_is_ignored():
+    # 2 km between withdrawal and next insertion, threshold 3 → not reported.
+    assert gaps_for([_sess(900, 1000, mins=0), _sess(1002, 1100, mins=60)], threshold_km=3) == []
+
+
+def test_crew_overlap_is_covered_not_missing():
+    # Two drivers crewing the same stretch: slot 0 covers 1000-1200, slot 1
+    # covers 1050-1150 inside it. The high-water mark stays at 1200, so the
+    # inner session charges nothing.
+    gaps = gaps_for([_sess(1000, 1200, slot=0, mins=0),
+                     _sess(1050, 1150, slot=1, mins=30)], threshold_km=3)
+    assert gaps == []
+
+
+def test_a_vehicle_swap_resetting_the_odometer_is_not_counted_as_missing():
+    # The replacement unit arrives later in time and reads lower, so it sits
+    # under the high-water mark and no forward gap is invented.
+    assert gaps_for([_sess(90000, 90500, mins=0), _sess(120, 400, mins=600)], threshold_km=3) == []
+
+
+def test_duplicate_sessions_from_two_downloads_collapse():
+    s = _sess(900, 1000)
+    assert len(_dedupe([s, dict(s)])) == 1
+
+
+def test_merge_joins_overlapping_and_touching_runs():
+    merged = _merge([_sess(100, 200), _sess(180, 260), _sess(260, 300)])
+    assert len(merged) == 1 and merged[0][0] == 100 and merged[0][1] == 300
+
+
+def test_missing_km_bands():
+    assert mm_band(0) == "green"
+    assert mm_band(1) == "amber"
+    assert mm_band(49) == "amber"
+    assert mm_band(50) == "red"
+    assert mm_band(None) == "grey"   # no odometer data is not "clean"

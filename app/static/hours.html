@@ -142,6 +142,7 @@
       <button data-t="compliance">Download status</button>
       <button data-t="infringements">Infringements</button>
       <button data-t="performance">Driver performance</button>
+      <button data-t="mileage">Missing mileage</button>
       <button data-t="timeline">Timeline</button>
       <button data-t="report">Weekly report</button>
       <button data-t="wtd">Working time</button>
@@ -160,7 +161,7 @@
   const api=(path,options)=>fetch(apiUrl(path),options);
   // ?tab=report opens straight on that view, so a menu item elsewhere in the
   // app can land on the report somebody asked for rather than on the calendar.
-  const TABS=['calendar','compliance','infringements','performance','timeline','report','wtd','files'];
+  const TABS=['calendar','compliance','infringements','performance','mileage','timeline','report','wtd','files'];
   const wantedTab=new URLSearchParams(location.search).get('tab');
   let tab=TABS.includes(wantedTab)?wantedTab:'calendar';
   const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
@@ -802,7 +803,38 @@
     $('wbody').className=''; $('wbody').innerHTML=b+'</table></div>';
     $('wbody').querySelectorAll('[data-w]').forEach(btn=>btn.onclick=()=>{ const ref=data.drivers[Number(btn.dataset.w)].driver_ref; wtdOpen=wtdOpen===ref?null:ref; renderWtd(); });
   }
-  function render(){ if(tab==='calendar')renderCalendar(); else if(tab==='compliance')renderCompliance(); else if(tab==='wtd')renderWtd(); else if(tab==='infringements')renderInfringements(); else if(tab==='performance')renderPerformance(); else if(tab==='timeline')renderTimeline(); else if(tab==='report')renderReport(); else renderFiles(); }
+  async function renderMileage(){
+    const tb=BAND_TAG, bw={green:'Clean',amber:'Check',red:'Missing',grey:'No data'};
+    const {response,data}=await jsonResponse(await api('/api/tacho/mileage/missing?threshold_km=3',{cache:'no-store'}));
+    if(!response.ok){ $('view').innerHTML=`<div class="empty">${esc(errorText(data,'Could not load mileage.'))}</div>`; return; }
+    const s=data.summary;
+    let h=`<div class="card"><h3 style="margin:0 0 4px">Missing VU mileage
+        <a class="btn small" style="float:right" href="${apiUrl('/api/tacho/mileage/missing.pdf?threshold_km=3')}">Download PDF</a></h3>
+      <div style="margin-bottom:8px"><span class="note">${s.total} vehicles ·
+        <span style="color:var(--bad)">${(s.missing_km||0).toLocaleString()} km unaccounted</span></span></div>`;
+    if(!data.rows.length){ h+='<div class="empty">No vehicle units to analyse.</div></div>'; $('view').innerHTML=h; return; }
+    h+='<table><tr><th>Registration</th><th>Card<br>sessions</th><th>Accounted km</th>'
+     + '<th>Missing km</th><th>Gaps</th><th>Biggest gap</th><th>First seen</th><th>Last seen</th><th>Status</th></tr>';
+    data.rows.forEach(r=>{
+      const km=v=>v==null?'—':v.toLocaleString();
+      h+=`<tr><td><b>${esc(r.registration)}</b></td><td>${r.sessions}</td><td>${km(r.covered_km)}</td>
+        <td${r.missing_km?' style="color:var(--bad);font-weight:700"':''}>${km(r.missing_km)}</td>
+        <td>${r.gap_count}</td><td>${r.biggest_gap_km?km(r.biggest_gap_km):'—'}</td>
+        <td>${dd(r.first_seen)}</td><td>${dd(r.last_seen)}</td>
+        <td><span class="tag ${tb[r.band]||'no_data'}">${bw[r.band]||''}</span></td></tr>`;
+      (r.gaps||[]).forEach(g=>{
+        h+=`<tr style="background:var(--card2)"><td class="note" style="padding-left:20px" colspan="3">↳ ${dt(g.from_time)} → ${dt(g.to_time)}</td>
+          <td class="note" colspan="3">odo ${g.from_odo.toLocaleString()} → ${g.to_odo.toLocaleString()}</td>
+          <td class="note" colspan="3">${g.km.toLocaleString()} km with no card</td></tr>`;
+      });
+    });
+    h+='</table><div class="note" style="margin-top:8px">Distance each vehicle moved with no driver '
+     + 'card in either slot, from the unit\'s own odometer. Gaps under 3 km (yard moves) are ignored, and '
+     + 'only mileage between your own recorded card sessions is counted — not from before the vehicle was yours.</div></div>';
+    $('view').innerHTML=h;
+  }
+
+  function render(){ if(tab==='calendar')renderCalendar(); else if(tab==='compliance')renderCompliance(); else if(tab==='wtd')renderWtd(); else if(tab==='infringements')renderInfringements(); else if(tab==='performance')renderPerformance(); else if(tab==='mileage')renderMileage(); else if(tab==='timeline')renderTimeline(); else if(tab==='report')renderReport(); else renderFiles(); }
   document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
     tab=b.dataset.t; document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); render();
   });

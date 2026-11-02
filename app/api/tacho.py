@@ -26,7 +26,7 @@ from app.services import (archive, auth, ddd_go, ddd_parser, ddd_traconiq, drive
                           driver_reports, fleet_pdf,
                           infringement_reviews, mailer,
                           media_store, modules, operators, performance, report_settings,
-                          submission,
+                          submission, vu_mileage,
                           tacho_compliance, tacho_pdf, tacho_report)
 from app.services import wtd as wtd_service
 from app.models.infringement_review import InfringementReview
@@ -1224,6 +1224,39 @@ async def wtd_reference_pdf(reference_weeks: int = 17,
         media_type="application/pdf",
         headers={"Content-Disposition":
                  'attachment; filename="WTD_Reference_Period_Summary.pdf"'})
+
+
+@router.get("/mileage/missing")
+async def mileage_missing(threshold_km: int = 3,
+                          session: AsyncSession = Depends(get_session),
+                          scope: TachoScope = Depends(tacho_scope),
+                          principal: Principal = Depends(require_manager),
+                          _license: None = Depends(require_license),
+                          _module: None = Depends(require_module("tacho"))) -> dict:
+    """Kilometres each vehicle moved with no driver card in, from VU odometers."""
+    threshold_km = max(0, min(threshold_km, 1000))
+    company = await _operator_label(session, scope, principal)
+    rows = await vu_mileage.missing_mileage(session, scope, threshold_km=threshold_km,
+                                            operator_name=company)
+    return {"company": company, "threshold_km": threshold_km, "rows": rows,
+            "summary": vu_mileage.summarise(rows)}
+
+
+@router.get("/mileage/missing.pdf")
+async def mileage_missing_pdf(threshold_km: int = 3,
+                             session: AsyncSession = Depends(get_session),
+                             scope: TachoScope = Depends(tacho_scope),
+                             principal: Principal = Depends(require_manager),
+                             _license: None = Depends(require_license),
+                             _module: None = Depends(require_module("tacho"))) -> Response:
+    threshold_km = max(0, min(threshold_km, 1000))
+    company = await _operator_label(session, scope, principal)
+    rows = await vu_mileage.missing_mileage(session, scope, threshold_km=threshold_km,
+                                            operator_name=company)
+    return Response(
+        content=fleet_pdf.render_missing_mileage(rows, threshold_km, company=company),
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="Missing_VU_Mileage.pdf"'})
 
 
 @router.post("/report/send")

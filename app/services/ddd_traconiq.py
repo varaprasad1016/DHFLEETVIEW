@@ -561,6 +561,66 @@ def parse_vehicle_unit(data: bytes) -> dict:
     }
 
 
+def vu_sessions(data: bytes) -> dict:
+    """The odometer story of a vehicle unit: every card session with the
+    odometer reading at insertion and withdrawal, plus the span of the
+    vehicle's recorded life.
+
+    This is what a missing-mileage check is built on. A card session covers the
+    distance from `odometer_at_insertion` to `odometer_at_withdrawal`; mileage
+    the vehicle travelled *between* one withdrawal and the next insertion, with
+    no card in either slot, is unaccounted - driving on no card, or a download
+    gap. The reading at each end comes straight from the unit, so the figure is
+    the vehicle's own, not an estimate.
+    """
+    document = _run(data, "vu")
+    suffix, _generation = _vu_generation(document)
+    blocks = document.get(f"vu_activities{suffix}") or []
+    if not isinstance(blocks, list):
+        blocks = [blocks]
+
+    sessions: list[dict] = []
+    odos: list[int] = []
+    days = 0
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        days += 1
+        for value in _records(block.get("odometer_value_midnight_record_array") or {},
+                              "records") or []:
+            if isinstance(value, int) and value != _ODOMETER_UNSET:
+                odos.append(value)
+        records = _records(block, "vu_card_iw_record_array")
+        if not records:
+            records = _records(block.get("vu_card_iw_data") or {}, "vu_card_iw_records")
+        for card in records:
+            if not isinstance(card, dict):
+                continue
+            odo_in = _odometer(card.get("vehicle_odometer_value_at_insertion"))
+            odo_out = _odometer(card.get("vehicle_odometer_value_at_withdrawal"))
+            if odo_in is None or odo_out is None:
+                continue
+            slot = card.get("card_slot_number")
+            sessions.append({
+                "ref": _driver_ref(card),
+                "slot": slot if isinstance(slot, int) else 0,
+                "inserted": _time(card.get("card_insertion_time")),
+                "withdrawn": _time(card.get("card_withdrawal_time")),
+                "odo_in": odo_in,
+                "odo_out": max(odo_in, odo_out),   # a session never runs backwards
+            })
+            odos.extend([odo_in, odo_out])
+
+    registration, _vin = _vu_identity(document, suffix)
+    return {
+        "registration": registration,
+        "sessions": sessions,
+        "odo_min": min(odos) if odos else None,
+        "odo_max": max(odos) if odos else None,
+        "days": days,
+    }
+
+
 def _card_suffix(document: dict) -> str:
     """Whether to read this card's second- or first-generation blocks.
 
