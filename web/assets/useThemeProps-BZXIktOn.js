@@ -1,1 +1,0 @@
-import{bs as a,bq as h,bt as n}from"./index-HtmACxQH.js";const u=a();function c(t){const{props:m,name:o,defaultTheme:r,themeId:s}=t;let e=h(r);return s&&(e=e[s]||e),n({theme:e,name:o,props:m})}export{u as s,c as u};

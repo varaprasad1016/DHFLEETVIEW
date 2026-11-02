@@ -36,7 +36,10 @@ import SearchIcon from '@mui/icons-material/Search';
 import DownloadIcon from '@mui/icons-material/Download';
 import GridViewIcon from '@mui/icons-material/GridView';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
+import FactCheckRoundedIcon from '@mui/icons-material/FactCheckRounded';
 import BackIcon from '../common/components/BackIcon';
+import useComplianceAccess from '../common/util/useComplianceAccess';
 import { useTranslation } from '../common/components/LocalizationProvider';
 import { useAttributePreference } from '../common/util/preferences';
 import {
@@ -456,6 +459,11 @@ const Cmsv9VideoPage = () => {
   // data has arrived - an empty panel that says so beats no sign of the feature
   // at all on a vehicle that is meant to have it. Camera-only vehicles get nothing.
   const tachoCapable = live.hasData || /FM[BC]\d?6/i.test(device?.attributes?.trackerModel || '');
+  // The app's Home and Compliance shortcuts normally live stacked in the map's
+  // bottom-right corner. On this page that corner is taken by the map's own
+  // zoom and location controls, so here they move up into the controls row
+  // instead (and App.jsx hides the stacked pair on this route).
+  const complianceAccess = useComplianceAccess();
   const [tachoOpen, setTachoOpen] = useState(() => {
     try {
       return window.localStorage.getItem('dhfv-tacho-hidden') !== '1';
@@ -1313,6 +1321,30 @@ const Cmsv9VideoPage = () => {
               </Button>
             )}
             {loading && <CircularProgress size={20} />}
+            {/* Home and Compliance, pushed to the far right of this row so they
+                sit beside the Tacho toggle rather than stacked over the map's
+                own controls in the bottom-right corner. */}
+            <Box sx={{ ml: 'auto', display: 'flex', gap: 1 }}>
+              <IconButton
+                size="small"
+                onClick={() => navigate('/')}
+                title="Home"
+                aria-label="Home"
+              >
+                <HomeRoundedIcon fontSize="small" />
+              </IconButton>
+              {complianceAccess && (
+                <IconButton
+                  size="small"
+                  component="a"
+                  href="/tacho/compliance"
+                  title="Compliance hub"
+                  aria-label="Compliance hub"
+                >
+                  <FactCheckRoundedIcon fontSize="small" />
+                </IconButton>
+              )}
+            </Box>
           </div>
           {error && (
             <Box sx={{ px: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
