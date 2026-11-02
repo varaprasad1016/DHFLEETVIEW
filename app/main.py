@@ -149,7 +149,9 @@ async def approver() -> str:
     return _with_theme((_STATIC / "approver.html").read_text(encoding="utf-8"))
 
 
-_THEME_HEAD = '<link rel="stylesheet" href="assets/theme.css">\n<script src="assets/theme.js"></script>\n'
+_THEME_HEAD = ('<link rel="stylesheet" href="assets/theme.css">\n'
+               '<script src="assets/theme.js"></script>\n'
+               '<script src="assets/ui-feedback.js"></script>\n')
 _AUTH_HEAD = '<script src="assets/auth.js"></script>\n'
 _ASSET_TYPES = {".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8"}
 
