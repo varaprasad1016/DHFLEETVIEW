@@ -64,7 +64,7 @@ const MapView = ({ children }) => {
   const mapStyles = useMapStyles();
   const activeMapStyles = useAttributePreference(
     'activeMapStyles',
-    'googleRoad',
+    'googleRoad,googleSatellite',
   );
   const [selectedStyleId, setSelectedStyleId] = usePersistedState(
     'selectedMapStyle',
