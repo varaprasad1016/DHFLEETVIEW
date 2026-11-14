@@ -1239,7 +1239,10 @@ const Cmsv9VideoPage = () => {
         sx={{ borderBottom: 1, borderColor: 'divider' }}
       >
         <Toolbar>
-          <IconButton edge="start" sx={{ mr: 2 }} onClick={() => navigate(-1)}>
+          {/* Back lands on the Map view (live map over the vehicle list), not
+              wherever history happens to point - that was the dashboard, and
+              the office wants the map. MainPage consumes ?view=map. */}
+          <IconButton edge="start" sx={{ mr: 2 }} onClick={() => navigate('/?view=map')}>
             <BackIcon />
           </IconButton>
           <Typography variant="h6" className={classes.title}>

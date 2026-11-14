@@ -73,6 +73,34 @@ const useStyles = makeStyles()((theme) => ({
     position: 'relative',
     minWidth: 0,
   },
+  // Mobile Map view is a split: the live map on the top half, the vehicle list
+  // on the bottom half as a sheet. These are only attached when the split is
+  // active (isAppMobile && fleetView === 'map'), so no media query is needed -
+  // and a wide WebView gets the split too, which a width query would miss.
+  bodySplit: {
+    flexDirection: 'column',
+  },
+  mapSplit: {
+    flex: '0 0 50%',
+    height: '50%',
+    minHeight: 0,
+    order: 1,
+  },
+  sidebarSplit: {
+    width: '100%',
+    flex: '0 0 50%',
+    height: '50%',
+    minHeight: 0,
+    order: 2,
+    borderRight: 'none',
+    borderTop: `1px solid ${theme.palette.divider}`,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+  },
+  sidebarInnerSplit: {
+    width: '100%',
+    minWidth: 0,
+  },
   sectionTitle: {
     fontWeight: 600,
     fontSize: '0.7rem',
@@ -205,12 +233,18 @@ const MainPage = () => {
     }
   }, [fleetView, setFleetView]);
 
-  // Selecting a vehicle used to jump straight to the full-screen map, from
-  // when tapping a row was how you found it on the map. Tapping a row now
-  // opens its cameras, and the map travels with them on the video page, so
-  // the jump has nothing left to do - and it did harm: the selection
-  // outlives the video page, so coming back from one landed on the map
-  // instead of the list the vehicle was tapped from.
+  // Coming back from a vehicle's cameras lands on the Map view - the split with
+  // the live map above the vehicle list - rather than wherever history points
+  // (which was the dashboard). The video page asks for it with ?view=map; the
+  // param is consumed here and dropped from the URL so a refresh or a later
+  // visit doesn't keep re-applying it.
+  useEffect(() => {
+    const wanted = new URLSearchParams(location.search).get('view');
+    if (wanted === 'map' || wanted === 'dashboard') {
+      setFleetView(wanted);
+      navigate('/', { replace: true });
+    }
+  }, [location.search, setFleetView, navigate]);
 
   useFilter(
     keyword,
@@ -316,8 +350,11 @@ const MainPage = () => {
 
   const clearVehicleFilters = () => setFilter({ ...safeFilter, vehicleStatuses: [] });
 
-  // Mobile/WebView shows exactly one full-screen surface at a time.
-  const showSidebar = isAppMobile ? fleetView === 'dashboard' : devicesOpen;
+  // Mobile/WebView: Dashboard is the full-height vehicle list; Map is a split -
+  // the live map on the top half with the same list underneath, so a vehicle
+  // can be read and found on the map at once. (Back from the cameras lands here.)
+  const isSplit = isAppMobile && fleetView === 'map';
+  const showSidebar = isAppMobile ? true : devicesOpen;
   const showMap = isAppMobile ? fleetView === 'map' : true;
 
   return (
@@ -357,10 +394,11 @@ const MainPage = () => {
           </button>
         </div>
       )}
-      <div className={classes.body}>
-        {/* Sidebar – Fleet List (primary on APK/iOS) */}
-        <div className={`${classes.sidebar} ${showSidebar ? '' : classes.sidebarClosed} ${!showSidebar && isAppMobile ? classes.sidebarMobileHidden : ''}`}>
-          <div className={classes.sidebarInner}>
+      <div className={`${classes.body} ${isSplit ? classes.bodySplit : ''}`}>
+        {/* Sidebar – Fleet List. Full height on Dashboard; the bottom half of
+            the split on Map (the map sits above it via flex order). */}
+        <div className={`${classes.sidebar} ${showSidebar ? '' : classes.sidebarClosed} ${!showSidebar && isAppMobile ? classes.sidebarMobileHidden : ''} ${isSplit ? classes.sidebarSplit : ''}`}>
+          <div className={`${classes.sidebarInner} ${isSplit ? classes.sidebarInnerSplit : ''}`}>
             {/*
               The list is the home screen. The stat cards and the chip row used
               to sit above it and pushed the registrations below the fold, which
@@ -392,7 +430,7 @@ const MainPage = () => {
 
         {/* Map – hidden on mobile when fleet list is primary (APK/iOS shows list on login) */}
         {showMap && (
-          <div className={`${classes.mapArea} ${!showMap ? classes.mapHiddenMobile : ''}`}>
+          <div className={`${classes.mapArea} ${!showMap ? classes.mapHiddenMobile : ''} ${isSplit ? classes.mapSplit : ''}`}>
             <Suspense fallback={null}>
               <MainMap
                 filteredPositions={filteredPositions}

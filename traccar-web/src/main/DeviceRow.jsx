@@ -24,6 +24,8 @@ import relativeTime from 'dayjs/plugin/relativeTime';
 import { devicesActions } from '../store';
 import VideocamIcon from '@mui/icons-material/Videocam';
 import PlaceIcon from '@mui/icons-material/Place';
+import LocalGasStationIcon from '@mui/icons-material/LocalGasStation';
+import Chip from '@mui/material/Chip';
 import SpeedIcon from '@mui/icons-material/Speed';
 import {
   formatAlarm,
@@ -295,6 +297,12 @@ const DeviceRow = ({ devices, index, style, tacho, ahead }) => {
   const driverUniqueId = position?.attributes?.driverUniqueId;
   const hasCamera = Boolean(item.attributes?.cmsv9DeviceId);
   const lastUpdate = item.lastUpdate ? dayjs(item.lastUpdate).fromNow() : null;
+  // Fuel level as a percentage, shown as a chip on the right when the unit
+  // reports one. Traccar's `fuel` can be litres or percent depending on the
+  // device, so only a 0-100 reading is shown as a percentage; a vehicle whose
+  // tracker sends no fuel reading simply has no chip, not a blank or a dash.
+  const fuel = position?.attributes?.fuel;
+  const fuelPct = typeof fuel === 'number' && fuel >= 0 && fuel <= 100 ? Math.round(fuel) : null;
 
   // Roadworks or a closure in front of this vehicle, on its own heading.
   const roadAhead = ahead?.[item.id];
@@ -433,7 +441,12 @@ const DeviceRow = ({ devices, index, style, tacho, ahead }) => {
               ) : (
                 <span className={classes.plainName}>{primaryValue}</span>
               )}
-              {driverName && <span className={classes.driverName}>{driverName}</span>}
+              {/* Who's driving, from the tachograph; otherwise say so plainly
+                  rather than leave a gap. A vehicle with a card-reader driver
+                  (driverUniqueId) already names them on the line below. */}
+              {driverName
+                ? <span className={classes.driverName}>{driverName}</span>
+                : !driverUniqueId && <span className={classes.driverName} style={{ fontWeight: 400 }}>No driver assigned</span>}
             </span>
           }
           secondary={
@@ -453,6 +466,16 @@ const DeviceRow = ({ devices, index, style, tacho, ahead }) => {
         />
         {position && (
           <>
+            {fuelPct !== null && (
+              <Tooltip title={`${t('positionFuel')}: ${fuelPct}%`}>
+                <Chip
+                  size="small"
+                  icon={<LocalGasStationIcon style={{ fontSize: 14 }} />}
+                  label={`${fuelPct}%`}
+                  sx={{ height: 22, fontSize: '0.72rem', fontWeight: 600, mr: 0.5 }}
+                />
+              </Tooltip>
+            )}
             {position.attributes.hasOwnProperty('alarm') && (
               <Tooltip title={`${t('eventAlarm')}: ${formatAlarm(position.attributes.alarm, t)}`}>
                 <IconButton size="small">
