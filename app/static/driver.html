@@ -70,6 +70,26 @@
   .card { background: var(--d-surface); border-radius: 16px; padding: 16px; margin-bottom: 14px; box-shadow: var(--d-shadow); border: 1px solid var(--d-line); }
   .card-title { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 15px; margin: 0 0 12px; }
   .section-title { font-size: 20px; font-weight: 600; margin: 22px 0 2px; }
+  /* --- home: header subtitle, date line, operations grid --- */
+  .topbar h1 .tb-t { display: block; line-height: 1.15; }
+  .topbar h1 .tb-s { display: block; font-size: 12px; font-weight: 500; color: var(--d-primary); line-height: 1.2; }
+  .date-line { font-size: 14px; color: var(--d-mut); margin: 8px 0 2px; }
+  .greet { font-size: 26px; font-weight: 700; margin: 0 0 18px; letter-spacing: -.2px; }
+  /* Sized so a one-word title like "Walkarounds" fits on a 393px phone (the
+     most common width) without ellipsising; on a wider phone it matches the
+     reference's roomier look. The subtitle is allowed to truncate. */
+  .ops-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .op { display: flex; align-items: center; gap: 8px; width: 100%; border: 1px solid var(--d-line); background: var(--d-surface); border-radius: 16px; padding: 12px 8px 12px 10px; text-align: left; box-shadow: var(--d-shadow); min-width: 0; color: var(--d-fg); }
+  .op .op-ico { width: 42px; height: 42px; border-radius: 11px; background: var(--d-surface-2); display: grid; place-items: center; font-size: 22px; flex: none; }
+  .op .chev { display: flex; }
+  .op .chev svg { width: 14px; height: 14px; }
+  /* Title stacked over subtitle. The two lines are spans, so they need to be
+     made block-level and given a shrinkable column (min-width:0) or they sit
+     side by side and run out past the card edge instead of ellipsising. */
+  .op .op-tx { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .op .op-t { display: block; font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .op .op-s { display: block; font-size: 12px; color: var(--d-mut); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+  .op .chev { color: var(--d-mut-2); flex: none; }
   .section-sub { color: var(--d-primary); font-weight: 600; font-size: 14px; margin: 6px 0 10px; }
   .mut { color: var(--d-mut); } .small { font-size: 12px; }
   .row { display: flex; align-items: center; gap: 10px; }
@@ -139,6 +159,10 @@
 
   /* --- active walkaround banner --- */
   .active-wa .row.between b { display: inline-flex; align-items: center; gap: 8px; }
+  /* small "walkaround complete" confirmation above Start Job on an accepted job */
+  .wa-note { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; margin: 2px 0 10px; }
+  .wa-note.ok { color: var(--d-ok); }
+  .wa-note svg { width: 18px; height: 18px; }
 
   /* --- jobs --- */
   .job { position: relative; background: var(--d-surface); border-radius: 14px; padding: 14px 14px 12px 18px; margin-bottom: 10px; box-shadow: var(--d-shadow); border: 1px solid var(--d-line); overflow: hidden; width: 100%; text-align: left; display: block; }
@@ -390,8 +414,12 @@ async function busy(btn, fn) {
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>';
   try { return await fn(); } catch (e) { fail(e); } finally { if (btn.isConnected) { btn.disabled = false; btn.innerHTML = html; } }
 }
-function setTopbar({ title, back = null, avatar = false, bell = false }) {
-  $("#tbTitle").textContent = title;
+function setTopbar({ title, subtitle = null, back = null, avatar = false, bell = false }) {
+  // An optional second line under the title (e.g. "Driver Workspace" under
+  // the company name on Home). Plain text otherwise, as before.
+  const h = $("#tbTitle");
+  if (subtitle) h.innerHTML = `<span class="tb-t">${esc(title)}</span><span class="tb-s">${esc(subtitle)}</span>`;
+  else h.textContent = title;
   const left = $("#tbLeft");
   if (back) { left.innerHTML = `<button class="back" aria-label="Back">${ICON.back}</button>`; left.firstChild.onclick = back; }
   else if (avatar) { left.innerHTML = `<button class="avatar" aria-label="Profile">${esc(initials(S.driver))}</button>`; left.firstChild.onclick = openProfile; }
@@ -504,11 +532,14 @@ function route() {
   clearTimers();
   setSubbar(null); setBottomAction(null);
   if (!S.token || !S.driver) return renderSignIn();
-  const [, name, arg] = (location.hash || "#/live").split("/");
+  // Home is the landing page after sign-in. Drivers arrive at /driver with no
+  // hash, so the default here (and the bare "#/" case) decides what they see
+  // first - the operations grid, not the live shift screen.
+  const [, name, arg] = (location.hash || "#/home").split("/");
   window.scrollTo(0, 0);
   if (name === "walkaround") return renderWalkaround();
   if (name === "job" && arg) return renderJob(arg);
-  if (name === "home") return renderHome();
+  if (!name || name === "home") return renderHome();
   if (name === "documents") return renderDocuments();
   if (name === "contacts") return renderContacts();
   if (name === "hours") return renderHours();
@@ -1110,9 +1141,44 @@ async function renderJob(id) {
   const idx = order.indexOf(j.status);
   const steps = [["Allocated", 0], ["Accepted", 1], ["In Progress", 2], ["Completed", 3]];
   const instructions = [j.description, j.pickup_location && `Pickup: ${j.pickup_location}`, j.dropoff_location && `Drop-off: ${j.dropoff_location}`].filter(Boolean).join("\n");
+  // Walkaround gating for an accepted job. A pre-use walkaround is tied to an
+  // active shift on a vehicle, so once a job is accepted we steer the driver to
+  // do (or finish) that check before starting the job - then carry on. The
+  // state carries the shift and its compliance; load it if this view opened
+  // straight onto a job.
+  if (["accepted", "in_progress"].includes(j.status) && !S.state) { try { await loadState(); } catch (e) {} }
+  const regKey = (s) => (s || "").toUpperCase().replace(/\s+/g, "");
+  const st0 = S.state;
+  const shift0 = st0 && st0.shift;
+  const preUse = st0 && st0.vehicle && st0.vehicle.compliance && st0.vehicle.compliance.pre_use;
+  const shiftOnJobVehicle = shift0 && (!j.vehicle_reg || regKey(shift0.vehicle_reg) === regKey(j.vehicle_reg));
+  const walkDone = !!(shift0 && shiftOnJobVehicle && preUse && preUse.status === "completed");
+
   let banner = "", primary = "";
   if (j.status === "pending") { banner = `<div class="banner pending">New job — accept or decline</div>`; primary = `<div class="btn-row"><button class="btn btn-outline-bad" id="jDeny">Decline</button><button class="btn btn-primary" id="jAccept">Accept Job</button></div>`; }
-  else if (j.status === "accepted") { banner = `<div class="banner ok">${ICON.okCircle} Job Accepted</div>`; primary = `<button class="btn btn-teal" id="jStart">Start Job</button>`; }
+  else if (j.status === "accepted") {
+    banner = `<div class="banner ok">${ICON.okCircle} Job Accepted</div>`;
+    if (walkDone) {
+      // Walkaround already done on this shift's vehicle — carry on.
+      primary = `<div class="wa-note ok">${ICON.shieldCheck} Pre-use walkaround complete</div>
+        <button class="btn btn-teal" id="jStart">Start Job</button>`;
+    } else if (shift0 && shiftOnJobVehicle) {
+      // On the right vehicle, walkaround outstanding — make it the main action.
+      primary = `<div class="banner warn">Do your pre-use walkaround before starting this job</div>
+        <button class="btn btn-primary" id="jWalk">${ICON.shieldCheck} Do Walkaround Check</button>
+        <button class="btn btn-soft" id="jStart">Start job without it</button>`;
+    } else if (shift0) {
+      // Clocked onto a different vehicle than the job is for.
+      primary = `<div class="banner warn">You're on ${esc(fmtReg(shift0.vehicle_reg))}, but this job is for ${esc(fmtReg(j.vehicle_reg || "another vehicle"))}. Start a shift on it to do the walkaround.</div>
+        <button class="btn btn-primary" id="jGoLive">Go to shift</button>
+        <button class="btn btn-soft" id="jStart">Start job anyway</button>`;
+    } else {
+      // No active shift at all — send them to start one (which prompts the walkaround).
+      primary = `<div class="banner warn">Start your shift${j.vehicle_reg ? " on " + esc(fmtReg(j.vehicle_reg)) : ""} and complete the walkaround before starting this job.</div>
+        <button class="btn btn-primary" id="jGoLive">Start shift &amp; walkaround</button>
+        <button class="btn btn-soft" id="jStart">Start job anyway</button>`;
+    }
+  }
   else if (j.status === "in_progress") { banner = `<div class="banner warn">● In Progress</div>`; primary = `<button class="btn btn-ok" id="jComplete">${ICON.okCircle} Complete Job</button>`; }
   else if (j.status === "completed") banner = `<div class="banner ok">${ICON.okCircle} Completed ${esc(fmtWhen(j.completed_at))}</div>`;
   else banner = `<div class="banner pending">${esc((JOB_STATUS[j.status] || [j.status])[0])}${j.deny_reason ? " — " + esc(j.deny_reason) : ""}</div>`;
@@ -1168,6 +1234,10 @@ async function renderJob(id) {
   act("#jDeny", () => openSheet("Decline Job", `<label class="lbl" for="dr">Reason</label><textarea class="input" id="dr" placeholder="Let your office know why"></textarea><button class="btn btn-bad" id="drGo" style="margin-top:14px">Decline Job</button>`, (sh) => {
     $("#drGo", sh).onclick = (e) => busy(e.currentTarget, async () => { await api("POST", `api/shifts/jobs/${j.id}/deny`, { reason: $("#dr", sh).value.trim() || null }); closeSheet(); toast("Job declined"); location.hash = "#/live"; });
   }));
+  // With an active shift we can jump straight into the pre-use check; otherwise
+  // the driver first needs to clock onto a vehicle on the live screen.
+  act("#jWalk", () => { if (shift0) startWalkaround("pre_use"); else location.hash = "#/live"; });
+  act("#jGoLive", () => { location.hash = "#/live"; });
   act("#jStart", () => openSheet("Start Job", `<p class="mut" style="margin:12px 0">You are about to begin this job.</p>
       ${instructions ? `<div class="sheet-group">Current instructions</div><div class="card instructions" style="box-shadow:none">${esc(instructions)}</div>` : ""}
       <button class="btn btn-teal" id="sjGo">Start Job</button><button class="btn btn-soft" id="sjNo">Not yet</button>`, (sh) => {
@@ -1205,45 +1275,69 @@ function messagesHtml(msgs) {
 }
 
 // ---------- HOME ----------
+// The driver's landing page: the company they work for, today's date and a
+// greeting, then an operations grid - one tile per thing a driver does. This
+// replaces the earlier stats dashboard (shift timer, licence, recent shifts),
+// which still lives on Live. Compliance nudges that matter legally (infringements
+// awaiting a signature) stay, shown above the grid only when there are any.
 async function renderHome() {
-  setTopbar({ title: "Home", avatar: true, bell: true }); setNav("home");
+  setNav("home");
   const view = $("#view");
   view.innerHTML = `<div class="empty"><span class="spinner"></span></div>`;
-  let st, hist, recs;
-  try { [st, hist, recs] = await Promise.all([loadState(), api("GET", "api/driver/history?limit=10"), api("GET", "api/driver/my-records").catch(() => null)]); } catch (e) { return fail(e); }
+  let st;
+  try { st = await loadState(); } catch (e) { return fail(e); }
   if (!location.hash.startsWith("#/home")) return;
-  const hour = Number(new Date().toLocaleString("en-GB", { hour: "2-digit", hour12: false, timeZone: TZ }));
+
+  // Header: the operator's name with "Driver Workspace" under it. The shift's
+  // company if clocked on, else the first company the driver belongs to.
+  const company = (st.shift && st.shift.company) || (companies()[0] && companies()[0].label) || "DH FleetView";
+  setTopbar({ title: company, subtitle: "Driver Workspace", avatar: true, bell: true });
+
+  const now = new Date();
+  const hour = Number(now.toLocaleString("en-GB", { hour: "2-digit", hour12: false, timeZone: TZ }));
   const greet = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
-  const open = (st.jobs || []).filter((j) => ["pending", "accepted", "in_progress"].includes(j.status)).length;
-  const done = (st.jobs || []).filter((j) => j.status === "completed").length;
+  const dateLine = now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: TZ });
   const toSign = st.infringements_to_sign || 0;
-  view.innerHTML = `<div style="font-size:22px;font-weight:600;margin:6px 0 14px">${greet}, ${esc(S.driver.split(" ")[0])}</div>
-    ${toSign ? `<a class="card" href="#/hours" style="display:block;text-decoration:none;color:inherit;border:1px solid var(--d-warn)">
+  const onShift = !!st.shift;
+
+  // Each tile: id, icon, title, subtitle. The handlers below decide what they
+  // do; tiles that need an active shift send the driver to Live to start one.
+  const ops = [
+    ["opFaults", "⚠️", "Faults", "Report issues"],
+    ["opWalk", "✅", "Walkarounds", "Daily vehicle checks"],
+    ["opJobs", "📦", "Jobs", "Assigned deliveries"],
+    ["opVehicles", "🚚", "Vehicles", "Assigned vehicles"],
+    ["opMaint", "🔧", "Maintenance", "Workshop visits"],
+    ["opFuel", "⛽", "Fuel Logs", "Consumption records"],
+    ["opHols", "🏖️", "My Holidays", "Leave requests"],
+    ["opPaper", "📋", "Paperwork", "Job sheets & PODs"],
+  ];
+  view.innerHTML = `
+    <div class="date-line">${esc(dateLine)}</div>
+    <div class="greet">${greet}, ${esc(S.driver.split(" ")[0])}</div>
+    ${toSign ? `<a class="card" href="#/hours" style="display:block;text-decoration:none;color:inherit;border:1px solid var(--d-warn);margin-bottom:14px">
       <div class="row between"><b>${toSign} infringement${toSign === 1 ? "" : "s"} to sign</b><span class="chev">${ICON.chev}</span></div>
       <div class="mut small" style="margin-top:4px">Your office needs you to confirm you've been told about ${toSign === 1 ? "it" : "them"}.</div></a>` : ""}
-    <div class="card">
-      ${st.shift ? `<div class="row between"><span class="plate">${esc(fmtReg(st.shift.vehicle_reg))}</span><span class="chip chip-ok">On shift</span></div>
-        ${st.shift.company && companies().length > 1 ? `<div style="margin-top:8px">${coChip(st.shift.company)}</div>` : ""}
-        <div class="stat-grid" style="margin-top:14px"><div class="stat"><div class="n" data-since="${esc(st.shift.clocked_in_at)}" data-fmt="short"></div><div class="l">On shift</div></div>
-        <div class="stat"><div class="n">${open}</div><div class="l">Open jobs</div></div><div class="stat"><div class="n">${done}</div><div class="l">Done today</div></div></div>
-        <a class="btn btn-primary" href="#/live" style="margin-top:14px;text-decoration:none">Go to Live</a>`
-      : `<div class="card-title">No active shift</div><p class="mut" style="margin:0 0 12px">Start a shift from Live by searching for your vehicle.</p><a class="btn btn-ok" href="#/live" style="text-decoration:none">Start Shift</a>`}
-    </div>
-    ${recs && recs.items.some((i) => i.status !== "missing") ? `<div class="section-title">Licence &amp; qualifications</div>
-    <div class="card">${recs.items.filter((i) => i.status !== "missing").map((i) => {
-        const when = i.date || i.next_due;
-        const colour = ["expired", "overdue"].includes(i.status) ? "var(--d-bad)" : i.status === "due_soon" ? "var(--d-warn)" : "var(--d-fg-2)";
-        const detail = i.hours != null ? `${i.hours} of ${i.required} hours` : when ? new Date(when + "T12:00:00Z").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }) : "";
-        const label = i.label === "Licence check" ? "Next licence check" : i.label;
-        return `<div class="list-item"><div style="flex:1">${esc(label)}</div><div style="color:${colour};font-weight:600;font-size:14px">${esc(detail)}${["expired", "overdue"].includes(i.status) ? " · overdue" : i.status === "due_soon" ? " · soon" : ""}</div></div>`;
-      }).join("")}</div>` : ""}
-    <div class="section-title">Recent shifts</div>
-    <div class="card">${(hist || []).length ? hist.map((s) => `<div class="list-item"><span class="plate">${esc(fmtReg(s.vehicle_reg))}</span>
-      <div style="flex:1"><div style="font-weight:600;font-size:14px">${esc(fmtWhen(s.clocked_in_at))}</div><div class="mut small">${s.clocked_out_at ? "Ended " + esc(fmtTime(s.clocked_out_at)) + " · " + fmtDuration(new Date(s.clocked_out_at) - new Date(s.clocked_in_at), false) : "In progress"}</div></div>
-      ${s.odometer_km != null && s.odometer_out_km != null ? `<span class="mut small">${(s.odometer_out_km - s.odometer_km).toLocaleString()} km</span>` : ""}</div>`).join("") : `<div class="empty">No shifts yet</div>`}</div>`;
-  $$("[data-fmt=short]").forEach((el) => { el.dataset.fmt = "short"; });
-  const tick = () => $$("[data-fmt=short]").forEach((el) => { el.textContent = fmtDuration(Date.now() - new Date(el.dataset.since), false); });
-  S.timers.push(setInterval(tick, 30000)); tick();
+    <div class="overline" style="margin-top:4px">⊞ Operations</div>
+    <div class="ops-grid">${ops.map(([id, ico, t, s]) => `
+      <button class="op" id="${id}"><span class="op-ico">${ico}</span><span class="op-tx"><span class="op-t">${esc(t)}</span><span class="op-s">${esc(s)}</span></span><span class="chev">${ICON.chev}</span></button>`).join("")}
+    </div>`;
+
+  // Needs a vehicle: go straight to the action when clocked on, otherwise to
+  // Live, where the shift is started (which in turn prompts the walkaround).
+  const needsShift = (fn, why) => () => { if (onShift) fn(); else { toast(`Start your shift first to ${why}`); location.hash = "#/live"; } };
+  const act = (sel, fn) => { const b = $(sel); if (b) b.onclick = fn; };
+  act("#opFaults", needsShift(() => openFault(), "report a fault"));
+  act("#opWalk", needsShift(() => startWalkaround("pre_use"), "do a walkaround"));
+  act("#opFuel", needsShift(() => openFuel(), "log fuel"));
+  act("#opPaper", () => openPaperwork());
+  act("#opJobs", () => { location.hash = "#/live"; });
+  act("#opVehicles", () => { location.hash = "#/live"; });
+  // No driver-side maintenance or leave flow exists yet - say so plainly rather
+  // than open an empty screen, and point them at the office.
+  const notYet = (what) => () => openSheet(what, `<p class="mut" style="margin:12px 0">${esc(what)} isn't switched on in the driver app yet. Speak to your transport office and they can arrange it.</p><button class="btn btn-soft" id="nyOk">OK</button>`, (sh) => { $("#nyOk", sh).onclick = closeSheet; });
+  act("#opMaint", notYet("Maintenance"));
+  act("#opHols", notYet("My Holidays"));
 }
 
 // ---------- DOCUMENTS ----------
