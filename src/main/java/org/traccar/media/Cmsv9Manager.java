@@ -310,10 +310,13 @@ public class Cmsv9Manager {
         return wsPlay(terminal, channel, 1);
     }
 
-    // streamType 0 = main (HD), 1 = sub (SD). Content: host,port,0,channel,dataType(1=video),streamType
+    // streamType 0 = main (HD), 1 = sub (SD). Content: host,port,0,channel,dataType,streamType
+    // dataType is the JT/T 1078 media type: 0 = audio and video, 1 = video only. The
+    // portal asks for 0, so the DVR sends the cab microphone along with the picture;
+    // the player keeps it muted until someone turns a camera's speaker on.
     public boolean wsPlay(String terminal, int channel, int streamType) {
         return wsSendOrderOnce(terminal, "9101",
-                videoServerHost() + "," + videoServerPort() + ",0," + (channel) + ",1," + streamType);
+                videoServerHost() + "," + videoServerPort() + ",0," + (channel) + ",0," + streamType);
     }
 
     /**

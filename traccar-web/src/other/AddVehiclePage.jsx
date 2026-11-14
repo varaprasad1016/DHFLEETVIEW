@@ -210,15 +210,17 @@ const AddVehiclePage = () => {
           }}
         >
           <PhotoCameraIcon color="action" fontSize="large" />
-          <Typography variant="body1">Take or drop label photos here</Typography>
+          <Typography variant="body1">Take, choose or drop label photos here</Typography>
           <Typography variant="caption" color="text.secondary">
-            Several at once is fine — one card per camera
+            Camera or gallery — several at once is fine, one card per camera
           </Typography>
+          {/* No capture attribute: with it a phone goes straight to the camera
+              and a label photographed earlier is unreachable. Without it the
+              phone offers camera and gallery together. */}
           <input
             ref={fileInputRef}
             type="file"
             accept="image/*"
-            capture="environment"
             multiple
             hidden
             onChange={(e) => addPhotos(e.target.files)}

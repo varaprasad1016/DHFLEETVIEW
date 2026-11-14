@@ -32,6 +32,8 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PauseIcon from '@mui/icons-material/Pause';
 import StopIcon from '@mui/icons-material/Stop';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
+import VolumeUpIcon from '@mui/icons-material/VolumeUp';
+import VolumeOffIcon from '@mui/icons-material/VolumeOff';
 import SearchIcon from '@mui/icons-material/Search';
 import DownloadIcon from '@mui/icons-material/Download';
 import GridViewIcon from '@mui/icons-material/GridView';
@@ -39,6 +41,7 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded';
 import FactCheckRoundedIcon from '@mui/icons-material/FactCheckRounded';
 import BackIcon from '../common/components/BackIcon';
+import { savePersistedState } from '../common/util/usePersistedState';
 import useComplianceAccess from '../common/util/useComplianceAccess';
 import { useTranslation } from '../common/components/LocalizationProvider';
 import { useAttributePreference } from '../common/util/preferences';
@@ -227,6 +230,13 @@ const useStyles = makeStyles()((theme) => ({
       backgroundColor: 'rgba(0,0,0,0.75)',
     },
   },
+  // The speaker that is live: the same green as the selected tile's border.
+  cellButtonOn: {
+    backgroundColor: 'rgba(34,197,94,0.85)',
+    '&:hover': {
+      backgroundColor: 'rgba(34,197,94,1)',
+    },
+  },
   cellPlaceholder: {
     color: '#666',
     fontSize: '0.8rem',
@@ -366,6 +376,23 @@ async function createFlvPlayer(container, url, options = {}) {
   return player;
 }
 
+// Jessibuca starts every stream muted (isNotMute is off). Turning a speaker
+// on also resumes the audio context, which the browser suspends until the
+// page has had a click - and this is only ever called from one.
+function setPlayerAudio(player, on) {
+  if (!player) return;
+  try {
+    if (on) {
+      player.audioResume?.();
+      player.cancelMute?.();
+    } else {
+      player.mute?.();
+    }
+  } catch (e) {
+    // a player mid-teardown; nothing to hear from it anyway
+  }
+}
+
 function destroyFlvPlayer(player) {
   if (player) {
     try {
@@ -440,6 +467,14 @@ const Cmsv9VideoPage = () => {
   const [fullscreenChannel, setFullscreenChannel] = useState(null);
   const lastTapRef = useRef({ ch: null, at: 0 });
   const cellElsRef = useRef({});
+  // Which tile's microphone is being listened to. Every tile's stream carries
+  // its cab audio (the DVR is asked for audio and video together), but they
+  // all start muted: four microphones in one cab at once is noise, and a
+  // browser will not autoplay sound anyway. One speaker is on at a time. The
+  // ref is what a tile restarted behind the user's back reads, so it comes
+  // back with its sound on rather than silently muted.
+  const [audioChannel, setAudioChannel] = useState(null);
+  const audioChannelRef = useRef(null);
 
   const [searchParams] = useSearchParams();
   const deviceId = searchParams.get('deviceId');
@@ -478,6 +513,16 @@ const Cmsv9VideoPage = () => {
     } catch (e) {
       // the choice is not remembered; the panel still opens and closes
     }
+  }, []);
+
+  // Whatever takes the user back out of here - the arrow above, the phone's own
+  // back button, the app's back gesture - lands on the Map view with the vehicle
+  // list under it, not the dashboard. The arrow asks with ?view=map, but the
+  // other two just pop history to "/" and MainPage then shows whichever view
+  // was last saved; so the choice is saved the moment the cameras open. Home
+  // goes to the same place: from here, "home" is the map with the fleet on it.
+  useEffect(() => {
+    savePersistedState('fleetView', 'map');
   }, []);
 
   // Land on the multi-channel grid, not a single camera. Tapping a vehicle in
@@ -830,13 +875,13 @@ const Cmsv9VideoPage = () => {
         // fine while every tile was locked to 4:3; now that a tile is whatever
         // share of the grid it gets, stretching would squash the image.
         const player = await createFlvPlayer(videoEl, data.flvUrl, {
-          hasAudio: false,
           isResize: true,
         });
         if (!player) {
           setGridErrors((prev) => ({ ...prev, [ch]: 'error' }));
           return;
         }
+        if (audioChannelRef.current === ch) setPlayerAudio(player, true);
         // No picture at all within this window counts as a stall too.
         const timer = setTimeout(() => stalled('never showed a picture'), GRID_FIRST_FRAME_MS);
         gridPlayers.current[ch] = { player, videoEl, timer };
@@ -935,6 +980,18 @@ const Cmsv9VideoPage = () => {
       // Older WebViews throw rather than reject.
     }
   }, [remeasure]);
+
+  // The speaker on a tile: on for that camera, off for every other. Works the
+  // same while a tile fills the screen, because the tile (and its player) is
+  // the same element either way - nothing is torn down going in or out.
+  const toggleAudio = useCallback((ch) => {
+    const next = audioChannelRef.current === ch ? null : ch;
+    Object.entries(gridPlayers.current).forEach(([key, entry]) => {
+      setPlayerAudio(entry?.player, Number(key) === next);
+    });
+    audioChannelRef.current = next;
+    setAudioChannel(next);
+  }, []);
 
   /* A tile's own tap handling: one tap selects it (or retries a dead channel),
    * two in quick succession fill the screen. */
@@ -1330,7 +1387,7 @@ const Cmsv9VideoPage = () => {
             <Box sx={{ ml: 'auto', display: 'flex', gap: 1 }}>
               <IconButton
                 size="small"
-                onClick={() => navigate('/')}
+                onClick={() => navigate('/?view=map')}
                 title="Home"
                 aria-label="Home"
               >
@@ -1445,6 +1502,22 @@ const Cmsv9VideoPage = () => {
                         it. The snapshot swallows its own taps: two of them in
                         a row are two photographs, not a request for
                         fullscreen. */}
+                    <IconButton
+                      size="small"
+                      className={`${classes.cellButton}${audioChannel === ch ? ` ${classes.cellButtonOn}` : ''}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleAudio(ch);
+                      }}
+                      disabled={!gridActive || gridErrors[ch]}
+                      title={audioChannel === ch ? 'Mute this camera' : 'Listen to this camera'}
+                      aria-label={audioChannel === ch ? 'Mute this camera' : 'Listen to this camera'}
+                      aria-pressed={audioChannel === ch}
+                    >
+                      {audioChannel === ch
+                        ? <VolumeUpIcon fontSize="small" />
+                        : <VolumeOffIcon fontSize="small" />}
+                    </IconButton>
                     <IconButton
                       size="small"
                       className={classes.cellButton}
