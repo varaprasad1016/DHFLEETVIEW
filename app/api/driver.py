@@ -234,6 +234,9 @@ async def driver_state(principal: Principal = Depends(require_driver), scope: Sc
     name = principal.name
     shift = await _active_shift(session, scope)
     companies = await _companies(session, principal)
+    mine = await _my_infringements(session, principal)
+    now = datetime.now(timezone.utc)
+    week_start = (_london_midnight(now) - timedelta(days=now.astimezone(LONDON).weekday())).isoformat()
     vehicle = None
     if shift and shift.vehicle_reg:
         reg = norm_reg(shift.vehicle_reg)
@@ -249,7 +252,9 @@ async def driver_state(principal: Principal = Depends(require_driver), scope: Sc
         "companies": [{"id": tid, "label": label} for tid, label in companies.items()],
         "vehicle": vehicle,
         "jobs": await _driver_jobs(session, scope, companies),
-        "infringements_to_sign": sum(1 for i in await _my_infringements(session, principal) if i["needs_signature"]),
+        "infringements_to_sign": sum(1 for i in mine if i["needs_signature"]),
+        # Raised since Monday - what this week's text was about.
+        "infringements_new": sum(1 for i in mine if i["needs_signature"] and i["created_at"] >= week_start),
         "modules": {"jobs": True},
         "server_time": datetime.now(timezone.utc).isoformat(),
     }
@@ -669,6 +674,7 @@ async def _my_infringements(session: AsyncSession, principal: Principal) -> list
             "id": str(r.id), "rule": r.rule, "title": r.title, "severity": r.severity, "detail": r.detail,
             "period_start": r.period_start.isoformat(), "period_end": r.period_end.isoformat(),
             "limit_minutes": r.limit_minutes, "actual_minutes": r.actual_minutes,
+            "created_at": r.created_at.isoformat(),
             "needs_signature": not (review and review.driver_signed_at),
             "review": infringement_reviews.view(review),
         })

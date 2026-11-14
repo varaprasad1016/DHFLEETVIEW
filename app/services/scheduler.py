@@ -36,7 +36,7 @@ from app.database import SessionLocal
 from app.models.billing import Invoice
 from app.models.settings import AppSetting
 from app.services import (account_guard, auth, billing, driver_reports, fleet_access,
-                          invoicing, mailer)
+                          infringement_alerts, invoicing, mailer)
 
 logger = logging.getLogger("tacho.schedule")
 if not logger.handlers:
@@ -207,7 +207,11 @@ async def run_driver_reports(session: AsyncSession, due: Due, *,
 JOBS: dict[str, tuple[Callable[[date], Due], Callable[..., Awaitable[dict]], str]] = {
     "invoices": (invoices_due, run_invoices, "Invoices"),
     "driver_reports": (reports_due, run_driver_reports, "Weekly driver reports"),
+    # Same Monday clock as the reports: the office gets the week, the drivers
+    # get a text about anything in it they have to sign for.
+    "infringement_alerts": (reports_due, infringement_alerts.run, "Driver infringement texts"),
 }
+WEEKLY = ("driver_reports", "infringement_alerts")
 
 
 def enabled(job: str) -> bool:
@@ -215,6 +219,8 @@ def enabled(job: str) -> bool:
         return False
     if job == "driver_reports":
         return bool(settings.driver_report_auto_send)
+    if job == "infringement_alerts":
+        return bool(settings.infringement_alert_auto_send and settings.sms_url)
     return True
 
 
@@ -288,7 +294,9 @@ def _summary(job: str, outcome: dict) -> str:
     parts = []
     if job == "invoices":
         parts.append(f"{len(outcome.get('raised', []))} raised")
-    parts.append(f"{sent} emailed")
+    parts.append(f"{sent} driver(s) texted" if job == "infringement_alerts" else f"{sent} emailed")
+    if job == "infringement_alerts" and outcome.get("skipped"):
+        parts.append(f"{len(outcome['skipped'])} skipped")
     if failed:
         parts.append(f"{failed} failed")
     if outcome.get("contacts_updated"):
@@ -389,7 +397,7 @@ def next_due(job: str, done: Due) -> Due:
     period, rather than by adding an interval to a date - which is the only way
     to keep month lengths and the clock changes out of it.
     """
-    return JOBS[job][0](done.end + timedelta(days=(8 if job == "driver_reports"
+    return JOBS[job][0](done.end + timedelta(days=(8 if job in WEEKLY
                                                    else 32 * invoicing.every_months())))
 
 
@@ -421,6 +429,8 @@ async def status(session: AsyncSession) -> dict:
         "invoice_every_months": invoicing.every_months(),
         "invoice_auto_send": settings.invoice_auto_send,
         "driver_report_auto_send": settings.driver_report_auto_send,
+        "infringement_alert_auto_send": settings.infringement_alert_auto_send,
+        "sms_ready": bool(settings.sms_url),
         "not_ready": invoicing.not_ready(),
         "jobs": jobs,
         "protected_accounts": {"accounts": account_guard.protected(),

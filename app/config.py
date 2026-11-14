@@ -105,6 +105,9 @@ class Settings(BaseSettings):
     driver_report_auto_send: bool = True
     driver_report_weekday: int = 1        # 1 = Monday ... 7 = Sunday
     driver_report_hour: int = 6
+    # Texts each driver with infringements to read and sign, on the same clock
+    # as the weekly reports. Needs an SMS provider (sms_url) to go anywhere.
+    infringement_alert_auto_send: bool = True
     invoice_send_hour: int = 6
     # No more than this many driver reports attached to one weekly email; the
     # rest are listed in it and stay on the Hours page.

@@ -181,6 +181,23 @@
   .seg.sq button { border-radius: 10px; }
   .photo-box { border: 1.5px dashed var(--d-line-2); border-radius: 12px; min-height: 130px; display: grid; place-items: center; color: var(--d-mut); background: var(--d-surface-2); overflow: hidden; }
   .photo-box img { width: 100%; max-height: 240px; object-fit: cover; display: block; }
+  /* The camera-or-gallery menu. Sits above the bottom sheet so it works from
+     inside one; the buttons are thumb-sized because this is used one-handed
+     next to a lorry. */
+  .srcpick { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: flex-end; justify-content: center; }
+  .srcpick-back { position: absolute; inset: 0; background: rgba(0,0,0,0.45); }
+  .srcpick-menu { position: relative; width: min(100%, 520px); background: var(--d-surface); border-radius: 18px 18px 0 0; padding: 10px 12px calc(env(safe-area-inset-bottom, 0px) + 12px); display: grid; gap: 8px; box-shadow: 0 -8px 30px rgba(0,0,0,0.25); }
+  .srcpick-menu button { display: flex; align-items: center; gap: 12px; width: 100%; padding: 14px 14px; border: 1px solid var(--d-line); border-radius: 12px; background: var(--d-surface-2); color: var(--d-fg); font-size: 16px; font-weight: 600; text-align: left; }
+  .srcpick-menu button svg { width: 22px; height: 22px; flex: none; }
+  .srcpick-menu .srcpick-cancel { justify-content: center; background: transparent; border-color: transparent; color: var(--d-mut); font-weight: 500; }
+  /* The in-page camera: preview fills the screen, shutter at the bottom. */
+  .camui { position: fixed; inset: 0; z-index: 1001; background: #000; display: flex; flex-direction: column; }
+  .camui video { flex: 1; width: 100%; min-height: 0; object-fit: cover; background: #000; }
+  .camui-top { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 10px); left: 0; right: 0; display: flex; justify-content: space-between; padding: 0 14px; }
+  .camui-btn { width: 44px; height: 44px; border-radius: 50%; border: none; background: rgba(0,0,0,0.55); color: #fff; font-size: 20px; display: grid; place-items: center; }
+  .camui-bar { flex: none; height: calc(env(safe-area-inset-bottom, 0px) + 110px); display: grid; place-items: center; background: #000; }
+  .camui-shutter { width: 72px; height: 72px; border-radius: 50%; background: #fff; border: 5px solid rgba(255,255,255,0.45); background-clip: padding-box; }
+  .camui-shutter:active { transform: scale(0.92); }
   .check-list { padding: 0; overflow: hidden; }
   .check-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 8px 10px 8px 14px; border-top: 1px solid var(--d-line); }
   .check-row:first-child { border-top: 0; }
@@ -309,6 +326,7 @@
 <div class="scrim" id="scrim" hidden></div>
 <section class="sheet" id="sheet" hidden role="dialog" aria-modal="true"></section>
 <input type="file" id="fileCam" accept="image/*" capture="environment" hidden>
+<input type="file" id="fileGallery" accept="image/*" hidden>
 <input type="file" id="fileAny" accept="image/*,application/pdf" hidden>
 
 <script>
@@ -475,7 +493,78 @@ async function downscale(file, max = 1280, q = 0.75) {
   return c.toDataURL("image/jpeg", q);
 }
 async function dataUrlToBlob(dataUrl) { return (await fetch(dataUrl)).blob(); }
-async function takePhoto() { const f = await pickFile($("#fileCam")); return f ? downscale(f) : null; }
+
+// Every "add a photo" in the app goes through this: the camera, or a picture
+// already on the phone. It is its own little menu rather than the bottom
+// sheet, because most photo buttons live inside a sheet already (fuel, fault,
+// paperwork) and opening a second one would replace the form underneath.
+// Resolves to the hidden input to use, or null if the driver backs out.
+function choosePhotoSource(allowPdf = false) {
+  return new Promise((resolve) => {
+    const wrap = document.createElement("div");
+    wrap.className = "srcpick";
+    wrap.innerHTML = `<div class="srcpick-back"></div><div class="srcpick-menu" role="menu">
+      <button type="button" data-src="#fileCam">${ICON.camera} <span>Take photo</span></button>
+      <button type="button" data-src="#fileGallery">🖼️ <span>Choose from gallery</span></button>
+      ${allowPdf ? `<button type="button" data-src="#fileAny">📄 <span>Choose a file or PDF</span></button>` : ""}
+      <button type="button" class="srcpick-cancel" data-src="">Cancel</button></div>`;
+    const done = (src) => { wrap.remove(); resolve(src ? $(src) : null); };
+    wrap.querySelector(".srcpick-back").onclick = () => done(null);
+    $$("[data-src]", wrap).forEach((b) => { b.onclick = () => done(b.dataset.src); });
+    document.body.appendChild(wrap);
+  });
+}
+// The camera itself, inside the page: a live preview, a shutter, a flip
+// button. The app's WebView ignores the file input's capture flag and opens
+// the photo picker for "take photo" too, so the picker cannot be trusted to
+// reach the camera; this can. If the camera is refused or missing (an old
+// phone, permission denied, a desktop browser) it falls back to the file
+// input, which on a real browser still goes to the camera.
+// Resolves to a JPEG Blob, or null if the driver backs out.
+function grabFromCamera() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return pickFile($("#fileCam"));
+  return new Promise((resolve) => {
+    let stream = null, facing = "environment", settled = false;
+    const ui = document.createElement("div");
+    ui.className = "camui";
+    ui.innerHTML = `<video playsinline autoplay muted></video>
+      <div class="camui-top"><button type="button" class="camui-btn" data-cam="cancel">✕</button><button type="button" class="camui-btn" data-cam="flip">🔄</button></div>
+      <div class="camui-bar"><button type="button" class="camui-shutter" data-cam="shot" aria-label="Take photo"></button></div>
+      <div class="camui-msg" hidden></div>`;
+    const video = ui.querySelector("video");
+    const stop = () => { if (stream) stream.getTracks().forEach((t) => t.stop()); stream = null; };
+    const finish = (value) => { if (settled) return; settled = true; stop(); ui.remove(); resolve(value); };
+    const fallback = async () => { stop(); ui.remove(); settled = true; resolve(await pickFile($("#fileCam"))); };
+    const start = async () => {
+      stop();
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false });
+        video.srcObject = stream;
+        await video.play().catch(() => {});
+      } catch (e) {
+        // No camera to be had this way; let the phone's own chooser try.
+        fallback();
+      }
+    };
+    ui.querySelector("[data-cam=cancel]").onclick = () => finish(null);
+    ui.querySelector("[data-cam=flip]").onclick = () => { facing = facing === "environment" ? "user" : "environment"; start(); };
+    ui.querySelector("[data-cam=shot]").onclick = () => {
+      if (!video.videoWidth) return;
+      const c = document.createElement("canvas");
+      c.width = video.videoWidth; c.height = video.videoHeight;
+      c.getContext("2d").drawImage(video, 0, 0);
+      c.toBlob((blob) => finish(blob || null), "image/jpeg", 0.92);
+    };
+    document.body.appendChild(ui);
+    start();
+  });
+}
+async function takePhoto() {
+  const input = await choosePhotoSource();
+  if (!input) return null;
+  const f = input.id === "fileCam" ? await grabFromCamera() : await pickFile(input);
+  return f ? downscale(f) : null;
+}
 
 // ---------- state ----------
 const S = {
@@ -543,6 +632,7 @@ function route() {
   if (name === "documents") return renderDocuments();
   if (name === "contacts") return renderContacts();
   if (name === "hours") return renderHours();
+  if (name === "infringements") return renderInfringements();
   return renderLive();
 }
 window.addEventListener("hashchange", route);
@@ -825,11 +915,14 @@ function openEndShift() {
 
 function photoField(id, label) {
   return `<label class="lbl">${esc(label)}</label><div class="photo-box" id="${id}Box"><span class="mut small">${ICON.camera}<br>No photo added</span></div>
-    <button type="button" class="btn btn-soft" id="${id}Btn" style="margin-top:8px">${ICON.camera} Take Photo</button>`;
+    <button type="button" class="btn btn-soft" id="${id}Btn" style="margin-top:8px">${ICON.camera} Add Photo</button>`;
 }
 function wirePhotoField(root, id, onPhoto, source = "#fileCam") {
   $("#" + id + "Btn", root).onclick = async () => {
-    const f = await pickFile($(source));
+    // Camera or gallery either way; a field that takes PDFs offers files too.
+    const input = await choosePhotoSource(source === "#fileAny");
+    if (!input) return;
+    const f = input.id === "fileCam" ? await grabFromCamera() : await pickFile(input);
     if (!f) return;
     if (f.type === "application/pdf") { $("#" + id + "Box", root).innerHTML = `<span>📄 ${esc(f.name)}</span>`; onPhoto({ file: f }); return; }
     try {
@@ -1305,6 +1398,7 @@ async function renderHome() {
   const ops = [
     ["opFaults", "⚠️", "Faults", "Report issues"],
     ["opWalk", "✅", "Walkarounds", "Daily vehicle checks"],
+    ["opInf", "🚦", "Infringements", toSign ? `${toSign} to read & sign` : "Drivers' hours"],
     ["opJobs", "📦", "Jobs", "Assigned deliveries"],
     ["opVehicles", "🚚", "Vehicles", "Assigned vehicles"],
     ["opMaint", "🔧", "Maintenance", "Workshop visits"],
@@ -1315,8 +1409,8 @@ async function renderHome() {
   view.innerHTML = `
     <div class="date-line">${esc(dateLine)}</div>
     <div class="greet">${greet}, ${esc(S.driver.split(" ")[0])}</div>
-    ${toSign ? `<a class="card" href="#/hours" style="display:block;text-decoration:none;color:inherit;border:1px solid var(--d-warn);margin-bottom:14px">
-      <div class="row between"><b>${toSign} infringement${toSign === 1 ? "" : "s"} to sign</b><span class="chev">${ICON.chev}</span></div>
+    ${toSign ? `<a class="card" href="#/infringements" style="display:block;text-decoration:none;color:inherit;border:1px solid var(--d-warn);margin-bottom:14px">
+      <div class="row between"><b>${toSign} infringement${toSign === 1 ? "" : "s"} to sign${st.infringements_new ? ` <span class="chip chip-bad" style="margin-left:6px">${st.infringements_new} new this week</span>` : ""}</b><span class="chev">${ICON.chev}</span></div>
       <div class="mut small" style="margin-top:4px">Your office needs you to confirm you've been told about ${toSign === 1 ? "it" : "them"}.</div></a>` : ""}
     <div class="overline" style="margin-top:4px">⊞ Operations</div>
     <div class="ops-grid">${ops.map(([id, ico, t, s]) => `
@@ -1331,6 +1425,7 @@ async function renderHome() {
   act("#opWalk", needsShift(() => startWalkaround("pre_use"), "do a walkaround"));
   act("#opFuel", needsShift(() => openFuel(), "log fuel"));
   act("#opPaper", () => openPaperwork());
+  act("#opInf", () => { location.hash = "#/infringements"; });
   act("#opJobs", () => { location.hash = "#/live"; });
   act("#opVehicles", () => { location.hash = "#/live"; });
   // No driver-side maintenance or leave flow exists yet - say so plainly rather
@@ -1500,9 +1595,50 @@ function openSignInfringement(i) {
       closeSheet();
       toast("Signed — thank you");
       try { await loadState(); } catch (err) {}
-      renderHours();
+      if (location.hash.startsWith("#/infringements")) renderInfringements(); else renderHours();
     });
   });
+}
+
+// ---------- INFRINGEMENTS (read & sign) ----------
+// The screen the Monday text points at. Everything waiting for a signature
+// comes first, each with its own Read & sign; what has been signed sits under
+// it with the date, and the office's debrief once there is one. The same list
+// is on Hours; this is the version a driver can get to in one tap.
+async function renderInfringements() {
+  setTopbar({ title: "Infringements", avatar: true, bell: true, back: () => { location.hash = "#/home"; } }); setNav("home");
+  const view = $("#view");
+  view.innerHTML = `<div class="empty"><span class="spinner"></span></div>`;
+  let inf;
+  try { [inf] = await Promise.all([api("GET", "api/driver/infringements"), loadState()]); } catch (e) { return fail(e); }
+  if (!location.hash.startsWith("#/infringements")) return;
+  const weekStart = (() => { const d = new Date(); const dow = (d.getDay() + 6) % 7; d.setDate(d.getDate() - dow); d.setHours(0, 0, 0, 0); return d; })();
+  const isNew = (i) => i.created_at && new Date(i.created_at) >= weekStart;
+  const toSign = inf.filter((i) => i.needs_signature);
+  const signed = inf.filter((i) => !i.needs_signature);
+  const item = (i) => `<div class="fault-item">
+      <span class="chip ${i.severity === "minor" ? "chip-warn" : "chip-bad"} square">${esc((i.severity || "issue").replace("_", " "))}</span>
+      <span style="flex:1"><b>${esc(i.title)}</b>${i.needs_signature && isNew(i) ? ` <span class="chip chip-bad">New</span>` : ""}
+        <div class="mut small">${esc(fmtWhen(i.period_start))}${i.limit_minutes != null && i.actual_minutes != null ? ` · ${fmtMins(i.actual_minutes)} (limit ${fmtMins(i.limit_minutes)})` : ""}</div>
+        ${i.detail ? `<div class="mut small">${esc(i.detail)}</div>` : ""}
+        ${i.needs_signature ? `<button class="btn btn-primary btn-sm" data-sign="${esc(i.id)}" style="margin-top:8px;width:auto">Read &amp; sign</button>`
+          : `<div class="small" style="margin-top:6px;color:var(--d-ok)">${ICON.okCircle} Signed ${esc(fmtWhen(i.review.driver_signed_at))}${i.review.driver_comment ? ` · “${esc(i.review.driver_comment)}”` : ""}</div>`}
+        ${i.review.debrief_action_label ? `<div class="mut small" style="margin-top:4px">Office: ${esc(i.review.debrief_action_label)}${i.review.debrief_notes ? " — " + esc(i.review.debrief_notes) : ""}</div>` : ""}
+      </span></div>`;
+  view.innerHTML = `
+    <div class="card" style="margin-top:8px">
+      <div class="card-title">🚦 Drivers' hours infringements</div>
+      <p class="mut small" style="margin:0">Found on your driver card downloads. Read each one and sign to confirm your office has told you about it${toSign.length ? "" : " — you're up to date"}.</p>
+      <div class="stat-grid" style="margin-top:12px">
+        <div class="stat"><div class="n" style="color:${toSign.length ? "var(--d-bad)" : "var(--d-ok)"}">${toSign.length}</div><div class="l">To sign</div></div>
+        <div class="stat"><div class="n">${toSign.filter(isNew).length}</div><div class="l">New this week</div></div>
+        <div class="stat"><div class="n">${signed.length}</div><div class="l">Signed</div></div>
+      </div>
+    </div>
+    ${toSign.length ? `<div class="section-title">To read &amp; sign <span class="chip chip-bad">${toSign.length}</span></div><div class="card">${toSign.map(item).join("")}</div>` : ""}
+    ${signed.length ? `<div class="section-title">Signed</div><div class="card">${signed.map(item).join("")}</div>` : ""}
+    ${inf.length ? "" : `<div class="card"><div class="empty">No infringements on your card downloads.</div></div>`}`;
+  $$("[data-sign]").forEach((b) => { b.onclick = () => openSignInfringement(inf.find((i) => i.id === b.dataset.sign)); });
 }
 
 // ---------- CONTACTS ----------
@@ -1521,7 +1657,7 @@ async function renderContacts() {
 
 $("#bellBtn").onclick = () => {
   const pendingJobs = S.state && (S.state.jobs || []).some((j) => j.status === "pending");
-  if (!pendingJobs && S.state && S.state.infringements_to_sign) { location.hash = "#/hours"; return; }
+  if (!pendingJobs && S.state && S.state.infringements_to_sign) { location.hash = "#/infringements"; return; }
   if (!location.hash.startsWith("#/live")) { location.hash = "#/live"; return; }
   const first = $(".job.pending") || $(".section-title"); if (first) first.scrollIntoView({ behavior: "smooth", block: "start" });
 };
