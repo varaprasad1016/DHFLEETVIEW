@@ -18,7 +18,7 @@ const useStyles = makeStyles()((theme) => ({
   },
 }));
 
-const DeviceList = ({ devices }) => {
+const DeviceList = ({ devices, selectOnly = false }) => {
   const { classes } = useStyles();
   const dispatch = useDispatch();
 
@@ -106,7 +106,7 @@ const DeviceList = ({ devices }) => {
       rowComponent={DeviceRow}
       rowCount={devices.length}
       rowHeight={96}
-      rowProps={{ devices, tacho, ahead }}
+      rowProps={{ devices, tacho, ahead, selectOnly }}
       overscanCount={5}
     />
   );

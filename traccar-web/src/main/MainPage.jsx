@@ -17,6 +17,7 @@ import MapIconMui from '@mui/icons-material/Map';
 import { selectOnlyStatus } from '../common/util/vehicleStatus';
 import DeviceList from './DeviceList';
 import StatusCard from '../common/components/StatusCard';
+import VehicleDetails from './VehicleDetails';
 import { devicesActions, sessionActions } from '../store';
 import { nativePostMessage } from '../common/components/NativeInterface';
 import usePersistedState from '../common/util/usePersistedState';
@@ -399,6 +400,18 @@ const MainPage = () => {
             the split on Map (the map sits above it via flex order). */}
         <div className={`${classes.sidebar} ${showSidebar ? '' : classes.sidebarClosed} ${!showSidebar && isAppMobile ? classes.sidebarMobileHidden : ''} ${isSplit ? classes.sidebarSplit : ''}`}>
           <div className={`${classes.sidebarInner} ${isSplit ? classes.sidebarInnerSplit : ''}`}>
+            {/* In the split, the selected vehicle takes over the bottom half:
+                its driver, tachograph, hours, location and status, with the
+                cameras as one of its actions rather than where a tap lands.
+                The back arrow clears the selection and the list returns. */}
+            {isSplit && selectedDeviceId ? (
+              <VehicleDetails
+                deviceId={selectedDeviceId}
+                position={positions[selectedDeviceId]}
+                onBack={() => dispatch(devicesActions.selectId(null))}
+              />
+            ) : (
+            <>
             {/*
               The list is the home screen. The stat cards and the chip row used
               to sit above it and pushed the registrations below the fold, which
@@ -422,9 +435,10 @@ const MainPage = () => {
               )}
             </div>
             <div style={{ flex: 1, minHeight: 0 }}>
-              <DeviceList devices={filteredDevices} />
+              <DeviceList devices={filteredDevices} selectOnly={isSplit} />
             </div>
-
+            </>
+            )}
           </div>
         </div>
 
@@ -442,7 +456,10 @@ const MainPage = () => {
         )}
       </div>
       <EventsDrawer open={eventsOpen} onClose={() => setEventsOpen(false)} />
-      {selectedDeviceId && (
+      {/* The floating card is the desktop's view of a selected vehicle; in the
+          split the details panel below the map is that view, and the card
+          would only cover the map. */}
+      {selectedDeviceId && !isSplit && (
         <StatusCard
           deviceId={selectedDeviceId}
           position={selectedPosition}

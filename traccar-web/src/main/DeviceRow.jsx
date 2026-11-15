@@ -216,7 +216,7 @@ const looksLikeReg = (value) => {
   return /^[A-Z0-9]{5,8}$/.test(text) && /[A-Z]/.test(text) && /[0-9]/.test(text);
 };
 
-const DeviceRow = ({ devices, index, style, tacho, ahead }) => {
+const DeviceRow = ({ devices, index, style, tacho, ahead, selectOnly = false }) => {
   const { classes } = useStyles();
   const dispatch = useDispatch();
   const navigate = useNavigate();
@@ -404,10 +404,13 @@ const DeviceRow = ({ devices, index, style, tacho, ahead }) => {
    * A vehicle with no camera has nowhere to go, so it falls back to selecting
    * it, which is what every row used to do. The device is selected either way,
    * so coming back from the video leaves the right vehicle highlighted.
+   *
+   * In the phone's split Map view (selectOnly) a tap only selects: the bottom
+   * half becomes the vehicle's details, with the cameras one of its actions.
    */
   const openVehicle = () => {
     dispatch(devicesActions.selectId(item.id));
-    if (hasCamera) {
+    if (hasCamera && !selectOnly) {
       navigate(`/cmsv9-video?deviceId=${item.id}`);
     }
   };
