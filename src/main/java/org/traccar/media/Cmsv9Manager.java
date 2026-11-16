@@ -215,7 +215,9 @@ public class Cmsv9Manager {
         body.put("terminal", terminal);
         body.put("id", String.valueOf(channel));
         body.put("protocol", "1");
-        body.put("vedioType", "1");
+        // 0 = audio and video, 1 = video only (the portal's MediaController
+        // documents and sends 0; with 1 the DVR pushes a silent audio track).
+        body.put("vedioType", "0");
         body.put("streamType", "1");
 
         JsonNode response = signedPost("/ajax/cmsapi/playSend", body);
@@ -506,7 +508,10 @@ public class Cmsv9Manager {
             body.put("terminal", terminal);
             body.put("id", String.valueOf(channel));
             body.put("protocol", 1);
-            body.put("vedioType", 1);
+            // 0 = audio and video, 1 = video only. The portal sends 0; this
+            // call is what actually makes the device push, so 1 here is why
+            // live streams arrived with their microphone muted at the source.
+            body.put("vedioType", 0);
             body.put("streamType", streamType);
             String json = objectMapper.writeValueAsString(body);
             HttpRequest request = HttpRequest.newBuilder(

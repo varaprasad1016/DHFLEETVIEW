@@ -306,6 +306,32 @@ const VehicleDetails = ({ deviceId, position, onBack }) => {
     return () => controller.abort();
   }, [deviceId, moving, fixTime]);
 
+  // The address. Positions arrive without one (the server does not geocode
+  // every record for every vehicle), so it is asked for here, for this one
+  // position, and remembered until the vehicle has moved.
+  const [address, setAddress] = useState(null);
+  const lat = position ? position.latitude.toFixed(4) : null;
+  const lon = position ? position.longitude.toFixed(4) : null;
+  useEffect(() => {
+    setAddress(null);
+    if (!position || position.address || !lat) return undefined;
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const response = await fetch(
+          `/api/server/geocode?latitude=${position.latitude}&longitude=${position.longitude}`,
+          { signal: controller.signal },
+        );
+        if (response.ok && response.status !== 204) setAddress((await response.text()) || null);
+      } catch {
+        // no geocoder, or no answer; the coordinates below still say where it is
+      }
+    })();
+    return () => controller.abort();
+    // lat/lon rounded to ~10 m: a parked vehicle's jitter must not re-ask
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deviceId, lat, lon]);
+
   const locate = () => {
     if (!position) return;
     map.easeTo({
@@ -492,7 +518,9 @@ const VehicleDetails = ({ deviceId, position, onBack }) => {
           <div className={classes.kv}>
             <Typography className={classes.label} style={{ paddingTop: 2 }}>Location</Typography>
             <div>
-              <Typography className={classes.value}>{position?.address || (position ? 'Address not resolved' : 'No position yet')}</Typography>
+              <Typography className={classes.value}>
+                {position?.address || address || (position ? 'Looking up the address…' : 'No position yet')}
+              </Typography>
               {position && (
                 <Typography className={`${classes.muted} ${classes.coords}`}>
                   {`${position.latitude.toFixed(6)}, ${position.longitude.toFixed(6)}`}

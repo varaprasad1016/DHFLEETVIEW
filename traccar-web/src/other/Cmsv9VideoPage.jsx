@@ -341,6 +341,10 @@ async function createFlvPlayer(container, url, options = {}) {
     videoBuffer: options.videoBuffer ?? 0.2,
     decoder: '/decoder.js',
     hasAudio: options.hasAudio !== false,
+    // Muted unless asked otherwise: a tile restarted while its speaker is on
+    // comes back with sound from the first frame rather than waiting for an
+    // unmute that may land before its audio pipeline exists.
+    isNotMute: options.isNotMute === true,
     isFlv: true,
     useMSE: false,
     useWCS: true,
@@ -377,14 +381,19 @@ async function createFlvPlayer(container, url, options = {}) {
 }
 
 // Jessibuca starts every stream muted (isNotMute is off). Turning a speaker
-// on also resumes the audio context, which the browser suspends until the
-// page has had a click - and this is only ever called from one.
+// on resumes the audio context (suspended by the browser until the page has
+// had a tap), lifts the mute and sets the volume outright - cancelMute alone
+// only restores a stored "last volume", which a stream that has never been
+// unmuted does not have. While muted the player throws decoded audio away
+// rather than buffering it, so sound starts from the next frame, not from a
+// backlog.
 function setPlayerAudio(player, on) {
   if (!player) return;
   try {
     if (on) {
       player.audioResume?.();
       player.cancelMute?.();
+      player.setVolume?.(1);
     } else {
       player.mute?.();
     }
@@ -876,12 +885,21 @@ const Cmsv9VideoPage = () => {
         // share of the grid it gets, stretching would squash the image.
         const player = await createFlvPlayer(videoEl, data.flvUrl, {
           isResize: true,
+          isNotMute: audioChannelRef.current === ch,
         });
         if (!player) {
           setGridErrors((prev) => ({ ...prev, [ch]: 'error' }));
           return;
         }
+        // The audio pipeline is only built once the stream's first audio
+        // frame has been seen, so an unmute before that is lost; say it
+        // again when it arrives. (A tile whose speaker was turned on before
+        // its audio existed is exactly the "has audio enabled, hears
+        // nothing" case.)
         if (audioChannelRef.current === ch) setPlayerAudio(player, true);
+        player.on('audioInfo', () => {
+          if (audioChannelRef.current === ch) setPlayerAudio(player, true);
+        });
         // No picture at all within this window counts as a stall too.
         const timer = setTimeout(() => stalled('never showed a picture'), GRID_FIRST_FRAME_MS);
         gridPlayers.current[ch] = { player, videoEl, timer };
