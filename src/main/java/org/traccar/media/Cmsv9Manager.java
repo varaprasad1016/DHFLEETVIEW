@@ -230,10 +230,24 @@ public class Cmsv9Manager {
 
     public JsonNode playbackAppoint(
             String terminal, String channel, String startTime, String endTime) throws Exception {
+        return playbackAppoint(terminal, channel, startTime, endTime, 0);
+    }
+
+    /**
+     * Asks the camera to play a recording back.
+     *
+     * <p>streamType 0 is the main recording and 1 the sub: the sub is a
+     * fraction of the data, which is what makes several cameras at once
+     * watchable at all over a vehicle's mobile connection. Footage being
+     * fetched to keep always asks for the main one.
+     */
+    public JsonNode playbackAppoint(
+            String terminal, String channel, String startTime, String endTime, int streamType)
+            throws Exception {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("terminal", terminal);
         body.put("id", String.valueOf(channel));
-        body.put("streamType", "0");
+        body.put("streamType", String.valueOf(streamType));
         body.put("vedioType", "0");
         body.put("memoryType", "1");
         body.put("startTime", startTime);

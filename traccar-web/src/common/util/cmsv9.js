@@ -57,11 +57,14 @@ export const cmsv9StopLive = async (deviceId, channel) => {
   return data.errCode === 0;
 };
 
-export const cmsv9StartPlayback = async (deviceId, channel, startTime, endTime) => {
+/* stream '1' asks the camera for its sub recording - far less data, which is
+   what makes watching several cameras at once possible on a vehicle's mobile
+   connection. Omit it for the full-quality recording. */
+export const cmsv9StartPlayback = async (deviceId, channel, startTime, endTime, stream) => {
   const response = await fetch(`api/cmsv9/playback/${deviceId}/${channel}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ startTime, endTime }),
+    body: JSON.stringify({ startTime, endTime, ...(stream === undefined ? {} : { stream: String(stream) }) }),
   });
   if (!response.ok) throw new Error('Failed to start playback');
   return response.json();

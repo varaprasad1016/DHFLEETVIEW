@@ -40,6 +40,10 @@ import StopIcon from '@mui/icons-material/Stop';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import VolumeUpIcon from '@mui/icons-material/VolumeUp';
 import OpenInFullIcon from '@mui/icons-material/OpenInFull';
+import CloseFullscreenIcon from '@mui/icons-material/CloseFullscreen';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import CloseIcon from '@mui/icons-material/Close';
 import VideocamIcon from '@mui/icons-material/Videocam';
 import VolumeOffIcon from '@mui/icons-material/VolumeOff';
 import SearchIcon from '@mui/icons-material/Search';
@@ -426,6 +430,52 @@ const useStyles = makeStyles()((theme) => ({
     bottom: 16,
     zIndex: 3,
   },
+  // Fixed rather than only the Fullscreen API: the API is refused often
+  // enough on phones that it cannot be what this depends on.
+  dlPlayerFull: {
+    position: 'fixed',
+    inset: 0,
+    width: '100vw',
+    height: '100vh',
+    // eslint-disable-next-line no-dupe-keys
+    height: '100dvh',
+    maxHeight: 'none',
+    aspectRatio: 'auto',
+    zIndex: theme.zIndex.modal + 2,
+  },
+  dlStreams: {
+    position: 'absolute',
+    inset: 0,
+    display: 'grid',
+    gap: 2,
+    backgroundColor: '#000',
+  },
+  dlStreamCell: {
+    position: 'relative',
+    minWidth: 0,
+    minHeight: 0,
+    backgroundColor: '#0a0a0a',
+    overflow: 'hidden',
+  },
+  dlStreamLabel: {
+    position: 'absolute',
+    top: 4,
+    left: 6,
+    color: '#fff',
+    fontSize: '0.65rem',
+    fontWeight: 700,
+    textShadow: '0 1px 3px rgba(0,0,0,0.9)',
+    pointerEvents: 'none',
+  },
+  dlStreamState: {
+    position: 'absolute',
+    inset: 0,
+    display: 'grid',
+    placeItems: 'center',
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: '0.72rem',
+    pointerEvents: 'none',
+  },
   dlPickRow: {
     display: 'flex',
     flexWrap: 'wrap',
@@ -492,6 +542,37 @@ const clockOf = (seconds) => {
 };
 
 const formatMb = (bytes) => `${Math.round((bytes || 0) / (1024 * 1024))} MB`;
+
+/*
+ * What a download is actually doing, in words.
+ *
+ * There are two quite different waits and they used to look the same. First
+ * the camera has to be told to play the footage back and start pushing it,
+ * which can take the best part of a minute on a vehicle with poor signal and
+ * sends nothing at all; then the footage arrives, in real time. Counting the
+ * clock against the clip's length from the moment the button was pressed made
+ * a fifteen-second clip read "0:15 of 0:15" while nothing had happened yet,
+ * which looks exactly like a finished download that has hung.
+ */
+const downloadProgress = (job) => {
+  const waiting = clockOf(job.elapsedSeconds || 0);
+  // Nothing has arrived yet: no percentage, because none of this is footage.
+  if (!job.started) {
+    return { percent: null, label: '—', text: `Waiting for the camera to start — ${waiting}` };
+  }
+  const seconds = job.seconds || 0;
+  const fetched = job.fetchingSeconds || 0;
+  // Held at 99 until the file is actually there: the last of it is the camera
+  // closing the stream and the server writing the index, and a bar that sits
+  // at 100% with nothing to show for it reads as stuck.
+  const percent = seconds ? Math.min(99, Math.floor((fetched / seconds) * 100)) : null;
+  return {
+    percent,
+    label: percent === null ? '—' : `${percent}%`,
+    text: `${percent === null ? '' : `${percent}% · `}${formatMb(job.bytes)} fetched`
+      + (seconds && fetched > seconds + 30 ? ' · the vehicle is slow' : ''),
+  };
+};
 
 // How often a stalled tile is restarted from the DVR before it gives up, and
 // how long a tile may show nothing before it counts as stalled.
@@ -784,6 +865,21 @@ const Cmsv9VideoPage = () => {
   // Watching a recording plays it off the camera as a stream; a clip that has
   // been downloaded plays from the file. Both use the same box, one at a time.
   const [dlStreaming, setDlStreaming] = useState(false);
+  // Playing a recording back: one player per channel, each in its own box,
+  // because Jessibuca will not build a second player in a container it has
+  // already used. On the All tab every camera plays at once.
+  const dlCellsRef = useRef({});
+  const dlPlayersRef = useRef({});
+  const [dlPlaying, setDlPlaying] = useState({});
+  // The whole player area fills the screen, not one camera in it: on the All
+  // tab what you want bigger is the wall of cameras. Done with fixed
+  // positioning as well as the Fullscreen API, because iOS Safari refuses the
+  // API on an arbitrary element and a WebView often does too.
+  const dlPlayerRef = useRef(null);
+  const [dlFullscreen, setDlFullscreen] = useState(false);
+  // What happened to the last download, so a finished one says so rather than
+  // the progress simply disappearing and leaving you to guess.
+  const [dlDone, setDlDone] = useState(null);
   // The part of a recording to fetch: opens on the segment's own span and
   // will not go outside it, because the camera has nothing else to give.
   const [segDialog, setSegDialog] = useState(null);
@@ -801,6 +897,15 @@ const Cmsv9VideoPage = () => {
     const n = config?.channels || Number(defaultChannels) || 4;
     return Array.from({ length: Math.min(Math.max(Number(n), 1), 16) }, (_, i) => i);
   }, [config, defaultChannels]);
+
+  // Which boxes the Download tab's player area shows: every camera on the All
+  // tab, otherwise just the one. Declared here, after `channels` exists - a
+  // useMemo runs while the component renders, so reading it any earlier is
+  // reading a const that has not been initialised yet.
+  const dlPlayChannels = useMemo(
+    () => (dlChannel < 0 ? channels : [dlChannel]),
+    [dlChannel, channels],
+  );
 
   // Show channels four-up (2x2), paged by CH1-4 / CH5-8 groups like the DVR app.
   const channelGroups = useMemo(() => {
@@ -1062,7 +1167,9 @@ const Cmsv9VideoPage = () => {
       try {
         const state = await cmsv9Activity(deviceId);
         if (stopped) return;
-        setDownloading(state.downloading ? state : null);
+        // A cancel just asked for: let it land before believing the server.
+        const justCancelled = Date.now() - cancelAtRef.current < 10000;
+        setDownloading(state.downloading && !justCancelled ? state : null);
         if (state.downloading) {
           if (gridActiveRef.current) {
             resumeAfterRef.current = true;
@@ -1555,41 +1662,186 @@ const Cmsv9VideoPage = () => {
    * having died on its own.
    */
   const cancelledClipRef = useRef(false);
+  // The server is asked to stop, then has to notice; its activity poll would
+  // otherwise keep saying "downloading" for a few seconds and the banner
+  // would sit there as if the Cancel had done nothing. Ignore what it says
+  // for a moment, and show that the cancel was taken.
+  const cancelAtRef = useRef(0);
+  const [cancelling, setCancelling] = useState(false);
   const cancelClip = useCallback(async () => {
-    const job = clipJobRef.current && clipJob;
+    // Whatever this page knows about, or failing that whatever the server
+    // says the vehicle is busy with: a download nobody can stop is worse than
+    // one somebody stops by mistake, and a stopped one can simply be asked
+    // for again.
+    const job = clipJob && clipJob.startStr
+      ? { start: clipJob.startStr, end: clipJob.endStr, ch: clipJob.ch ?? channel, share: clipJob.share }
+      : (downloading && downloading.startTime
+        ? { start: downloading.startTime, end: downloading.endTime, ch: downloading.channel, share: false }
+        : null);
     cancelledClipRef.current = true;
+    cancelAtRef.current = Date.now();
     clipJobRef.current = null;
     setClipJob(null);
+    setDownloading(null);
+    setCancelling(true);
     setPlayerMsg('Download cancelled');
-    if (!job || !job.startStr) return;
+    setTimeout(() => setCancelling(false), 6000);
+    if (!job) return;
     try {
-      await fetch(
-        `/api/cmsv9/clip/${deviceId}/${job.ch ?? channel}`
-          + `?startTime=${encodeURIComponent(job.startStr)}`
-          + `&endTime=${encodeURIComponent(job.endStr)}`
-          + (job.share ? '&format=share' : ''),
-        { method: 'DELETE' },
-      );
+      const query = `?startTime=${encodeURIComponent(job.start)}&endTime=${encodeURIComponent(job.end)}`;
+      // The shareable copy and the pull underneath it are separate jobs; the
+      // pull is the one costing the vehicle, so stop both.
+      await fetch(`/api/cmsv9/clip/${deviceId}/${job.ch}${query}&format=share`, { method: 'DELETE' });
+      await fetch(`/api/cmsv9/clip/${deviceId}/${job.ch}${query}`, { method: 'DELETE' });
     } catch (e) {
       // the server will finish and cache it; nothing is lost, only time
     }
-  }, [clipJob, deviceId, channel]);
+  }, [clipJob, downloading, deviceId, channel]);
+
+  /** Stops every recording this tab is playing and frees its players. */
+  const stopDlPlayers = useCallback(() => {
+    Object.entries(dlPlayersRef.current).forEach(([ch, player]) => {
+      destroyFlvPlayer(player);
+      try {
+        cmsv9StopLive(deviceId, Number(ch)).catch(() => {});
+      } catch (e) {
+        // the camera stops on its own at the end of the range anyway
+      }
+    });
+    dlPlayersRef.current = {};
+    setDlPlaying({});
+  }, [deviceId]);
+
+  /*
+   * Watch a recording: the camera plays it back as a stream, exactly as it
+   * does live, so there is nothing to wait for but the first frame and nothing
+   * is kept. On the All tab every camera plays its own copy of that moment -
+   * started a beat apart, because they are all coming up the same uplink.
+   */
+  const playSegment = useCallback(
+    async (startStr, endStr, only) => {
+      stopDlPlayers();
+      setDlStreaming(true);
+      setReviewUrl('');
+      setPlayerMsg('');
+      const wanted = only === undefined || only === null || only < 0 ? channels : [only];
+      setDlPlaying(Object.fromEntries(wanted.map((ch) => [ch, 'starting'])));
+      // Several at once means the sub recording: four main-quality streams up
+      // one mobile uplink is what made this stutter. One camera on its own
+      // gets the full-quality recording.
+      const stream = wanted.length > 1 ? 1 : 0;
+      wanted.forEach(async (ch, index) => {
+        if (index) {
+          await new Promise((resolve) => { setTimeout(resolve, index * 400); });
+        }
+        try {
+          const data = await cmsv9StartPlayback(deviceId, ch, startStr, endStr, stream);
+          if (data.errCode !== 0 && data.errCode !== -1) throw new Error(data.resultMsg || 'no playback');
+          const { flvUrl } = data;
+          if (!flvUrl) throw new Error('no playback url');
+          const found = await waitForStream(flvUrl, 60000);
+          const container = dlCellsRef.current[ch];
+          if (!found || !container) {
+            setDlPlaying((prev) => ({ ...prev, [ch]: 'failed' }));
+            return;
+          }
+          destroyFlvPlayer(dlPlayersRef.current[ch]);
+          // A recording is not live: nobody cares whether it is 200ms or two
+          // seconds behind, and a buffer that size is the difference between
+          // smooth footage and the stutter a vehicle's connection produces.
+          const player = await createFlvPlayer(container, flvUrl, {
+            isResize: true,
+            videoBuffer: 1.5,
+            heartTimeout: 20,
+          });
+          dlPlayersRef.current[ch] = player;
+          player.on('videoInfo', () => setDlPlaying((prev) => ({ ...prev, [ch]: 'playing' })));
+          player.on('error', () => setDlPlaying((prev) => ({ ...prev, [ch]: 'failed' })));
+        } catch (e) {
+          setDlPlaying((prev) => ({ ...prev, [ch]: 'failed' }));
+        }
+      });
+    },
+    [channels, deviceId, stopDlPlayers],
+  );
+
+  /* Jessibuca draws to a canvas sized when it was built, so every player has
+   * to be told the box changed shape or they keep the old picture size. */
+  const remeasureDl = useCallback(() => {
+    requestAnimationFrame(() => {
+      Object.values(dlPlayersRef.current).forEach((player) => {
+        try {
+          player?.resize?.();
+        } catch (e) {
+          // an older build redraws on its own next frame
+        }
+      });
+    });
+  }, []);
+
+  const toggleDlFullscreen = useCallback(() => {
+    setDlFullscreen((was) => {
+      const next = !was;
+      const el = dlPlayerRef.current;
+      try {
+        if (next) {
+          el?.requestFullscreen?.({ navigationUI: 'hide' })
+            .then(() => window.screen?.orientation?.lock?.('landscape'))
+            .catch(() => {})
+            .finally(remeasureDl);
+        } else {
+          if (document.fullscreenElement) document.exitFullscreen?.();
+          window.screen?.orientation?.unlock?.();
+        }
+      } catch (e) {
+        // refused: the CSS layer is what actually makes this work
+      }
+      remeasureDl();
+      return next;
+    });
+  }, [remeasureDl]);
+
+  // Escape, the Android back button (which closes native fullscreen without
+  // telling React) and a turn of the phone all have to be followed.
+  useEffect(() => {
+    if (!dlFullscreen) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setDlFullscreen(false); };
+    const onChange = () => { if (!document.fullscreenElement) setDlFullscreen(false); };
+    window.addEventListener('keydown', onKey);
+    document.addEventListener('fullscreenchange', onChange);
+    window.addEventListener('resize', remeasureDl);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.removeEventListener('fullscreenchange', onChange);
+      window.removeEventListener('resize', remeasureDl);
+    };
+  }, [dlFullscreen, remeasureDl]);
+
+  // Leaving the tab, or the page, must not leave a camera playing to itself.
+  const stopDlRef = useRef(stopDlPlayers);
+  stopDlRef.current = stopDlPlayers;
+  useEffect(() => {
+    if (tab !== 2) stopDlRef.current();
+  }, [tab]);
+  useEffect(() => () => stopDlRef.current(), []);
 
   const downloadSegment = useCallback(
     async (startStr, endStr, ch) => {
-      // The clip's own player takes the box back from the camera stream.
+      // The clip's own player takes the box back from the camera streams.
+      stopDlPlayers();
       setDlStreaming(false);
       stopPlayback();
       const url = await fetchClip(startStr, endStr, true, 'Download', ch);
-      if (!url) return;
+      if (!url) return false;
       const a = document.createElement('a');
       a.href = url;
       a.download = '';
       document.body.appendChild(a);
       a.click();
       a.remove();
+      return true;
     },
-    [fetchClip, stopPlayback],
+    [fetchClip, stopPlayback, stopDlPlayers],
   );
 
   /*
@@ -1603,6 +1855,8 @@ const Cmsv9VideoPage = () => {
   const downloadSegments = useCallback(
     async (startStr, endStr, picked) => {
       const list = picked && picked.length ? picked : [channel];
+      setDlDone(null);
+      const done = [];
       for (let i = 0; i < list.length; i += 1) {
         const ch = list[i];
         setDlTitle(
@@ -1611,7 +1865,29 @@ const Cmsv9VideoPage = () => {
         );
         // Deliberately sequential - see above.
         // eslint-disable-next-line no-await-in-loop
-        await downloadSegment(startStr, endStr, ch);
+        if (await downloadSegment(startStr, endStr, ch)) done.push(ch);
+        if (cancelledClipRef.current) break;
+      }
+      // Say what happened. A download that simply stops showing progress
+      // leaves somebody wondering whether it worked.
+      const span = `${startStr.slice(11)} - ${endStr.slice(11)}`;
+      if (cancelledClipRef.current) {
+        setDlDone(null);
+      } else if (done.length === list.length) {
+        setDlDone({
+          ok: true,
+          text: list.length === 1
+            ? `Download finished — CH${done[0] + 1}, ${span}`
+            : `${done.length} downloads finished — ${done.map((c) => `CH${c + 1}`).join(', ')}, ${span}`,
+        });
+      } else if (done.length) {
+        setDlDone({
+          ok: false,
+          text: `${done.length} of ${list.length} downloaded — ${done.map((c) => `CH${c + 1}`).join(', ')}.`
+            + ' The rest did not come off the vehicle; try them again.',
+        });
+      } else {
+        setDlDone({ ok: false, text: 'Nothing came off the vehicle. Try again when it has signal.' });
       }
     },
     [channel, device, downloadSegment],
@@ -1736,22 +2012,9 @@ const Cmsv9VideoPage = () => {
             {/* Download works on one channel at a time - you pick the camera you
                 want the footage from - so the picker belongs here. It is gone from
                 the live grid, which plays every channel at once. */}
-            {tab === 2 && (
-              <TextField
-                select
-                size="small"
-                label={t('sharedChannel')}
-                value={channel}
-                onChange={(e) => setChannel(Number(e.target.value))}
-                sx={{ minWidth: 130 }}
-              >
-                {channels.map((ch) => (
-                  <MenuItem key={ch} value={ch}>
-                    {t('sharedChannel')} {ch + 1}
-                  </MenuItem>
-                ))}
-              </TextField>
-            )}
+            {/* The Download tab has its own channel strip under the player,
+                which also decides what plays; a second selector up here only
+                disagreed with it. */}
             {tab === 1 && (
               <Button
                 variant={gridHd ? 'contained' : 'outlined'}
@@ -1850,7 +2113,35 @@ const Cmsv9VideoPage = () => {
               carries one or the other, not both. Said plainly, with how far
               along the download is, so nobody is left wondering why the
               pictures went. */}
-          {downloading && (
+          {/* How the last download ended. Stays until it is dismissed or the
+              next one starts - a message that vanishes on its own is one
+              somebody looking at their phone a moment later never sees. */}
+          {dlDone && !clipJob && !downloading && (
+            <Box
+              sx={{
+                mx: 2,
+                mt: 1,
+                p: 1.25,
+                borderRadius: 2,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1.25,
+                bgcolor: (theme) => alpha(
+                  dlDone.ok ? theme.palette.success.main : theme.palette.warning.main, 0.16,
+                ),
+                color: dlDone.ok ? 'success.dark' : 'warning.dark',
+              }}
+            >
+              {dlDone.ok ? <CheckCircleIcon fontSize="small" /> : <WarningAmberIcon fontSize="small" />}
+              <Typography variant="body2" sx={{ flex: 1, minWidth: 0, fontWeight: 600 }}>
+                {dlDone.text}
+              </Typography>
+              <IconButton size="small" color="inherit" aria-label="Dismiss" onClick={() => setDlDone(null)}>
+                <CloseIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          )}
+          {(downloading || clipJob) && (
             <Box
               sx={{
                 mx: 2,
@@ -1864,36 +2155,54 @@ const Cmsv9VideoPage = () => {
                 color: 'warning.dark',
               }}
             >
-              <DownloadIcon fontSize="small" />
+              {/* The number people watch, big enough to read at a glance and
+                  only moving once footage is genuinely arriving. */}
+              <Box sx={{ position: 'relative', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                <CircularProgress
+                  size={40}
+                  thickness={4}
+                  variant={downloadProgress(clipJob || downloading).percent === null ? 'indeterminate' : 'determinate'}
+                  value={downloadProgress(clipJob || downloading).percent || 0}
+                  color="inherit"
+                />
+                <Typography
+                  variant="caption"
+                  sx={{ position: 'absolute', fontWeight: 700, fontSize: '0.65rem' }}
+                >
+                  {downloadProgress(clipJob || downloading).label}
+                </Typography>
+              </Box>
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Typography variant="body2" sx={{ fontWeight: 600 }}>
                   Download in progress — live view paused
                 </Typography>
                 <Typography variant="caption" sx={{ display: 'block' }}>
-                  {downloading.channel !== undefined && `CH${downloading.channel + 1} · `}
-                  {downloading.seconds
-                    ? `${clockOf(Math.min(downloading.elapsedSeconds || 0, downloading.seconds))} of ${clockOf(downloading.seconds)}`
-                    : 'Fetching footage'}
-                  {downloading.bytes > 0 && ` · ${formatMb(downloading.bytes)}`}
-                  {' · the cameras restart on their own when it finishes'}
+                  {/* The page's own job knows sooner than the server poll
+                      does, so it is believed first. */}
+                  {(() => {
+                    const job = clipJob || downloading;
+                    const bits = [];
+                    if (job.channel !== undefined) bits.push(`CH${job.channel + 1}`);
+                    bits.push(downloadProgress(job).text);
+                    bits.push('the cameras restart on their own when it finishes');
+                    return bits.join(' · ');
+                  })()}
                 </Typography>
               </Box>
-              <CircularProgress
-                size={20}
-                variant={downloading.seconds ? 'determinate' : 'indeterminate'}
-                value={
-                  downloading.seconds
-                    ? Math.min(100, ((downloading.elapsedSeconds || 0) / downloading.seconds) * 100)
-                    : 0
-                }
-              />
-              {/* Only the page that started it can stop it from here; anyone
-                  else is told what is happening and left to wait. */}
-              {clipJob && (
-                <Button size="small" color="inherit" startIcon={<StopIcon />} onClick={cancelClip}>
-                  Cancel
-                </Button>
-              )}
+              {/* Stoppable from any screen showing this vehicle, not only the
+                  one that asked: a download that has lost its page would
+                  otherwise hold the cameras until it finished on its own. */}
+              <Button
+                size="small"
+                variant="contained"
+                color="error"
+                startIcon={<StopIcon />}
+                onClick={cancelClip}
+                disabled={cancelling}
+                sx={{ flexShrink: 0 }}
+              >
+                {cancelling ? 'Stopping…' : 'Cancel'}
+              </Button>
             </Box>
           )}
           {tab === 1 && (
@@ -2021,15 +2330,44 @@ const Cmsv9VideoPage = () => {
           */}
           {tab === 2 && (
             <>
-              <Box className={classes.dlPlayer}>
+              <Box
+                ref={dlPlayerRef}
+                className={`${classes.dlPlayer}${dlFullscreen ? ` ${classes.dlPlayerFull}` : ''}`}
+              >
                 {/* Streaming straight off the camera - what a tap on a row
-                    gives you. The clip player below takes over once footage
+                    gives you. One box per camera on the All tab, one box on a
+                    channel tab. The clip player below takes over once footage
                     has actually been fetched. */}
-                <div
-                  ref={videoRef}
-                  className={classes.dlVideo}
-                  style={{ display: dlStreaming ? 'block' : 'none' }}
-                />
+                <Box
+                  className={classes.dlStreams}
+                  style={(() => {
+                    // Two columns in the page, where the box is wide and
+                    // short; closer to square once it has the whole screen,
+                    // so eight cameras are not eight slivers.
+                    const n = dlPlayChannels.length;
+                    const columns = n <= 1 ? 1 : Math.min(n, dlFullscreen ? Math.ceil(Math.sqrt(n)) : 2);
+                    return {
+                      display: dlStreaming ? 'grid' : 'none',
+                      gridTemplateColumns: `repeat(${columns}, 1fr)`,
+                      gridTemplateRows: `repeat(${Math.ceil(n / columns) || 1}, 1fr)`,
+                    };
+                  })()}
+                >
+                  {dlPlayChannels.map((ch) => (
+                    <Box key={ch} className={classes.dlStreamCell}>
+                      <div
+                        ref={(el) => { dlCellsRef.current[ch] = el; }}
+                        className={classes.dlVideo}
+                      />
+                      <Typography className={classes.dlStreamLabel}>{`CH${ch + 1}`}</Typography>
+                      {dlPlaying[ch] !== 'playing' && (
+                        <Typography className={classes.dlStreamState}>
+                          {dlPlaying[ch] === 'failed' ? 'No footage' : 'Starting…'}
+                        </Typography>
+                      )}
+                    </Box>
+                  ))}
+                </Box>
                 <video
                   ref={reviewRef}
                   src={reviewUrl || undefined}
@@ -2083,48 +2421,50 @@ const Cmsv9VideoPage = () => {
                   <PhotoCameraIcon fontSize="small" />
                 </IconButton>
                 {dlTitle && <Typography className={classes.dlTitle}>{dlTitle}</Typography>}
+                {/* Fills the screen with whatever the box is showing - one
+                    camera, or the whole wall of them on the All tab. */}
                 <IconButton
                   size="small"
                   className={`${classes.dlOverlayBtn} ${classes.dlTopRight}`}
-                  disabled={!reviewUrl}
-                  title="Fullscreen"
-                  aria-label="Fullscreen"
-                  onClick={() => reviewRef.current?.requestFullscreen?.().catch(() => {})}
+                  disabled={!reviewUrl && !dlStreaming}
+                  title={dlFullscreen ? 'Leave fullscreen' : 'Fullscreen'}
+                  aria-label={dlFullscreen ? 'Leave fullscreen' : 'Fullscreen'}
+                  onClick={toggleDlFullscreen}
                 >
-                  <OpenInFullIcon fontSize="small" />
+                  {dlFullscreen ? <CloseFullscreenIcon fontSize="small" /> : <OpenInFullIcon fontSize="small" />}
                 </IconButton>
                 {!reviewUrl && !clipJob && !dlStreaming && (
                   <Typography className={classes.dlHint}>
-                    {playerMsg || 'Tap a recording below to watch it'}
-                  </Typography>
-                )}
-                {dlStreaming && !playbackActive && !liveError && (
-                  <Box className={classes.dlBusy}>
-                    <CircularProgress size={30} sx={{ color: '#fff' }} />
-                    <Typography variant="caption" sx={{ color: '#fff' }}>
-                      Asking the camera to play it…
-                    </Typography>
-                  </Box>
-                )}
-                {dlStreaming && liveError && (
-                  <Typography className={classes.dlHint}>
-                    That recording would not play. Try another, or download it.
+                    {playerMsg || (dlDone?.ok ? 'Download finished' : 'Tap a recording below to watch it')}
                   </Typography>
                 )}
                 {(clipJob || reviewWaiting) && (
                   <Box className={classes.dlBusy}>
-                    <CircularProgress size={30} sx={{ color: '#fff' }} />
+                    <Box sx={{ position: 'relative', display: 'grid', placeItems: 'center' }}>
+                      <CircularProgress
+                        size={64}
+                        thickness={3}
+                        sx={{ color: '#fff' }}
+                        variant={!clipJob || downloadProgress(clipJob).percent === null ? 'indeterminate' : 'determinate'}
+                        value={clipJob ? downloadProgress(clipJob).percent || 0 : 0}
+                      />
+                      {clipJob && (
+                        <Typography sx={{ position: 'absolute', color: '#fff', fontWeight: 700 }}>
+                          {downloadProgress(clipJob).label}
+                        </Typography>
+                      )}
+                    </Box>
                     {clipJob && (
                       <>
-                        <Typography variant="caption" sx={{ color: '#fff' }}>
-                          {`${clockOf(Math.min(clipJob.elapsedSeconds || 0, clipJob.seconds))} of ${clockOf(clipJob.seconds)} fetched`}
-                          {clipJob.bytes > 0 && ` · ${formatMb(clipJob.bytes)}`}
+                        <Typography variant="caption" sx={{ color: '#fff', textAlign: 'center', px: 2 }}>
+                          {downloadProgress(clipJob).text}
                         </Typography>
                         <Button
                           size="small"
                           variant="outlined"
                           startIcon={<StopIcon />}
                           onClick={cancelClip}
+                          disabled={cancelling}
                           sx={{
                             color: '#fff',
                             borderColor: 'rgba(255,255,255,0.6)',
@@ -2132,7 +2472,7 @@ const Cmsv9VideoPage = () => {
                             mt: 0.5,
                           }}
                         >
-                          Cancel download
+                          {cancelling ? 'Stopping…' : 'Cancel download'}
                         </Button>
                       </>
                     )}
@@ -2192,8 +2532,13 @@ const Cmsv9VideoPage = () => {
               <Tabs
                 value={dlChannel}
                 onChange={(_e, value) => {
+                  // Changing what is listed also changes what plays, so the
+                  // players come down rather than showing the wrong camera.
+                  stopDlPlayers();
+                  setDlStreaming(false);
                   setDlChannel(value);
                   setDlSelected(null);
+                  setDlTitle('');
                 }}
                 variant="scrollable"
                 scrollButtons={false}
@@ -2298,11 +2643,10 @@ const Cmsv9VideoPage = () => {
                           setTrimEnd(seg.end);
                           setPlayerMsg('');
                           setDlTitle(
-                            `${device?.name || ''} CH${seg.channel + 1} ${seg.start.format('YYYY-MM-DD HH:mm:ss')} - ${seg.end.format('HH:mm:ss')}`,
+                            `${device?.name || ''} ${dlChannel < 0 ? 'all cameras' : `CH${seg.channel + 1}`}`
+                              + ` ${seg.start.format('YYYY-MM-DD HH:mm:ss')} - ${seg.end.format('HH:mm:ss')}`,
                           );
-                          setReviewUrl('');
-                          setDlStreaming(true);
-                          playRecording({ channel: seg.channel, startTime: startStr, endTime: endStr });
+                          playSegment(startStr, endStr, dlChannel < 0 ? -1 : seg.channel);
                         }}
                       >
                         <Box className={classes.dlThumb}>

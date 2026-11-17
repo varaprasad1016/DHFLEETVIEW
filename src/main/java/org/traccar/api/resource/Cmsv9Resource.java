@@ -158,6 +158,11 @@ public class Cmsv9Resource extends BaseResource {
         state.put("seconds", capture.getWantedSeconds());
         state.put("bytes", capture.getBytes());
         state.put("elapsedSeconds", capture.getElapsedSeconds());
+        // Progress is measured from the first frame that arrived, not from the
+        // button being pressed: the camera can take most of a minute to start
+        // pushing, and none of that is footage.
+        state.put("started", capture.hasStarted());
+        state.put("fetchingSeconds", capture.getFetchingSeconds());
         return state;
     }
 
@@ -308,6 +313,8 @@ public class Cmsv9Resource extends BaseResource {
             result.put("working", true);
             result.put("bytes", capture.getBytes());
             result.put("elapsedSeconds", capture.getElapsedSeconds());
+            result.put("started", capture.hasStarted());
+            result.put("fetchingSeconds", capture.getFetchingSeconds());
         } else {
             result.put("working", false);
         }
@@ -491,9 +498,14 @@ public class Cmsv9Resource extends BaseResource {
         int cnmsChannel = channel + 1;
         String startTime = params.get("startTime");
         String endTime = params.get("endTime");
+        // 1 = the camera's sub recording: a fraction of the data, and the only
+        // way several cameras at once are watchable over a vehicle's mobile
+        // connection. Watching is not keeping - a download always takes the
+        // main recording.
+        int streamType = "1".equals(params.get("stream")) ? 1 : 0;
 
         JsonNode resp = cmsv9Manager.playbackAppoint(
-                terminal, String.valueOf(cnmsChannel), startTime, endTime);
+                terminal, String.valueOf(cnmsChannel), startTime, endTime, streamType);
         // CNMS answers with its own absolute address on the media port; the
         // browser wants it through this site (see Cmsv9Manager.forBrowser).
         String flvUrl = cmsv9Manager.forBrowser(resp.path("resultData").path("httpurl").asText(""));
