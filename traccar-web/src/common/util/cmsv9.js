@@ -40,6 +40,14 @@ export const cmsv9StreamStatus = async (deviceId, channel) => {
   return response.json();
 };
 
+/* Whether this vehicle is busy sending footage, and what of. Live video is
+   paused while it is, because the camera's uplink cannot carry both. */
+export const cmsv9Activity = async (deviceId) => {
+  const response = await fetch(`api/cmsv9/activity/${deviceId}`);
+  if (!response.ok) throw new Error('Could not check the vehicle');
+  return response.json();
+};
+
 export const cmsv9StopLive = async (deviceId, channel) => {
   const response = await fetch(`api/cmsv9/stop/${deviceId}/${channel}`, {
     method: 'POST',

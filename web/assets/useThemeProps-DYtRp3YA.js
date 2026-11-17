@@ -1,0 +1,1 @@
+import{bt as a,br as u,bu as h}from"./index-BTHMZxmh.js";const p=a();function c(s){const{props:r,name:m,defaultTheme:o,themeId:t}=s;let e=u(o);return t&&(e=e[t]||e),h({theme:e,name:m,props:r})}export{p as s,c as u};

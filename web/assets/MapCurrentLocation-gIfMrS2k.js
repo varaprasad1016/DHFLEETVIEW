@@ -1,1 +1,0 @@
-import{u as r,e as n,cQ as a,m as e}from"./index-DPOJ4W-p.js";const s=()=>{const t=r();return n.useEffect(()=>{const o=new a({positionOptions:{enableHighAccuracy:!0,timeout:5e3},trackUserLocation:!1});return e.addControl(o,t.direction==="rtl"?"top-left":"top-right"),()=>e.removeControl(o)},[t.direction]),null};export{s as M};

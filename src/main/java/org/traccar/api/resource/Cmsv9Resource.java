@@ -14,6 +14,7 @@ package org.traccar.api.resource;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
@@ -102,14 +103,62 @@ public class Cmsv9Resource extends BaseResource {
         String terminal = getCmsDeviceId(deviceId);
         int cnmsChannel = channel + 1;
 
-        cmsv9Manager.playLiveAsync(terminal, cnmsChannel, streamType);
-
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("errCode", 0);
-        result.put("flvUrl", cmsv9Manager.buildLiveFlvUrl(terminal, cnmsChannel));
         result.put("terminal", terminal);
         result.put("channel", channel);
+
+        // Footage coming off this vehicle has the uplink to itself. Starting a
+        // live stream now would take enough of it that the download dies, so
+        // the request is refused with the reason rather than half-served.
+        Cmsv9ClipStore.Capture pulling = clipStore.pullingFrom(terminal);
+        if (pulling != null) {
+            result.put("errCode", -3);
+            result.put("downloading", downloadState(pulling));
+            result.put("message", "Footage is downloading from this vehicle. "
+                    + "Live video restarts on its own when it has finished.");
+            return result;
+        }
+
+        cmsv9Manager.playLiveAsync(terminal, cnmsChannel, streamType);
+
+        result.put("errCode", 0);
+        result.put("flvUrl", cmsv9Manager.buildLiveFlvUrl(terminal, cnmsChannel));
         return result;
+    }
+
+    /**
+     * Whether this vehicle is busy sending footage, for any screen showing it.
+     *
+     * <p>The page that asked for the clip follows its own job; this is for
+     * everyone else - another phone, another tab - whose live pictures stopped
+     * without them doing anything.
+     */
+    @GET
+    @Path("activity/{deviceId}")
+    public Map<String, Object> activity(@PathParam("deviceId") long deviceId) throws Exception {
+        String terminal = getCmsDeviceId(deviceId);
+        Cmsv9ClipStore.Capture pulling = clipStore.pullingFrom(terminal);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("downloading", pulling != null);
+        if (pulling != null) {
+            result.putAll(downloadState(pulling));
+        }
+        return result;
+    }
+
+    /** What is being fetched, for a message somebody can read. */
+    private Map<String, Object> downloadState(Cmsv9ClipStore.Capture capture) {
+        Map<String, Object> state = new LinkedHashMap<>();
+        Cmsv9ClipStore.Clip clip = capture.getClip();
+        if (clip != null) {
+            state.put("channel", clip.channel() - 1);
+            state.put("startTime", clip.startTime());
+            state.put("endTime", clip.endTime());
+        }
+        state.put("seconds", capture.getWantedSeconds());
+        state.put("bytes", capture.getBytes());
+        state.put("elapsedSeconds", capture.getElapsedSeconds());
+        return state;
     }
 
     @GET
@@ -208,6 +257,31 @@ public class Cmsv9Resource extends BaseResource {
             @QueryParam("endTime") String endTime,
             @QueryParam("format") String format) throws Exception {
         return clipState(clipOf(deviceId, channel, startTime, endTime, format));
+    }
+
+    /**
+     * Stops a clip part way through and throws away what has been fetched.
+     *
+     * <p>Ten minutes of footage is ten minutes of the vehicle's data; somebody
+     * who started the wrong one should be able to stop it rather than wait it
+     * out. The camera is told to stop playing too, which is where the saving
+     * actually is.
+     */
+    @DELETE
+    @Path("clip/{deviceId}/{channel}")
+    public Map<String, Object> cancelClip(
+            @PathParam("deviceId") long deviceId,
+            @PathParam("channel") int channel,
+            @QueryParam("startTime") String startTime,
+            @QueryParam("endTime") String endTime,
+            @QueryParam("format") String format) throws Exception {
+        Cmsv9ClipStore.Clip clip = clipOf(deviceId, channel, startTime, endTime, format);
+        boolean stopped = clipStore.cancel(clip);
+        if (stopped) {
+            LOG.info("Clip cancelled by request: {} ch{} {} to {}",
+                    clip.terminal(), clip.channel(), clip.startTime(), clip.endTime());
+        }
+        return Map.of("cancelled", stopped);
     }
 
     private Cmsv9ClipStore.Clip clipOf(

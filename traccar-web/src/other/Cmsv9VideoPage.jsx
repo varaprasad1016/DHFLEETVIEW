@@ -24,8 +24,14 @@ import {
   Chip,
   Slider,
   LinearProgress,
+  Fab,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 import { makeStyles } from 'tss-react/mui';
+import { alpha } from '@mui/material/styles';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
@@ -33,6 +39,8 @@ import PauseIcon from '@mui/icons-material/Pause';
 import StopIcon from '@mui/icons-material/Stop';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import VolumeUpIcon from '@mui/icons-material/VolumeUp';
+import OpenInFullIcon from '@mui/icons-material/OpenInFull';
+import VideocamIcon from '@mui/icons-material/Videocam';
 import VolumeOffIcon from '@mui/icons-material/VolumeOff';
 import SearchIcon from '@mui/icons-material/Search';
 import DownloadIcon from '@mui/icons-material/Download';
@@ -53,6 +61,7 @@ import {
   cmsv9Search,
   cmsv9History,
   cmsv9StreamStatus,
+  cmsv9Activity,
 } from '../common/util/cmsv9';
 import { useCatch, useCatchCallback } from '../reactHelper';
 import MapView from '../map/core/MapView';
@@ -240,6 +249,188 @@ const useStyles = makeStyles()((theme) => ({
   cellPlaceholder: {
     color: '#666',
     fontSize: '0.8rem',
+  },
+  // --- Download tab: the camera app's own shape, in this app's colours. ---
+  dlPlayer: {
+    position: 'relative',
+    width: '100%',
+    aspectRatio: '16 / 10',
+    maxHeight: 320,
+    backgroundColor: '#000',
+    flexShrink: 0,
+  },
+  dlVideo: {
+    width: '100%',
+    height: '100%',
+    display: 'block',
+    objectFit: 'contain',
+    backgroundColor: '#000',
+  },
+  dlOverlayBtn: {
+    position: 'absolute',
+    color: '#fff',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    '&:hover': { backgroundColor: 'rgba(0,0,0,0.55)' },
+    '&.Mui-disabled': { color: 'rgba(255,255,255,0.4)' },
+  },
+  dlTopLeft: { top: 8, left: 8 },
+  dlTopRight: { top: 8, right: 8 },
+  dlTitle: {
+    position: 'absolute',
+    top: 14,
+    left: 52,
+    right: 52,
+    color: '#fff',
+    fontSize: '0.78rem',
+    textAlign: 'center',
+    textShadow: '0 1px 3px rgba(0,0,0,0.9)',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    pointerEvents: 'none',
+  },
+  dlHint: {
+    position: 'absolute',
+    inset: 0,
+    display: 'grid',
+    placeItems: 'center',
+    color: 'rgba(255,255,255,0.65)',
+    fontSize: '0.85rem',
+    textAlign: 'center',
+    padding: theme.spacing(0, 3),
+    pointerEvents: 'none',
+  },
+  dlBusy: {
+    position: 'absolute',
+    inset: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: theme.spacing(1),
+    pointerEvents: 'none',
+  },
+  dlControls: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(0.5),
+    padding: theme.spacing(0.5, 1),
+    background: 'linear-gradient(transparent, rgba(0,0,0,0.65))',
+  },
+  dlClock: {
+    color: '#fff',
+    fontSize: '0.72rem',
+    fontVariantNumeric: 'tabular-nums',
+    minWidth: 46,
+    textAlign: 'center',
+  },
+  dlChannelTabs: {
+    minHeight: 40,
+    borderBottom: `1px solid ${theme.palette.divider}`,
+    flexShrink: 0,
+    '& .MuiTab-root': { minHeight: 40, minWidth: 56, fontSize: '0.8rem' },
+  },
+  dlRuler: {
+    padding: theme.spacing(0.75, 2, 0.5),
+    flexShrink: 0,
+  },
+  dlRulerDate: {
+    fontSize: '0.72rem',
+    fontWeight: 600,
+    color: theme.palette.text.secondary,
+    marginBottom: 4,
+  },
+  dlRulerTrack: {
+    position: 'relative',
+    height: 22,
+    borderRadius: 4,
+    backgroundColor: theme.palette.action.hover,
+    overflow: 'hidden',
+  },
+  dlRulerBar: {
+    position: 'absolute',
+    top: 4,
+    bottom: 4,
+    minWidth: 2,
+    borderRadius: 2,
+    backgroundColor: theme.palette.success.main,
+    cursor: 'pointer',
+  },
+  dlRulerBarOn: {
+    backgroundColor: theme.palette.primary.main,
+    top: 1,
+    bottom: 1,
+  },
+  dlRulerTick: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 1,
+    backgroundColor: theme.palette.divider,
+  },
+  dlRulerLabels: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    marginTop: 2,
+  },
+  dlRulerLabel: {
+    fontSize: '0.62rem',
+    color: theme.palette.text.secondary,
+    fontVariantNumeric: 'tabular-nums',
+  },
+  dlList: {
+    flex: 1,
+    minHeight: 0,
+    overflowY: 'auto',
+    paddingBottom: theme.spacing(9),
+  },
+  dlRowOn: {
+    backgroundColor: theme.palette.action.selected,
+  },
+  dlThumb: {
+    width: 56,
+    height: 42,
+    flexShrink: 0,
+    marginRight: theme.spacing(1.5),
+    borderRadius: 6,
+    backgroundColor: theme.palette.action.hover,
+    color: theme.palette.text.secondary,
+    display: 'grid',
+    placeItems: 'center',
+  },
+  dlRowTop: {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: theme.spacing(1),
+    fontSize: '0.86rem',
+    fontWeight: 500,
+    flexWrap: 'wrap',
+  },
+  dlRowTime: {
+    fontVariantNumeric: 'tabular-nums',
+    color: theme.palette.text.secondary,
+  },
+  dlGet: {
+    color: theme.palette.primary.contrastText,
+    backgroundColor: theme.palette.primary.main,
+    '&:hover': { backgroundColor: theme.palette.primary.dark },
+    '&.Mui-disabled': { backgroundColor: theme.palette.action.disabledBackground },
+  },
+  dlFind: {
+    position: 'absolute',
+    right: 16,
+    bottom: 16,
+    zIndex: 3,
+  },
+  dlPickRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: theme.spacing(0.75),
+    marginTop: theme.spacing(0.75),
   },
   // Live map under the video: half the screen alongside a single channel, and the
   // space left under the grid in multi-channel view.
@@ -559,6 +750,9 @@ const Cmsv9VideoPage = () => {
   const [reviewLength, setReviewLength] = useState(0);
   const [reviewRunning, setReviewRunning] = useState(false);
   const [reviewWaiting, setReviewWaiting] = useState(false);
+  // Clips start muted because that is the price of playing on their own; the
+  // speaker in the controls is how the cab audio gets turned on.
+  const [reviewMuted, setReviewMuted] = useState(true);
   const [playerMsg, setPlayerMsg] = useState('');
 
   const [gridActive, setGridActive] = useState(false);
@@ -577,8 +771,30 @@ const Cmsv9VideoPage = () => {
   const [loadingTimeline, setLoadingTimeline] = useState(false);
   const [trimStart, setTrimStart] = useState(null);
   const [trimEnd, setTrimEnd] = useState(null);
+  // Download tab, laid out the way the camera maker's own app lays it out:
+  // a player, a channel strip, the day's ruler and the recordings as a list.
+  // -1 is the "All" tab, which asks every channel and merges the answers.
+  const [dlChannel, setDlChannel] = useState(-1);
+  const [dlBegin, setDlBegin] = useState('00:00');
+  const [dlEnd, setDlEnd] = useState('23:59');
+  const [dlSegments, setDlSegments] = useState([]);
+  const [dlSelected, setDlSelected] = useState(null);
+  const [dlTitle, setDlTitle] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  // Watching a recording plays it off the camera as a stream; a clip that has
+  // been downloaded plays from the file. Both use the same box, one at a time.
+  const [dlStreaming, setDlStreaming] = useState(false);
+  // The part of a recording to fetch: opens on the segment's own span and
+  // will not go outside it, because the camera has nothing else to give.
+  const [segDialog, setSegDialog] = useState(null);
   // Fetching a clip off a vehicle: what we are fetching, and how far it has got.
   const [clipJob, setClipJob] = useState(null);
+  // Footage being pulled off this vehicle - by this page or by somebody else
+  // entirely. The camera has one uplink and playback cannot share it with live
+  // channels, so live is paused for the duration; every page showing this
+  // vehicle asks the server about it rather than being left with tiles that
+  // stopped for no visible reason.
+  const [downloading, setDownloading] = useState(null);
   const clipJobRef = useRef(null);
 
   const channels = useMemo(() => {
@@ -650,6 +866,10 @@ const Cmsv9VideoPage = () => {
     setLoading(true);
     try {
       const data = await cmsv9StartLive(deviceId, channel, singleHdRef.current ? 0 : 1);
+      if (data.errCode === -3) {
+        setDownloading(data.downloading ? { downloading: true, ...data.downloading } : { downloading: true });
+        throw new Error(data.message || 'Footage is downloading from this vehicle.');
+      }
       if (data.errCode !== 0 && data.errCode !== -1) {
         throw new Error(data.resultMsg || 'Failed to start live');
       }
@@ -792,6 +1012,7 @@ const Cmsv9VideoPage = () => {
     setGridActive(true);
   }, [ensureConfig, cmsv9DeviceId]);
 
+
   // Switch the grid between the DVR's main (HD) and sub (SD) streams. HD is
   // heavier over the vehicle's cellular uplink, so a full grid may struggle;
   // SD stays the default for reliable multi-channel. Toggling restarts the grid.
@@ -821,6 +1042,47 @@ const Cmsv9VideoPage = () => {
   const stopGridRef = useRef(stopGrid);
   stopGridRef.current = stopGrid;
   useEffect(() => () => stopGridRef.current(), []);
+
+  /*
+   * Watch for footage being pulled off this vehicle, and give the uplink to it.
+   *
+   * The page that asked for the clip knows what it is waiting for; this is for
+   * the vehicle's other watchers - another phone, another tab, the operator who
+   * opened the cameras while a download was already running. The tiles come
+   * down while it runs and start again by themselves when the vehicle is free,
+   * which is what somebody who never asked for the download would expect.
+   */
+  const resumeAfterRef = useRef(false);
+  const gridActiveRef = useRef(gridActive);
+  gridActiveRef.current = gridActive;
+  useEffect(() => {
+    if (!cmsv9DeviceId) return undefined;
+    let stopped = false;
+    const check = async () => {
+      try {
+        const state = await cmsv9Activity(deviceId);
+        if (stopped) return;
+        setDownloading(state.downloading ? state : null);
+        if (state.downloading) {
+          if (gridActiveRef.current) {
+            resumeAfterRef.current = true;
+            stopGridRef.current();
+          }
+        } else if (resumeAfterRef.current) {
+          resumeAfterRef.current = false;
+          startGrid();
+        }
+      } catch (e) {
+        // the server is unreachable for a moment; the tiles say so themselves
+      }
+    };
+    check();
+    const timer = setInterval(check, 5000);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [cmsv9DeviceId, deviceId, startGrid]);
 
   const setGridQuality = useCallback(
     (hd) => {
@@ -868,6 +1130,15 @@ const Cmsv9VideoPage = () => {
 
       try {
         const data = await cmsv9StartLive(deviceId, ch, gridHdRef.current ? 0 : 1);
+        // The vehicle is sending footage and the server has refused live for
+        // the duration. Not an error to retry: the watcher above brings the
+        // tiles back when the download is done.
+        if (data.errCode === -3) {
+          setDownloading(data.downloading ? { downloading: true, ...data.downloading } : { downloading: true });
+          resumeAfterRef.current = true;
+          stopGridRef.current();
+          return;
+        }
         if ((data.errCode !== 0 && data.errCode !== -1) || !data.flvUrl) {
           setGridErrors((prev) => ({ ...prev, [ch]: 'novideo' }));
           return;
@@ -1099,11 +1370,57 @@ const Cmsv9VideoPage = () => {
     }
   }, [ensureConfig, deviceId, channel, timelineDate]);
 
+  /*
+   * The day's recordings for the Download tab.
+   *
+   * The camera answers one channel at a time and its answer does not say which
+   * channel it came from, so "All" asks each one and tags the rows itself.
+   * Queried in parallel: these are index reads off the camera's own card, not
+   * footage, so they cost the vehicle almost nothing.
+   */
+  const loadRecordings = useCatchCallback(async () => {
+    const cfg = await ensureConfig();
+    if (!cfg) return;
+    setLoadingTimeline(true);
+    try {
+      const day = timelineDate.format('YYYY-MM-DD');
+      const from2 = `${day} ${dlBegin}:00`;
+      const to2 = `${day} ${dlEnd}:59`;
+      const wanted = dlChannel < 0 ? channels : [dlChannel];
+      const answers = await Promise.all(
+        wanted.map(async (ch) => {
+          try {
+            const data = await cmsv9History(deviceId, ch, from2, to2);
+            return (data?.resultData || []).map((seg) => ({ ...seg, channel: ch }));
+          } catch (e) {
+            return []; // one camera with nothing to say must not empty the list
+          }
+        }),
+      );
+      const rows = answers
+        .flat()
+        .map((seg) => ({
+          ...seg,
+          start: parseCnmsFileTime(seg.startTime),
+          end: parseCnmsFileTime(seg.endTime),
+        }))
+        .filter((seg) => seg.start && seg.end)
+        // Newest first, and within one minute the lowest channel first, so the
+        // same recording across eight cameras reads as one block.
+        .sort((a, b) => b.start.valueOf() - a.start.valueOf() || a.channel - b.channel);
+      setDlSegments(rows);
+      setSegments(rows);
+    } finally {
+      setLoadingTimeline(false);
+    }
+  }, [ensureConfig, deviceId, channels, dlChannel, timelineDate, dlBegin, dlEnd]);
+
   useEffect(() => {
     if (tab === 2 && cmsv9DeviceId) {
-      loadTimeline();
+      loadRecordings();
     }
-  }, [tab, timelineDate, channel, cmsv9DeviceId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, timelineDate, dlChannel, cmsv9DeviceId]);
 
   // Footage does not arrive as a file. The camera plays it back off its own SD
   // card in real time over the vehicle's mobile connection, so a ten minute
@@ -1116,8 +1433,8 @@ const Cmsv9VideoPage = () => {
   // fetch and waits for it, reporting progress; afterwards the same clip is
   // served from disk, instantly and without touching the vehicle again.
   const clipUrl = useCallback(
-    (startStr, endStr, share) =>
-      `/api/cmsv9/download/${deviceId}/${channel}` +
+    (startStr, endStr, share, ch = channel) =>
+      `/api/cmsv9/download/${deviceId}/${ch}` +
       `?startTime=${encodeURIComponent(startStr)}` +
       `&endTime=${encodeURIComponent(endStr)}` +
       (share ? '&format=share&disposition=attachment' : ''),
@@ -1125,14 +1442,15 @@ const Cmsv9VideoPage = () => {
   );
 
   const fetchClip = useCallback(
-    async (startStr, endStr, share, label) => {
+    async (startStr, endStr, share, label, ch = channel) => {
       const query =
         `?startTime=${encodeURIComponent(startStr)}` +
         `&endTime=${encodeURIComponent(endStr)}` +
         (share ? '&format=share' : '');
-      const base = `/api/cmsv9/clip/${deviceId}/${channel}${query}`;
+      const base = `/api/cmsv9/clip/${deviceId}/${ch}${query}`;
       const token = {};
       clipJobRef.current = token;
+      cancelledClipRef.current = false;
       try {
         const started = await fetch(base, { method: 'POST' });
         if (!started.ok) {
@@ -1143,7 +1461,7 @@ const Cmsv9VideoPage = () => {
           throw new Error(first || 'The clip could not be requested.');
         }
         let state = await started.json();
-        setClipJob({ label, share, ...state });
+        setClipJob({ label, share, startStr, endStr, ch, ...state });
         // Nothing to wait for when the server already has it.
         while (!state.ready) {
           await new Promise((resolve) => {
@@ -1153,13 +1471,17 @@ const Cmsv9VideoPage = () => {
           const poll = await fetch(base);
           if (!poll.ok) throw new Error('Lost contact with the server while fetching the clip.');
           state = await poll.json();
-          setClipJob({ label, share, ...state });
+          setClipJob({ label, share, startStr, endStr, ch, ...state });
           if (!state.ready && !state.working) {
-            throw new Error('The camera stopped sending that footage. It may be offline.');
+            // Cancelled on purpose reads as "gone" from here too, so say
+            // nothing alarming when that is what happened.
+            throw new Error(cancelledClipRef.current
+              ? 'Download cancelled'
+              : 'The camera stopped sending that footage. It may be offline.');
           }
         }
         setClipJob(null);
-        return clipUrl(startStr, endStr, share);
+        return clipUrl(startStr, endStr, share, ch);
       } catch (e) {
         if (clipJobRef.current === token) {
           setClipJob(null);
@@ -1224,9 +1546,41 @@ const Cmsv9VideoPage = () => {
   // download manager gets a complete file with a length it can resume - it is
   // free to ask again, which it does, and that ask no longer reaches the
   // vehicle.
+  /*
+   * Stop a download part way.
+   *
+   * Both ends have to know: the server kills the ffmpeg and tells the camera
+   * to stop playing (which is where the vehicle's data is actually saved), and
+   * the page stops following the job so the next poll does not report it as
+   * having died on its own.
+   */
+  const cancelledClipRef = useRef(false);
+  const cancelClip = useCallback(async () => {
+    const job = clipJobRef.current && clipJob;
+    cancelledClipRef.current = true;
+    clipJobRef.current = null;
+    setClipJob(null);
+    setPlayerMsg('Download cancelled');
+    if (!job || !job.startStr) return;
+    try {
+      await fetch(
+        `/api/cmsv9/clip/${deviceId}/${job.ch ?? channel}`
+          + `?startTime=${encodeURIComponent(job.startStr)}`
+          + `&endTime=${encodeURIComponent(job.endStr)}`
+          + (job.share ? '&format=share' : ''),
+        { method: 'DELETE' },
+      );
+    } catch (e) {
+      // the server will finish and cache it; nothing is lost, only time
+    }
+  }, [clipJob, deviceId, channel]);
+
   const downloadSegment = useCallback(
-    async (startStr, endStr) => {
-      const url = await fetchClip(startStr, endStr, true, 'Download');
+    async (startStr, endStr, ch) => {
+      // The clip's own player takes the box back from the camera stream.
+      setDlStreaming(false);
+      stopPlayback();
+      const url = await fetchClip(startStr, endStr, true, 'Download', ch);
       if (!url) return;
       const a = document.createElement('a');
       a.href = url;
@@ -1235,7 +1589,32 @@ const Cmsv9VideoPage = () => {
       a.click();
       a.remove();
     },
-    [fetchClip],
+    [fetchClip, stopPlayback],
+  );
+
+  /*
+   * The same moment from several cameras.
+   *
+   * One after another, not all at once: the vehicle plays footage back in real
+   * time over one uplink, and asking for four channels together would leave
+   * all four fighting and none of them finishing. The title above the player
+   * says which one is coming now.
+   */
+  const downloadSegments = useCallback(
+    async (startStr, endStr, picked) => {
+      const list = picked && picked.length ? picked : [channel];
+      for (let i = 0; i < list.length; i += 1) {
+        const ch = list[i];
+        setDlTitle(
+          `${device?.name || ''} CH${ch + 1} ${startStr} - ${endStr.slice(11)}`
+            + (list.length > 1 ? `  (${i + 1} of ${list.length})` : ''),
+        );
+        // Deliberately sequential - see above.
+        // eslint-disable-next-line no-await-in-loop
+        await downloadSegment(startStr, endStr, ch);
+      }
+    },
+    [channel, device, downloadSegment],
   );
 
   const playRecording = useCallback(
@@ -1249,7 +1628,7 @@ const Cmsv9VideoPage = () => {
       try {
         const data = await cmsv9StartPlayback(
           deviceId,
-          channel,
+          item.channel ?? channel,
           item.startTime || from.format('YYYY-MM-DD HH:mm:ss'),
           item.endTime || to.format('YYYY-MM-DD HH:mm:ss'),
         );
@@ -1467,6 +1846,56 @@ const Cmsv9VideoPage = () => {
               ))}
             </div>
           )}
+          {/* Live is paused while the vehicle is sending footage - its uplink
+              carries one or the other, not both. Said plainly, with how far
+              along the download is, so nobody is left wondering why the
+              pictures went. */}
+          {downloading && (
+            <Box
+              sx={{
+                mx: 2,
+                mt: 1,
+                p: 1.25,
+                borderRadius: 2,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1.25,
+                bgcolor: (theme) => alpha(theme.palette.warning.main, 0.14),
+                color: 'warning.dark',
+              }}
+            >
+              <DownloadIcon fontSize="small" />
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  Download in progress — live view paused
+                </Typography>
+                <Typography variant="caption" sx={{ display: 'block' }}>
+                  {downloading.channel !== undefined && `CH${downloading.channel + 1} · `}
+                  {downloading.seconds
+                    ? `${clockOf(Math.min(downloading.elapsedSeconds || 0, downloading.seconds))} of ${clockOf(downloading.seconds)}`
+                    : 'Fetching footage'}
+                  {downloading.bytes > 0 && ` · ${formatMb(downloading.bytes)}`}
+                  {' · the cameras restart on their own when it finishes'}
+                </Typography>
+              </Box>
+              <CircularProgress
+                size={20}
+                variant={downloading.seconds ? 'determinate' : 'indeterminate'}
+                value={
+                  downloading.seconds
+                    ? Math.min(100, ((downloading.elapsedSeconds || 0) / downloading.seconds) * 100)
+                    : 0
+                }
+              />
+              {/* Only the page that started it can stop it from here; anyone
+                  else is told what is happening and left to wait. */}
+              {clipJob && (
+                <Button size="small" color="inherit" startIcon={<StopIcon />} onClick={cancelClip}>
+                  Cancel
+                </Button>
+              )}
+            </Box>
+          )}
           {tab === 1 && (
             <div
               className={`${classes.grid} ${classes.gridWithMap}`}
@@ -1508,10 +1937,11 @@ const Cmsv9VideoPage = () => {
                   )}
                   {(!gridActive || gridErrors[ch]) && (
                     <Typography className={classes.cellPlaceholder}>
-                      {gridErrors[ch] === 'novideo' && `${t('cmsv9NoVideo')} — tap to retry`}
-                      {gridErrors[ch] === 'stalled' && 'Picture stopped — tap to retry'}
-                      {gridErrors[ch] === 'error' && `${t('errorConnection')} — tap to retry`}
-                      {!gridErrors[ch] && t('sharedPlay')}
+                      {downloading && 'Download in progress'}
+                      {!downloading && gridErrors[ch] === 'novideo' && `${t('cmsv9NoVideo')} — tap to retry`}
+                      {!downloading && gridErrors[ch] === 'stalled' && 'Picture stopped — tap to retry'}
+                      {!downloading && gridErrors[ch] === 'error' && `${t('errorConnection')} — tap to retry`}
+                      {!downloading && !gridErrors[ch] && t('sharedPlay')}
                     </Typography>
                   )}
                   <div className={classes.cellActions}>
@@ -1579,410 +2009,508 @@ const Cmsv9VideoPage = () => {
               )}
             </div>
           )}
+          {/*
+            The Download tab, laid out the way the camera maker's own app lays
+            it out, because that is the layout the people using this already
+            know: the player at the top with its own controls over the picture,
+            then the channel strip, then the day's ruler, then the recordings
+            as a list with a download button on each row. "Find" opens the
+            search sheet. Nothing here stops working while a download is
+            running - the list and the player stay, and the download buttons
+            say why they are waiting.
+          */}
           {tab === 2 && (
             <>
-              {reviewUrl && (
-                <Box sx={{ px: 2, pt: 2 }}>
-                  <Box sx={{ bgcolor: '#000', borderRadius: 2, overflow: 'hidden' }}>
-                    <video
-                      ref={reviewRef}
-                      src={reviewUrl}
-                      // Muted because that is the price of starting on its own: a browser
-                      // refuses to autoplay anything with sound, which is why Preview used
-                      // to open the player and then sit waiting for the play arrow. The
-                      // controls still carry an unmute, so the audio is a click away rather
-                      // than gone.
-                      autoPlay
-                      muted
-                      playsInline
-                      style={{
-                        width: '100%',
-                        maxHeight: 360,
-                        display: 'block',
-                        background: '#000',
-                      }}
-                      onLoadedMetadata={(e) => {
-                        e.currentTarget.playbackRate = reviewRate;
-                        // Some builds ignore the attribute when the source is swapped in
-                        // after mount; asking directly covers that. A refusal here is not
-                        // an error - it just means the user presses play, as before.
-                        e.currentTarget.play?.().catch(() => {});
-                        // A clip still arriving reports Infinity; the slider
-                        // then follows what has been received so far.
-                        const d = e.currentTarget.duration;
-                        setReviewLength(Number.isFinite(d) ? d : 0);
-                      }}
-                      onDurationChange={(e) => {
-                        const d = e.currentTarget.duration;
-                        if (Number.isFinite(d)) setReviewLength(d);
-                      }}
-                      onTimeUpdate={(e) => setReviewAt(e.currentTarget.currentTime)}
-                      onPlay={() => setReviewRunning(true)}
-                      onPause={() => setReviewRunning(false)}
-                      onWaiting={() => setReviewWaiting(true)}
-                      onPlaying={() => setReviewWaiting(false)}
-                      onError={() => {
-                        // No ffmpeg on the server means the clip comes back as
-                        // FLV, which no browser will play. Fall back to the
-                        // relay stream so the footage is still watchable -
-                        // without the seeking and speed this player adds.
-                        setReviewUrl('');
-                        setError(
-                          'This clip cannot be scrubbed on this server; ' +
-                            'playing it at normal speed instead.',
-                        );
-                        cancelledRef.current = false;
-                        playRecording({
-                          startTime: trimStart.format('YYYY-MM-DD HH:mm:ss'),
-                          endTime: trimEnd.format('YYYY-MM-DD HH:mm:ss'),
-                        });
-                      }}
-                    />
-                  </Box>
-                  <Box
-                    sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1, flexWrap: 'wrap' }}
-                  >
-                    <IconButton
-                      size="small"
-                      onClick={() => {
-                        const v = reviewRef.current;
-                        if (!v) return;
-                        if (v.paused) v.play();
-                        else v.pause();
-                      }}
-                    >
-                      {reviewRunning ? <PauseIcon /> : <PlayArrowIcon />}
-                    </IconButton>
-                    <Typography
-                      variant="caption"
-                      sx={{ fontVariantNumeric: 'tabular-nums', minWidth: 92 }}
-                    >
-                      {`${clockOf(reviewAt)} / ${reviewLength ? clockOf(reviewLength) : '—'}`}
-                    </Typography>
-                    <Slider
-                      size="small"
-                      min={0}
-                      max={reviewLength || Math.max(reviewAt, 1)}
-                      step={0.1}
-                      value={Math.min(reviewAt, reviewLength || reviewAt)}
-                      onChange={(_e, value) => {
-                        const v = reviewRef.current;
-                        if (v) v.currentTime = value;
-                        setReviewAt(value);
-                      }}
-                      sx={{ flex: '1 1 200px', mx: 1 }}
-                      disabled={!reviewLength}
-                    />
-                    {/* Fast forward is the browser's own playback rate, so it
-                        works on whatever has been received without asking the
-                        vehicle for anything. */}
-                    {REVIEW_RATES.map((rate) => (
-                      <Button
-                        key={rate}
-                        size="small"
-                        variant={reviewRate === rate ? 'contained' : 'outlined'}
-                        onClick={() => setRate(rate)}
-                        sx={{ minWidth: 44, px: 0.5 }}
-                      >
-                        {`${rate}×`}
-                      </Button>
-                    ))}
-                    {reviewWaiting && <CircularProgress size={16} />}
-                    <Button
-                      size="small"
-                      color="inherit"
-                      startIcon={<StopIcon />}
-                      onClick={() => {
-                        setReviewUrl('');
-                        setReviewRunning(false);
-                      }}
-                    >
-                      Close
-                    </Button>
-                  </Box>
-                  <Typography variant="caption" color="textSecondary">
-                    The clip plays back off the camera&apos;s card in real time, so a long one fills
-                    in as it arrives — you can scrub and speed through whatever has already come
-                    down.
-                  </Typography>
-                </Box>
-              )}
-              {!reviewUrl && (playing || liveError) && (
-                <Box sx={{ px: 2, pt: 2 }}>
-                  <Box
-                    sx={{
-                      position: 'relative',
-                      width: '100%',
-                      height: 320,
-                      background: '#000',
-                      borderRadius: 2,
-                      overflow: 'hidden',
-                    }}
-                  >
-                    {!liveError && <div ref={videoRef} style={{ width: '100%', height: '100%' }} />}
-                    {!liveError && !playbackActive && (
-                      <Box
-                        sx={{
-                          position: 'absolute',
-                          inset: 0,
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 1,
-                          color: '#fff',
-                        }}
-                      >
-                        <CircularProgress size={28} color="inherit" />
-                        <Typography variant="body2">Starting playback…</Typography>
-                      </Box>
-                    )}
-                    {liveError && (
-                      <Box
-                        sx={{
-                          position: 'absolute',
-                          inset: 0,
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: 0.5,
-                          color: '#fff',
-                          textAlign: 'center',
-                          px: 2,
-                        }}
-                      >
-                        <Typography variant="subtitle2">Playback unavailable</Typography>
-                        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)' }}>
-                          The vehicle may not be streaming right now. Try again in a moment.
-                        </Typography>
-                      </Box>
-                    )}
-                  </Box>
-                </Box>
-              )}
-              <Box sx={{ px: 2, pt: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
-                  <TextField
-                    size="small"
-                    type="date"
-                    label="Date"
-                    value={timelineDate.format('YYYY-MM-DD')}
-                    onChange={(e) => setTimelineDate(dayjs(e.target.value))}
-                    InputLabelProps={{ shrink: true }}
-                  />
-                  <Button
-                    variant="outlined"
-                    startIcon={<SearchIcon />}
-                    onClick={loadTimeline}
-                    disabled={loadingTimeline || !config}
-                  >
-                    Load timeline
-                  </Button>
-                  {loadingTimeline && <CircularProgress size={18} />}
-                  <Typography variant="caption" color="textSecondary">
-                    Channel {channel + 1} · {segments.length} segment
-                    {segments.length === 1 ? '' : 's'}
-                  </Typography>
-                </Box>
-                <Box
-                  sx={{
-                    position: 'relative',
-                    height: 44,
-                    borderRadius: 1,
-                    bgcolor: 'action.hover',
-                    overflow: 'hidden',
-                    border: '1px solid',
-                    borderColor: 'divider',
+              <Box className={classes.dlPlayer}>
+                {/* Streaming straight off the camera - what a tap on a row
+                    gives you. The clip player below takes over once footage
+                    has actually been fetched. */}
+                <div
+                  ref={videoRef}
+                  className={classes.dlVideo}
+                  style={{ display: dlStreaming ? 'block' : 'none' }}
+                />
+                <video
+                  ref={reviewRef}
+                  src={reviewUrl || undefined}
+                  autoPlay
+                  muted
+                  playsInline
+                  className={classes.dlVideo}
+                  style={{ display: dlStreaming ? 'none' : 'block' }}
+                  onLoadedMetadata={(e) => {
+                    e.currentTarget.playbackRate = reviewRate;
+                    e.currentTarget.play?.().catch(() => {});
+                    const d = e.currentTarget.duration;
+                    setReviewLength(Number.isFinite(d) ? d : 0);
+                  }}
+                  onDurationChange={(e) => {
+                    const d = e.currentTarget.duration;
+                    if (Number.isFinite(d)) setReviewLength(d);
+                  }}
+                  onTimeUpdate={(e) => setReviewAt(e.currentTarget.currentTime)}
+                  onPlay={() => setReviewRunning(true)}
+                  onPause={() => setReviewRunning(false)}
+                  onWaiting={() => setReviewWaiting(true)}
+                  onPlaying={() => setReviewWaiting(false)}
+                  onError={() => {
+                    if (!reviewUrl) return;
+                    setReviewUrl('');
+                    setPlayerMsg('That clip could not be played here. Download it instead.');
+                  }}
+                />
+                {/* Snapshot and fullscreen sit over the picture, as they do on
+                    the camera's own app. */}
+                <IconButton
+                  size="small"
+                  className={`${classes.dlOverlayBtn} ${classes.dlTopLeft}`}
+                  disabled={!reviewUrl}
+                  title="Save a still from this clip"
+                  aria-label="Save a still from this clip"
+                  onClick={() => {
+                    const v = reviewRef.current;
+                    if (!v || !v.videoWidth) return;
+                    const canvas = document.createElement('canvas');
+                    canvas.width = v.videoWidth;
+                    canvas.height = v.videoHeight;
+                    canvas.getContext('2d').drawImage(v, 0, 0);
+                    const link = document.createElement('a');
+                    link.download = `${device?.name || 'clip'}-${dayjs().format('YYYYMMDD-HHmmss')}.png`;
+                    link.href = canvas.toDataURL('image/png');
+                    link.click();
                   }}
                 >
-                  {segments.map((seg, i) => {
-                    const start = parseCnmsFileTime(seg.startTime);
-                    const end = parseCnmsFileTime(seg.endTime);
-                    if (!start || !end) return null;
-                    const dayStart = timelineDate.startOf('day');
-                    const leftPct = Math.min(
-                      100,
-                      Math.max(0, (start.diff(dayStart, 'second') / 86400) * 100),
-                    );
-                    const widthPct = Math.max(0.3, (end.diff(start, 'second') / 86400) * 100);
-                    const alarm = Boolean(seg.alarmFlagUInt64) && seg.alarmFlagUInt64 !== '0';
+                  <PhotoCameraIcon fontSize="small" />
+                </IconButton>
+                {dlTitle && <Typography className={classes.dlTitle}>{dlTitle}</Typography>}
+                <IconButton
+                  size="small"
+                  className={`${classes.dlOverlayBtn} ${classes.dlTopRight}`}
+                  disabled={!reviewUrl}
+                  title="Fullscreen"
+                  aria-label="Fullscreen"
+                  onClick={() => reviewRef.current?.requestFullscreen?.().catch(() => {})}
+                >
+                  <OpenInFullIcon fontSize="small" />
+                </IconButton>
+                {!reviewUrl && !clipJob && !dlStreaming && (
+                  <Typography className={classes.dlHint}>
+                    {playerMsg || 'Tap a recording below to watch it'}
+                  </Typography>
+                )}
+                {dlStreaming && !playbackActive && !liveError && (
+                  <Box className={classes.dlBusy}>
+                    <CircularProgress size={30} sx={{ color: '#fff' }} />
+                    <Typography variant="caption" sx={{ color: '#fff' }}>
+                      Asking the camera to play it…
+                    </Typography>
+                  </Box>
+                )}
+                {dlStreaming && liveError && (
+                  <Typography className={classes.dlHint}>
+                    That recording would not play. Try another, or download it.
+                  </Typography>
+                )}
+                {(clipJob || reviewWaiting) && (
+                  <Box className={classes.dlBusy}>
+                    <CircularProgress size={30} sx={{ color: '#fff' }} />
+                    {clipJob && (
+                      <>
+                        <Typography variant="caption" sx={{ color: '#fff' }}>
+                          {`${clockOf(Math.min(clipJob.elapsedSeconds || 0, clipJob.seconds))} of ${clockOf(clipJob.seconds)} fetched`}
+                          {clipJob.bytes > 0 && ` · ${formatMb(clipJob.bytes)}`}
+                        </Typography>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          startIcon={<StopIcon />}
+                          onClick={cancelClip}
+                          sx={{
+                            color: '#fff',
+                            borderColor: 'rgba(255,255,255,0.6)',
+                            pointerEvents: 'auto',
+                            mt: 0.5,
+                          }}
+                        >
+                          Cancel download
+                        </Button>
+                      </>
+                    )}
+                  </Box>
+                )}
+                <Box className={classes.dlControls}>
+                  <IconButton
+                    size="small"
+                    sx={{ color: '#fff' }}
+                    disabled={!reviewUrl}
+                    aria-label={reviewRunning ? 'Pause' : 'Play'}
+                    onClick={() => {
+                      const v = reviewRef.current;
+                      if (!v) return;
+                      if (v.paused) v.play();
+                      else v.pause();
+                    }}
+                  >
+                    {reviewRunning ? <PauseIcon /> : <PlayArrowIcon />}
+                  </IconButton>
+                  <Typography className={classes.dlClock}>{clockOf(reviewAt)}</Typography>
+                  <Slider
+                    size="small"
+                    min={0}
+                    max={reviewLength || Math.max(reviewAt, 1)}
+                    step={0.1}
+                    value={Math.min(reviewAt, reviewLength || reviewAt)}
+                    disabled={!reviewUrl}
+                    onChange={(_e, value) => {
+                      const v = reviewRef.current;
+                      if (v) v.currentTime = value;
+                      setReviewAt(value);
+                    }}
+                    sx={{ flex: 1, color: '#fff', mx: 1 }}
+                  />
+                  <Typography className={classes.dlClock}>
+                    {reviewLength ? clockOf(reviewLength) : '--:--'}
+                  </Typography>
+                  <IconButton
+                    size="small"
+                    sx={{ color: '#fff' }}
+                    disabled={!reviewUrl}
+                    aria-label={reviewMuted ? 'Unmute' : 'Mute'}
+                    onClick={() => {
+                      const v = reviewRef.current;
+                      if (!v) return;
+                      v.muted = !v.muted;
+                      setReviewMuted(v.muted);
+                    }}
+                  >
+                    {reviewMuted ? <VolumeOffIcon /> : <VolumeUpIcon />}
+                  </IconButton>
+                </Box>
+              </Box>
+
+              {/* Channel strip: All, then one per camera. */}
+              <Tabs
+                value={dlChannel}
+                onChange={(_e, value) => {
+                  setDlChannel(value);
+                  setDlSelected(null);
+                }}
+                variant="scrollable"
+                scrollButtons={false}
+                className={classes.dlChannelTabs}
+              >
+                <Tab value={-1} label="All" />
+                {channels.map((ch) => (
+                  <Tab key={ch} value={ch} label={`CH${ch + 1}`} />
+                ))}
+              </Tabs>
+
+              {/* The day on a ruler, with what the camera recorded marked on
+                  it. Tapping a block selects that recording in the list. */}
+              <Box className={classes.dlRuler}>
+                <Typography className={classes.dlRulerDate}>
+                  {timelineDate.format('ddd D MMM')}
+                </Typography>
+                <Box className={classes.dlRulerTrack}>
+                  {dlSegments.map((seg, i) => {
+                    const startOfDay = seg.start.startOf('day');
+                    const left = (seg.start.diff(startOfDay, 'second') / 86400) * 100;
+                    const width = Math.max(0.4, (seg.end.diff(seg.start, 'second') / 86400) * 100);
                     return (
                       <Box
-                        key={i}
-                        title={`${start.format('HH:mm:ss')} - ${end.format('HH:mm:ss')}${alarm ? ' (alarm)' : ''}`}
-                        onClick={() => {
-                          setTrimStart(start);
-                          setTrimEnd(end);
-                        }}
-                        sx={{
-                          position: 'absolute',
-                          top: 4,
-                          bottom: 4,
-                          left: `${leftPct}%`,
-                          width: `${widthPct}%`,
-                          minWidth: '2px',
-                          bgcolor: alarm ? 'error.main' : 'primary.main',
-                          borderRadius: 0.5,
-                          cursor: 'pointer',
-                          '&:hover': { opacity: 0.75 },
-                        }}
+                        key={`bar-${i}`}
+                        className={`${classes.dlRulerBar} ${dlSelected === i ? classes.dlRulerBarOn : ''}`}
+                        style={{ left: `${left}%`, width: `${Math.min(width, 100 - left)}%` }}
+                        onClick={() => setDlSelected(i)}
+                        title={`CH${seg.channel + 1} ${seg.start.format('HH:mm:ss')}`}
                       />
                     );
                   })}
+                  {[0, 6, 12, 18].map((h) => (
+                    <Box key={h} className={classes.dlRulerTick} style={{ left: `${(h / 24) * 100}%` }} />
+                  ))}
                 </Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                <Box className={classes.dlRulerLabels}>
                   {['00:00', '06:00', '12:00', '18:00', '24:00'].map((h) => (
-                    <Typography key={h} variant="caption" color="textSecondary">
+                    <Typography key={h} className={classes.dlRulerLabel}>
                       {h}
                     </Typography>
                   ))}
                 </Box>
-                <Typography variant="caption" color="textSecondary">
-                  Select a segment to set the range, then press Preview to watch it or Download for
-                  the exact clip. The list below grabs whole segments. The camera plays footage back
-                  in real time over the vehicle&apos;s mobile data — about a minute and 22 MB per
-                  minute of footage — so a clip takes as long as it lasts the first time. After that
-                  it is kept here, and watching or downloading it again is instant and free.
-                </Typography>
-                {clipJob && (
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <CircularProgress size={16} />
-                      <Typography variant="caption">
-                        {`Fetching ${clockOf(clipJob.seconds)} of footage from the vehicle`}
-                        {clipJob.elapsedSeconds > 0 &&
-                          ` — ${clockOf(Math.min(clipJob.elapsedSeconds, clipJob.seconds))} of ${clockOf(
-                            clipJob.seconds,
-                          )}`}
-                        {clipJob.bytes > 0 && ` · ${formatMb(clipJob.bytes)}`}
-                        {clipJob.share && ' · a shareable copy will be made from it'}
-                      </Typography>
-                    </Box>
-                    <LinearProgress
-                      variant={clipJob.seconds ? 'determinate' : 'indeterminate'}
-                      value={
-                        clipJob.seconds
-                          ? Math.min(100, ((clipJob.elapsedSeconds || 0) / clipJob.seconds) * 100)
-                          : 0
-                      }
-                    />
-                  </Box>
-                )}
               </Box>
-              {trimStart && trimEnd && (
-                <Box sx={{ px: 2, pb: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  <Typography variant="subtitle2">Trim &amp; download</Typography>
-                  <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <TextField
-                      size="small"
-                      type="datetime-local"
-                      label="Start"
-                      value={trimStart.format('YYYY-MM-DDTHH:mm:ss')}
-                      onChange={(e) => setTrimStart(dayjs(e.target.value))}
-                      InputLabelProps={{ shrink: true }}
-                      inputProps={{ step: 1 }}
-                    />
-                    <TextField
-                      size="small"
-                      type="datetime-local"
-                      label="End"
-                      value={trimEnd.format('YYYY-MM-DDTHH:mm:ss')}
-                      onChange={(e) => setTrimEnd(dayjs(e.target.value))}
-                      InputLabelProps={{ shrink: true }}
-                      inputProps={{ step: 1 }}
-                    />
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      startIcon={<PlayArrowIcon />}
-                      disabled={Boolean(clipJob)}
-                      onClick={() =>
-                        reviewClip(
-                          trimStart.format('YYYY-MM-DD HH:mm:ss'),
-                          trimEnd.format('YYYY-MM-DD HH:mm:ss'),
-                        )
-                      }
-                    >
-                      Preview
-                    </Button>
-                    {playing && (
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        color="inherit"
-                        startIcon={<StopIcon />}
-                        onClick={() => {
-                          cancelledRef.current = true;
-                          stopPlayback();
-                          setPlaybackActive(false);
-                          setLiveError(false);
-                        }}
-                      >
-                        Stop
-                      </Button>
-                    )}
-                    <Button
-                      size="small"
-                      variant="contained"
-                      startIcon={<DownloadIcon />}
-                      disabled={Boolean(clipJob)}
-                      onClick={() =>
-                        downloadSegment(
-                          trimStart.format('YYYY-MM-DD HH:mm:ss'),
-                          trimEnd.format('YYYY-MM-DD HH:mm:ss'),
-                        )
-                      }
-                    >
-                      Download clip
-                    </Button>
-                  </Box>
-                </Box>
-              )}
-              <List dense className={classes.list}>
-                {segments.length === 0 && !loadingTimeline && (
+
+              {/* The recordings themselves. */}
+              <List dense disablePadding className={classes.dlList}>
+                {loadingTimeline && (
                   <ListItem>
-                    <ListItemText primary={t('sharedNoData')} />
+                    <CircularProgress size={18} sx={{ mr: 1.5 }} />
+                    <ListItemText primary="Asking the camera what it has…" />
                   </ListItem>
                 )}
-                {segments.map((seg, i) => {
-                  const start = parseCnmsFileTime(seg.startTime);
-                  const end = parseCnmsFileTime(seg.endTime);
-                  if (!start || !end) return null;
-                  const startStr = start.format('YYYY-MM-DD HH:mm:ss');
-                  const endStr = end.format('YYYY-MM-DD HH:mm:ss');
+                {!loadingTimeline && dlSegments.length === 0 && (
+                  <ListItem>
+                    <ListItemText
+                      primary="No recordings for this day"
+                      secondary="Press Find to choose another date, channel or time."
+                    />
+                  </ListItem>
+                )}
+                {dlSegments.map((seg, i) => {
+                  const startStr = seg.start.format('YYYY-MM-DD HH:mm:ss');
+                  const endStr = seg.end.format('YYYY-MM-DD HH:mm:ss');
                   const alarm = Boolean(seg.alarmFlagUInt64) && seg.alarmFlagUInt64 !== '0';
                   return (
                     <ListItem
-                      key={`${i}`}
+                      key={`${seg.channel}-${seg.startTime}-${i}`}
                       disablePadding
+                      className={dlSelected === i ? classes.dlRowOn : undefined}
                       secondaryAction={
                         <IconButton
                           edge="end"
-                          color="primary"
-                          title="Download this clip"
-                          disabled={Boolean(clipJob)}
-                          onClick={() => downloadSegment(startStr, endStr)}
+                          className={classes.dlGet}
+                          title={downloading ? 'Waiting for the vehicle to finish sending' : 'Download this recording'}
+                          aria-label="Download this recording"
+                          disabled={Boolean(clipJob) || Boolean(downloading)}
+                          onClick={() =>
+                            setSegDialog({
+                              channel: seg.channel,
+                              picked: [seg.channel],
+                              start: seg.start,
+                              end: seg.end,
+                              min: seg.start,
+                              max: seg.end,
+                            })
+                          }
                         >
-                          <DownloadIcon />
+                          <DownloadIcon fontSize="small" />
                         </IconButton>
                       }
                     >
+                      {/* A tap plays it, nothing more: the camera streams the
+                          recording back as it would live, so watching costs
+                          the wait for the first frame rather than the whole
+                          clip. Keeping it is the button on the right. */}
                       <ListItemButton
+                        disabled={Boolean(clipJob) || Boolean(downloading)}
                         onClick={() => {
-                          setTrimStart(start);
-                          setTrimEnd(end);
+                          setDlSelected(i);
+                          setTrimStart(seg.start);
+                          setTrimEnd(seg.end);
+                          setPlayerMsg('');
+                          setDlTitle(
+                            `${device?.name || ''} CH${seg.channel + 1} ${seg.start.format('YYYY-MM-DD HH:mm:ss')} - ${seg.end.format('HH:mm:ss')}`,
+                          );
+                          setReviewUrl('');
+                          setDlStreaming(true);
+                          playRecording({ channel: seg.channel, startTime: startStr, endTime: endStr });
                         }}
                       >
+                        <Box className={classes.dlThumb}>
+                          <VideocamIcon fontSize="small" />
+                        </Box>
                         <ListItemText
-                          primary={`${start.format('HH:mm:ss')} - ${end.format('HH:mm:ss')}`}
-                          secondary={alarm ? 'Alarm' : undefined}
+                          primary={
+                            <Box className={classes.dlRowTop}>
+                              <span>{seg.start.format('YYYY-MM-DD')}</span>
+                              <span className={classes.dlRowTime}>
+                                {`${seg.start.format('HH:mm:ss')} - ${seg.end.format('HH:mm:ss')}`}
+                              </span>
+                            </Box>
+                          }
+                          secondary={`CH${seg.channel + 1} ${alarm ? 'Alarm' : 'Conventional'}`}
                         />
                       </ListItemButton>
                     </ListItem>
                   );
                 })}
               </List>
+
+              {/* Find: the search sheet, as a button that stays put. */}
+              <Fab
+                color="primary"
+                size="medium"
+                className={classes.dlFind}
+                onClick={() => setSearchOpen(true)}
+              >
+                <SearchIcon />
+              </Fab>
+
+              <Dialog open={searchOpen} onClose={() => setSearchOpen(false)} fullWidth maxWidth="xs">
+                <DialogTitle sx={{ textAlign: 'center', fontSize: '1rem' }}>
+                  Choose what to look for
+                </DialogTitle>
+                <DialogContent dividers sx={{ p: 0 }}>
+                  <List disablePadding>
+                    <ListItem divider>
+                      <ListItemText primary="Channel" />
+                      <TextField
+                        select
+                        size="small"
+                        variant="standard"
+                        value={dlChannel}
+                        onChange={(e) => setDlChannel(Number(e.target.value))}
+                        sx={{ minWidth: 110 }}
+                      >
+                        <MenuItem value={-1}>All</MenuItem>
+                        {channels.map((ch) => (
+                          <MenuItem key={ch} value={ch}>{`CH${ch + 1}`}</MenuItem>
+                        ))}
+                      </TextField>
+                    </ListItem>
+                    <ListItem divider>
+                      <ListItemText primary="Location" secondary="The camera's own card" />
+                      <Typography variant="body2" color="textSecondary">
+                        Terminal disk
+                      </Typography>
+                    </ListItem>
+                    <ListItem divider>
+                      <ListItemText primary="Video type" />
+                      <Typography variant="body2" color="textSecondary">
+                        All
+                      </Typography>
+                    </ListItem>
+                    <ListItem divider>
+                      <ListItemText primary="Date" />
+                      <TextField
+                        size="small"
+                        type="date"
+                        variant="standard"
+                        value={timelineDate.format('YYYY-MM-DD')}
+                        onChange={(e) => setTimelineDate(dayjs(e.target.value))}
+                      />
+                    </ListItem>
+                    <ListItem divider>
+                      <ListItemText primary="From" />
+                      <TextField
+                        size="small"
+                        type="time"
+                        variant="standard"
+                        value={dlBegin}
+                        onChange={(e) => setDlBegin(e.target.value)}
+                      />
+                    </ListItem>
+                    <ListItem>
+                      <ListItemText primary="To" />
+                      <TextField
+                        size="small"
+                        type="time"
+                        variant="standard"
+                        value={dlEnd}
+                        onChange={(e) => setDlEnd(e.target.value)}
+                      />
+                    </ListItem>
+                  </List>
+                </DialogContent>
+                <DialogActions>
+                  <Button onClick={() => setSearchOpen(false)}>Cancel</Button>
+                  <Button
+                    variant="contained"
+                    onClick={() => {
+                      setSearchOpen(false);
+                      setDlSelected(null);
+                      loadRecordings();
+                    }}
+                  >
+                    Find
+                  </Button>
+                </DialogActions>
+              </Dialog>
+
+              {/* Part of a recording, rather than all of it: the camera sends
+                  footage back in real time, so asking for four minutes instead
+                  of ten is four minutes instead of ten. */}
+              <Dialog open={Boolean(segDialog)} onClose={() => setSegDialog(null)} fullWidth maxWidth="xs">
+                <DialogTitle sx={{ textAlign: 'center', fontSize: '1rem' }}>
+                  Download footage
+                </DialogTitle>
+                {segDialog && (
+                  <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <Typography variant="body2" color="textSecondary">
+                      {`${segDialog.min.format('HH:mm:ss')} to ${segDialog.max.format('HH:mm:ss')} is on the camera`}
+                    </Typography>
+                    {/* More than one camera of the same moment, which is what
+                        an incident usually needs. They come off the vehicle one
+                        after another, not at once - its uplink carries one
+                        playback at a time - so the wait adds up. */}
+                    <Box>
+                      <Typography variant="caption" color="textSecondary">
+                        Cameras
+                      </Typography>
+                      <Box className={classes.dlPickRow}>
+                        {channels.map((ch) => {
+                          const on = segDialog.picked.includes(ch);
+                          return (
+                            <Chip
+                              key={ch}
+                              label={`CH${ch + 1}`}
+                              size="small"
+                              color={on ? 'primary' : 'default'}
+                              variant={on ? 'filled' : 'outlined'}
+                              onClick={() =>
+                                setSegDialog((d) => ({
+                                  ...d,
+                                  picked: on
+                                    ? d.picked.filter((c) => c !== ch)
+                                    : [...d.picked, ch].sort((a, b) => a - b),
+                                }))
+                              }
+                            />
+                          );
+                        })}
+                      </Box>
+                    </Box>
+                    <TextField
+                      label="From"
+                      type="datetime-local"
+                      size="small"
+                      inputProps={{ step: 1 }}
+                      value={segDialog.start.format('YYYY-MM-DDTHH:mm:ss')}
+                      onChange={(e) =>
+                        setSegDialog((d) => ({ ...d, start: dayjs(e.target.value) }))
+                      }
+                      helperText={`Not before ${segDialog.min.format('HH:mm:ss')}`}
+                    />
+                    <TextField
+                      label="To"
+                      type="datetime-local"
+                      size="small"
+                      inputProps={{ step: 1 }}
+                      value={segDialog.end.format('YYYY-MM-DDTHH:mm:ss')}
+                      onChange={(e) => setSegDialog((d) => ({ ...d, end: dayjs(e.target.value) }))}
+                      helperText={`Not after ${segDialog.max.format('HH:mm:ss')}`}
+                    />
+                    <Typography variant="caption" color="textSecondary">
+                      {`${clockOf(Math.max(0, segDialog.end.diff(segDialog.start, 'second')))} from ${segDialog.picked.length} camera${segDialog.picked.length === 1 ? '' : 's'} — the camera plays footage back in real time, so expect about ${clockOf(Math.max(0, segDialog.end.diff(segDialog.start, 'second')) * Math.max(1, segDialog.picked.length))} and roughly ${formatMb((Math.max(0, segDialog.end.diff(segDialog.start, 'second')) * Math.max(1, segDialog.picked.length)) * 22 * 1024 * 1024 / 60)} of the vehicle's data. Each one is kept here afterwards and is instant to fetch again.`}
+                    </Typography>
+                  </DialogContent>
+                )}
+                <DialogActions>
+                  <Button onClick={() => setSegDialog(null)}>Cancel</Button>
+                  <Button
+                    variant="contained"
+                    disabled={
+                      !segDialog
+                      || segDialog.picked.length === 0
+                      || segDialog.end.diff(segDialog.start, 'second') <= 0
+                      || segDialog.start.isBefore(segDialog.min)
+                      || segDialog.end.isAfter(segDialog.max)
+                    }
+                    onClick={() => {
+                      const d = segDialog;
+                      setSegDialog(null);
+                      downloadSegments(
+                        d.start.format('YYYY-MM-DD HH:mm:ss'),
+                        d.end.format('YYYY-MM-DD HH:mm:ss'),
+                        d.picked,
+                      );
+                    }}
+                  >
+                    {segDialog && segDialog.picked.length > 1
+                      ? `Download ${segDialog.picked.length} clips`
+                      : 'Download'}
+                  </Button>
+                </DialogActions>
+              </Dialog>
             </>
           )}
         </>

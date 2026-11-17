@@ -350,6 +350,8 @@ public class Cmsv9Manager {
      * (or flicking between channels/vehicles) skips the whole start-up handshake.
      */
     private static final long KEEP_ALIVE_MS = 60000;
+    /** The most channels a DVR in this fleet has; used when sweeping them all. */
+    private static final int MAX_CHANNELS = 8;
     private final ScheduledExecutorService keepAliveExecutor =
             Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread t = new Thread(r, "cmsv9-keepalive");
@@ -489,6 +491,35 @@ public class Cmsv9Manager {
             });
         }, KEEP_ALIVE_MS, TimeUnit.MILLISECONDS);
         pendingStops.put(streamKey(terminal, channel), pending);
+    }
+
+    /**
+     * Stops every live channel on a vehicle at once, now rather than after the
+     * keep-alive.
+     *
+     * <p>Used when footage is about to be pulled off that vehicle: the camera
+     * has one uplink and playback cannot win a share of it from four live
+     * streams, so it abandons the playback a few seconds in. Only channels the
+     * media server is actually carrying are stopped, so a vehicle nobody is
+     * watching costs nothing.
+     */
+    public void stopAllLiveNow(String terminal) {
+        for (int channel = 1; channel <= MAX_CHANNELS; channel++) {
+            if (!isStreamLive(liveStreamName(terminal, channel))) {
+                continue;
+            }
+            cancelPendingStop(terminal, channel);
+            stopKeepAliveReader(terminal, channel);
+            try {
+                synchronized (wsOrderLock) {
+                    wsStop(terminal, channel);
+                    mediacontrol(terminal, channel, 1);
+                }
+                LOG.info("Paused live {}/{} while footage is downloading", terminal, channel);
+            } catch (Exception e) {
+                LOG.warn("Could not pause live {}/{}: {}", terminal, channel, e.getMessage());
+            }
+        }
     }
 
     /**

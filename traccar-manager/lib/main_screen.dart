@@ -116,6 +116,40 @@ class _MainScreenState extends State<MainScreen> {
         || path.contains('/download/');
   }
 
+  static const _storageChannel = MethodChannel('dhfleetview/storage');
+
+  /// Keeps a downloaded file on the phone, where it can be found again.
+  ///
+  /// A clip of an incident is evidence: it belongs in the gallery or in
+  /// Downloads, not in the app's private folder behind a share sheet that has
+  /// to be answered before anything is kept at all. Android writes it through
+  /// MediaStore (see MainActivity) - video and photos land in the gallery,
+  /// everything else in Downloads, each under "DH FleetView". Sharing is
+  /// offered afterwards rather than imposed.
+  ///
+  /// iOS has no equivalent write, so there the share sheet - which carries
+  /// "Save to Files" and "Save Video" - is still the way to keep it.
+  Future<void> _saveFile(String fileName, Uint8List bytes, String mimeType) async {
+    if (Platform.isAndroid) {
+      try {
+        final where = await _storageChannel.invokeMethod<String>('save', {
+          'name': fileName,
+          'mimeType': mimeType,
+          'bytes': bytes,
+        });
+        _showSavedMessage(where ?? 'your phone', fileName, bytes);
+        return;
+      } catch (e) {
+        // An old phone, or a volume that would not take it. Rather than lose
+        // the file, fall through to the share sheet as before.
+        developer.log('Could not save to shared storage', error: e);
+      }
+    }
+    await _shareFile(fileName, bytes);
+  }
+
+  /// Writes to the app's own folder and offers the file to another app. The
+  /// fallback on Android, and how iOS keeps a file at all.
   Future<void> _shareFile(String fileName, Uint8List bytes) async {
     final directory = Platform.isAndroid
       ? await getExternalStorageDirectory()
@@ -126,6 +160,18 @@ class _MainScreenState extends State<MainScreen> {
     final file = File('${directory.path}/$fileName');
     await file.writeAsBytes(bytes, flush: true);
     await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
+  }
+
+  void _showSavedMessage(String where, String fileName, Uint8List bytes) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('Saved to $where'),
+      duration: const Duration(seconds: 6),
+      action: SnackBarAction(
+        label: 'Share',
+        onPressed: () => _shareFile(fileName, bytes),
+      ),
+    ));
   }
 
   /// Whether this address belongs to the server the app is signed in to.
@@ -162,6 +208,25 @@ class _MainScreenState extends State<MainScreen> {
       if (extension != null) safe = '$safe.$extension';
     }
     return safe;
+  }
+
+  /// What the file is, worked out from its name, for when the server did not
+  /// say. It decides where the phone puts it: a clip belongs in the gallery.
+  String _mimeFromName(String name) {
+    const byExtension = {
+      'mp4': 'video/mp4',
+      'mov': 'video/quicktime',
+      'jpg': 'image/jpeg',
+      'jpeg': 'image/jpeg',
+      'png': 'image/png',
+      'pdf': 'application/pdf',
+      'csv': 'text/csv',
+      'zip': 'application/zip',
+      'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    };
+    final dot = name.lastIndexOf('.');
+    if (dot < 0) return 'application/octet-stream';
+    return byExtension[name.substring(dot + 1).toLowerCase()] ?? 'application/octet-stream';
   }
 
   String _fileNameFor(Uri uri, String? contentDisposition) {
@@ -214,9 +279,13 @@ class _MainScreenState extends State<MainScreen> {
         // nothing to tell the phone how to open it.
         final name = suggestedFileName
           ?? _fileNameFor(uri, contentDisposition ?? response.headers['content-disposition']);
-        await _shareFile(
-          _safeFileName(name, response.headers['content-type'] ?? ''),
+        final contentType = response.headers['content-type'] ?? '';
+        await _saveFile(
+          _safeFileName(name, contentType),
           response.bodyBytes,
+          contentType.split(';').first.trim().isEmpty
+            ? _mimeFromName(name)
+            : contentType.split(';').first.trim(),
         );
       } else {
         developer.log('Failed file download request: HTTP ${response.statusCode}');
@@ -283,14 +352,19 @@ class _MainScreenState extends State<MainScreen> {
           if (parts.length >= 4) {
             // The base64 is last and can itself contain nothing but base64
             // characters, so anything after the third separator is payload.
-            await _shareFile(
+            await _saveFile(
               _safeFileName(parts[2], parts[1]),
               base64Decode(parts.sublist(3).join('|')),
+              parts[1].split(';').first.trim(),
             );
           } else {
             // The older two-part form, still sent by pages that have not been
             // through this path: a spreadsheet and nothing else.
-            await _shareFile('report.xlsx', base64Decode(parts[1]));
+            await _saveFile(
+              'report.xlsx',
+              base64Decode(parts[1]),
+              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            );
           }
         } catch (e) {
           developer.log('Failed to save downloaded file', error: e);
