@@ -204,6 +204,48 @@ class _MainScreenState extends State<MainScreen> {
     messenger.showSnackBar(SnackBar(content: Text(message), duration: const Duration(seconds: 3)));
   }
 
+  static const _storageChannel = MethodChannel('dhfleetview/storage');
+
+  /// Keeps a downloaded file where its owner can find it again.
+  ///
+  /// A clip of an incident is evidence: it belongs in the gallery or in
+  /// Downloads, not in the app's private folder behind a share sheet that has
+  /// to be answered before anything is kept at all. Android writes it through
+  /// MediaStore (see MainActivity) - video and photos land in the gallery,
+  /// everything else in Downloads, each under "DH FleetView" - and sharing is
+  /// offered afterwards rather than imposed.
+  ///
+  /// iOS has no equivalent write, so there the share sheet, which carries
+  /// "Save to Files" and "Save Video", is still how a file is kept.
+  Future<void> _keepOnPhone(File file, {String? mimeType}) async {
+    if (Platform.isAndroid) {
+      try {
+        final where = await _storageChannel.invokeMethod<String>('save', {
+          'path': file.path,
+          'name': file.uri.pathSegments.last,
+          'mimeType': mimeType ?? 'application/octet-stream',
+        });
+        if (!mounted) return;
+        final messenger = ScaffoldMessenger.of(context);
+        messenger.hideCurrentSnackBar();
+        messenger.showSnackBar(SnackBar(
+          content: Text('Saved to ${where ?? 'your phone'}'),
+          duration: const Duration(seconds: 6),
+          action: SnackBarAction(
+            label: 'Share',
+            onPressed: () => _shareSavedFile(file, mimeType: mimeType),
+          ),
+        ));
+        return;
+      } catch (e) {
+        // An old phone, or a volume that would not take it. Rather than lose
+        // the file, fall through to the share sheet as before.
+        developer.log('Could not save to shared storage', error: e);
+      }
+    }
+    await _shareSavedFile(file, mimeType: mimeType);
+  }
+
   // Hand the saved file to the system share sheet (Save to Files, Drive, email...).
   // iPad needs an anchor rectangle or the sheet fails to open.
   Future<void> _shareSavedFile(File file, {String? mimeType}) async {
@@ -228,7 +270,7 @@ class _MainScreenState extends State<MainScreen> {
       final name = _fileNameFor(suggested: fileName, mimeType: mimeType);
       final file = File('${(await _downloadDirectory()).path}/$name');
       await file.writeAsBytes(bytes, flush: true);
-      await _shareSavedFile(file, mimeType: mimeType);
+      await _keepOnPhone(file, mimeType: mimeType);
     } catch (e) {
       developer.log('Failed to save downloaded file', error: e);
       _showMessage('The file could not be saved. Please try again.');
@@ -310,7 +352,7 @@ class _MainScreenState extends State<MainScreen> {
       file = File('${(await _downloadDirectory()).path}/$name');
       final sink = file.openWrite();
       await response.stream.pipe(sink);
-      await _shareSavedFile(file, mimeType: type);
+      await _keepOnPhone(file, mimeType: type);
     } catch (e) {
       developer.log('Failed to download file', error: e);
       _showMessage('The file could not be downloaded. Please try again.');
@@ -672,20 +714,15 @@ class _MainScreenState extends State<MainScreen> {
               }
               return NavigationActionPolicy.ALLOW;
             },
-            onDownloadStartRequest: (controller, downloadStartRequest) async {
-              final target = downloadStartRequest.url;
-              await _downloadFile(
-                Uri.parse(target.toString()),
-                contentDisposition: downloadStartRequest.contentDisposition,
-              );
-            },
+            // A link that opens a new window is usually a download; it is
+            // fetched here and the window refused, because a WebView window
+            // with no chrome has nowhere to put a file.
             onCreateWindow: (controller, createWindowAction) async {
               final target = createWindowAction.request.url;
               if (target == null) return false;
               final uri = Uri.parse(target.toString());
               if (_isDownloadable(uri)) {
                 await _downloadFile(uri);
-                return NavigationActionPolicy.CANCEL;
               }
               return false;
             },
