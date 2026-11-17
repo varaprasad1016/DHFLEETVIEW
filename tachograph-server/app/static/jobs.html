@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>${title} — Job Management</title>
+<style>
+  .hours-note{font-size:12px;color:var(--mut,#8aa0c0);margin-top:4px;min-height:0;}
+  .hours-note.low{color:var(--warn,#f59e0b);font-weight:700;}
+  .btn-link{background:none;border:0;color:var(--acc,#38bdf8);font:inherit;font-weight:700;text-decoration:underline;cursor:pointer;padding:0;}
+  :root { color-scheme: dark; --bg:#0b1220; --card:#131c2e; --line:#22304a; --fg:#e6edf7; --mut:#8aa0c0; --acc:#38bdf8; --ok:#34d399; --warn:#f59e0b; --bad:#f87171; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif; }
+  header { padding:16px 18px 6px; display:flex; align-items:center; gap:12px; }
+  header a { color:var(--acc); text-decoration:none; font-size:20px; }
+  h1 { font-size:20px; margin:0; flex:1; }
+  main { padding:12px 16px 40px; max-width:900px; margin:0 auto; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:18px; margin-bottom:14px; }
+  .card h2 { margin:0 0 12px; font-size:17px; }
+  label { display:block; font-size:13px; color:var(--mut); margin-bottom:4px; margin-top:10px; }
+  input, select, textarea { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:var(--input); color:var(--fg); font-size:15px; font-family:inherit; }
+  textarea { min-height:60px; resize:vertical; }
+  input:focus, select:focus, textarea:focus { border-color:var(--acc); outline:none; }
+  .row { display:flex; gap:10px; }
+  .row > * { flex:1; }
+  .btn { padding:10px 18px; border:none; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; }
+  .btn:disabled { opacity:.5; cursor:not-allowed; }
+  .btn-green { background:var(--ok); color:var(--on-acc); }
+  .btn-red { background:var(--bad); color:#fff; }
+  .btn-blue { background:var(--acc); color:var(--on-acc); }
+  .btn-outline { background:transparent; border:1px solid var(--line); color:var(--fg); }
+  .tabs { display:flex; gap:6px; margin-bottom:14px; flex-wrap:wrap; }
+  .tab { padding:6px 14px; border-radius:999px; border:1px solid var(--line); background:transparent; color:var(--mut); cursor:pointer; font-size:13px; }
+  .tab.active { background:var(--acc); color:var(--on-acc); border-color:var(--acc); font-weight:600; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th { text-align:left; padding:8px 10px; border-bottom:2px solid var(--line); color:var(--mut); font-size:12px; text-transform:uppercase; }
+  td { padding:8px 10px; border-bottom:1px solid var(--line); }
+  .pill { display:inline-block; font-size:11px; padding:2px 8px; border-radius:999px; font-weight:600; }
+  .pill-pending { background:var(--warn); color:var(--on-acc); }
+  .pill-accepted { background:var(--ok); color:var(--on-acc); }
+  .pill-denied { background:var(--bad); color:#fff; }
+  .pill-in_progress { background:var(--acc); color:var(--on-acc); }
+  .pill-completed { background:var(--mut); color:var(--on-acc); }
+  .pill-cancelled { background:var(--card2); color:var(--mut); }
+  .pill-urgent { background:var(--bad); color:#fff; }
+  .pill-normal { background:var(--acc); color:var(--on-acc); }
+  .pill-low { background:var(--mut); color:var(--on-acc); }
+  .toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); padding:12px 24px; border-radius:10px; font-weight:600; z-index:999; }
+  .toast-ok { background:var(--ok); color:var(--on-acc); }
+  .toast-err { background:var(--bad); color:#fff; }
+  .empty { text-align:center; padding:30px; color:var(--mut); }
+  .header-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+<header>
+  <a href="compliance">←</a>
+  <h1>Job Management</h1>
+  <button class="btn btn-blue" onclick="openCreate()">+ Send Job</button>
+</header>
+<main>
+  <div class="tabs" id="tabs"></div>
+  <div class="card">
+    <table>
+      <thead><tr><th>Ref</th><th>Job</th><th>Driver</th><th>Vehicle</th><th>Priority</th><th>Status</th><th>When</th><th></th></tr></thead>
+      <tbody id="jobRows"></tbody>
+    </table>
+    <div class="empty hidden" id="emptyMsg">No jobs found</div>
+  </div>
+</main>
+
+<!-- Create Dialog -->
+<div class="card hidden" id="createDialog" style="position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;padding:20px">
+  <div style="background:var(--card);border:1px solid var(--line);border-radius:14px;padding:24px;max-width:500px;width:100%;max-height:90vh;overflow:auto">
+    <h2 style="margin:0 0 12px">Send Job to Driver</h2>
+    <label for="cDriver">Driver *</label>
+    <select id="cDriver" onchange="toggleOther('cDriver','cDriverOther')"><option value="">Loading drivers…</option></select>
+    <div id="cDriverHours" class="hours-note"></div>
+    <input id="cDriverOther" class="hidden" placeholder="Type the driver's name" autocomplete="off" style="margin-top:8px" />
+    <label>Job Title *</label>
+    <input id="cTitle" placeholder="e.g. Delivery to Manchester" />
+    <label>Description</label>
+    <textarea id="cDesc" placeholder="Optional details"></textarea>
+    <label>Vehicle Registration</label>
+    <input id="cVehicle" placeholder="e.g. AB12 CDE" />
+    <div class="row">
+      <div><label>Pickup Location</label><input id="cPickup" /></div>
+      <div><label>Drop-off Location</label><input id="cDropoff" /></div>
+    </div>
+    <label>Scheduled for</label>
+    <input id="cWhen" type="datetime-local" />
+    <label>Priority</label>
+    <select id="cPriority"><option value="normal">Normal</option><option value="urgent">Urgent</option><option value="low">Low</option></select>
+    <div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end">
+      <button class="btn btn-outline" onclick="closeCreate()">Cancel</button>
+      <button class="btn btn-blue" onclick="doCreate()">Send Job</button>
+    </div>
+  </div>
+</div>
+
+<!-- Resend Dialog -->
+<div class="hidden" id="resendDialog" style="position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:20px">
+  <div style="background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px;max-width:460px;width:100%;max-height:90vh;overflow:auto">
+    <h2 style="margin:0 0 6px">Resend job</h2>
+    <div id="resendInfo" style="font-size:13px;color:var(--mut);margin-bottom:6px"></div>
+    <label for="rDriver">Send to</label>
+    <select id="rDriver" onchange="toggleOther('rDriver','rDriverOther')"></select>
+    <div id="rDriverHours" class="hours-note"></div>
+    <input id="rDriverOther" class="hidden" placeholder="Type the driver's name" autocomplete="off" style="margin-top:8px" />
+    <label for="rWhen">Scheduled for (optional)</label>
+    <input id="rWhen" type="datetime-local" />
+    <div style="display:flex;gap:10px;margin-top:16px;justify-content:flex-end;flex-wrap:wrap">
+      <button class="btn btn-outline" onclick="closeResend()">Cancel</button>
+      <button class="btn btn-blue" id="resendBtn" onclick="doResend()">Resend job</button>
+    </div>
+  </div>
+</div>
+
+<!-- Messages Dialog -->
+<div class="hidden" id="msgDialog" style="position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:20px">
+  <div style="background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;max-width:520px;width:100%;max-height:90vh;display:flex;flex-direction:column">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h2 style="margin:0" id="msgTitle">Messages</h2><button class="btn btn-outline" onclick="closeMsgs()">Close</button></div>
+    <div id="msgInfo" style="font-size:13px;color:var(--mut);margin:6px 0 10px"></div>
+    <div id="msgList" style="flex:1;overflow:auto;display:flex;flex-direction:column;gap:8px;min-height:120px;padding:4px 0"></div>
+    <div style="display:flex;gap:8px;margin-top:10px"><input id="msgIn" placeholder="Reply to driver…" style="flex:1" onkeydown="if(event.key==='Enter')sendMsg()" /><button class="btn btn-blue" onclick="sendMsg()">Send</button></div>
+  </div>
+</div>
+
+<script>
+// Same-origin: works at /tacho/<page> behind Apache and at :8000/<page> directly.
+const API = location.pathname.replace(/\/[^\/]*$/, '') + '/api/shifts';
+let jobs = [];
+let filter = 'all';
+const filters = ['all','pending','accepted','in_progress','denied','completed','cancelled'];
+
+function $(id){ return document.getElementById(id); }
+function esc(s){ return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function toast(msg, ok=true){
+  const d = document.createElement('div');
+  d.className = 'toast ' + (ok?'toast-ok':'toast-err');
+  d.textContent = msg;
+  document.body.appendChild(d);
+  setTimeout(()=>d.remove(), 3000);
+}
+
+async function api(method, path, body){
+  const opts = { method, headers:{} };
+  if(body){ opts.headers['Content-Type']='application/json'; opts.body=JSON.stringify(body); }
+  // Don't hang forever on a poor mobile connection.
+  const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), 20000);
+  opts.signal = ctrl.signal;
+  let res;
+  try { res = await fetch(API+path, opts); }
+  catch(e){ throw new Error(e.name === 'AbortError' ? 'The connection timed out. Check your signal and try again.' : 'Could not reach the server. Check your connection.'); }
+  finally { clearTimeout(timer); }
+  if(!res.ok){
+    let msg = `Request failed (${res.status})`;
+    try { const b = await res.json(); msg = typeof b.detail === 'string' ? b.detail : (b.detail && b.detail.message) || msg; } catch(e){}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+async function loadJobs(){
+  try { jobs = await api('GET', '/jobs'); } catch(e){ jobs = []; }
+  renderTabs();
+  renderTable();
+}
+
+function renderTabs(){
+  const counts = {};
+  filters.forEach(f => counts[f] = f==='all' ? jobs.length : jobs.filter(j=>j.status===f).length);
+  $('tabs').innerHTML = filters.map(f =>
+    `<button class="tab ${filter===f?'active':''}" onclick="setFilter('${f}')">${f.replace('_',' ')} (${counts[f]})</button>`
+  ).join('');
+}
+
+function setFilter(f){ filter=f; renderTabs(); renderTable(); }
+
+function renderTable(){
+  const filtered = filter==='all' ? jobs : jobs.filter(j=>j.status===filter);
+  if(!filtered.length){
+    $('jobRows').innerHTML = '';
+    $('emptyMsg').classList.remove('hidden');
+    return;
+  }
+  $('emptyMsg').classList.add('hidden');
+  $('jobRows').innerHTML = filtered.map(j => `<tr style="border-left:4px solid ${j.priority==='urgent'?'var(--bad)':j.priority==='normal'?'var(--acc)':'var(--mut)'}">
+    <td style="white-space:nowrap">${esc(j.ref||'')}</td>
+    <td><b>${esc(j.title)}</b>${j.deny_reason?`<div style="font-size:11px;color:var(--bad)">Reason: ${esc(j.deny_reason)}</div>`:''}</td>
+    <td>${esc(j.driver_name)}</td>
+    <td>${esc(j.vehicle_reg||'-')}</td>
+    <td><span class="pill pill-${j.priority}">${j.priority}</span></td>
+    <td><span class="pill pill-${j.status}">${j.status.replace('_',' ')}</span></td>
+    <td>${fmtDate(j.scheduled_at || j.assigned_at)}</td>
+    <td style="white-space:nowrap"><button class="btn btn-outline" style="padding:4px 10px;font-size:12px" onclick="openMsgs('${j.id}')">Messages</button>
+      ${['pending','accepted','in_progress'].includes(j.status)?`<button class="btn btn-red" style="padding:4px 10px;font-size:12px" onclick="doCancel('${j.id}')">Cancel</button>`:''}
+      ${['denied','cancelled'].includes(j.status)?`<button class="btn btn-blue" style="padding:4px 10px;font-size:12px" onclick="openResend('${j.id}')">Resend</button>`:''}</td>
+  </tr>`).join('');
+}
+
+async function doCancel(id){
+  try { await api('POST', `/jobs/${id}/cancel`); toast('Job cancelled'); loadJobs(); } catch(e){ toast(e.message, false); }
+}
+
+// Every driver: DH FleetView drivers, driver app accounts and names used before.
+let driverList = null, driversRequest = null;
+const OTHER = '__other__';
+// Loads once in the background when the page opens and again whenever a driver
+// picker opens. A failed load is never remembered, so the next try can succeed.
+function loadDrivers(force){
+  if(driverList && !force) return Promise.resolve(driverList);
+  if(!driversRequest){
+    driversRequest = api('GET', '/drivers')
+      .then(list => { driverList = list; return list; })
+      .finally(() => { driversRequest = null; });
+  }
+  return driversRequest;
+}
+// Live tachograph hours (FMC650), when the driver's card is in a tracked vehicle.
+const hmm = m => `${Math.floor(m/60)}h${String(m%60).padStart(2,'0')}`;
+function liveLabel(d){
+  const l = d.live;
+  if(!l || l.driving_left_today == null) return null;
+  return `${hmm(l.driving_left_today)} driving left today`;
+}
+function hoursWarning(selectId){
+  const v = $(selectId).value, d = (driverList || []).find(x => String(x.id) === v);
+  const box = $(selectId + 'Hours');
+  if(!box) return;
+  const l = d && d.live;
+  if(!l || l.driving_left_today == null){ box.textContent = ''; box.className = 'hours-note'; return; }
+  const low = l.driving_left_today < 60 || (l.driving_left_week != null && l.driving_left_week < 120);
+  box.className = 'hours-note' + (low ? ' low' : '');
+  box.textContent = `Live from the tachograph: ${hmm(l.driving_left_today)} driving left today`
+    + (l.driving_until_break != null ? `, break due in ${hmm(l.driving_until_break)}` : '')
+    + (l.driving_left_week != null ? `, ${hmm(l.driving_left_week)} left this week` : '')
+    + (low ? ' — may not have the hours for this job.' : '.');
+}
+// selected: {id, name} — your DH FleetView driver (by id), or a typed name.
+async function fillDriverSelect(selectId, otherId, selected, refreshed){
+  const sel = $(selectId);
+  const note = $(selectId + 'Hours');
+  selected = selected || {};
+  let list;
+  if(driverList){
+    list = driverList;
+    // Show what we have straight away, then refresh once in case drivers were added.
+    if(!refreshed) loadDrivers(true).then(() => { if(!sel.value) fillDriverSelect(selectId, otherId, selected, true); }).catch(() => {});
+  } else {
+    sel.innerHTML = '<option value="">Loading drivers…</option>';
+    sel.disabled = true;
+    try { list = await loadDrivers(); }
+    catch(e){
+      sel.innerHTML = '<option value="">Drivers could not be loaded</option>';
+      if(note){ note.className = 'hours-note low'; note.innerHTML = esc(e.message) + ' <button type="button" class="btn-link" id="' + selectId + 'Retry">Try again</button>'; }
+      const retry = $(selectId + 'Retry');
+      if(retry) retry.onclick = () => fillDriverSelect(selectId, otherId, selected);
+      return;
+    } finally { sel.disabled = false; }
+  }
+  const name = (selected.name || '').toLowerCase();
+  const match = list.find(d => selected.id != null ? d.id === selected.id : d.name.toLowerCase() === name);
+  sel.innerHTML = '<option value="">Choose a driver…</option>' + list.map(d => {
+    const extra = [d.unique_id, d.app_access ? null : 'no app PIN', liveLabel(d)].filter(Boolean).join(' · ');
+    return `<option value="${esc(d.id)}" ${match === d ? 'selected' : ''}>${esc(d.name)}${extra?' ('+esc(extra)+')':''}</option>`;
+  }).join('') + (selected.name && !match ? `<option value="${OTHER}" selected>Other driver…</option>` : '');
+  if(!list.length) sel.innerHTML = '<option value="">No drivers on your account yet — add them in Settings → Drivers</option>';
+  $(otherId).value = selected.name && !match ? selected.name : '';
+  toggleOther(selectId, otherId);
+}
+function toggleOther(selectId, otherId){
+  hoursWarning(selectId);
+  const other = $(selectId).value === OTHER;
+  $(otherId).classList.toggle('hidden', !other);
+  if(other) $(otherId).focus();
+}
+// {traccar_driver_id, driver_name, label} for the request, or null when nothing is chosen.
+function chosenDriver(selectId, otherId){
+  const v = $(selectId).value;
+  if(v === OTHER){
+    const typed = $(otherId).value.trim();
+    return typed ? { traccar_driver_id: null, driver_name: typed, label: typed } : null;
+  }
+  if(!v) return null;
+  const d = (driverList || []).find(x => String(x.id) === v);
+  return d ? { traccar_driver_id: d.id, driver_name: null, label: d.name } : null;
+}
+
+async function openCreate(){
+  $('createDialog').classList.remove('hidden');
+  const cur = chosenDriver('cDriver', 'cDriverOther');
+  await fillDriverSelect('cDriver', 'cDriverOther', cur && { id: cur.traccar_driver_id, name: cur.label });
+}
+
+let resendJob = null;
+async function openResend(id){
+  const j = jobs.find(x => x.id === id);
+  if(!j) return;
+  resendJob = j;
+  $('resendInfo').textContent = `${j.ref || 'Job'} · ${j.title} — ` +
+    (j.status === 'denied' ? `declined by ${j.driver_name}${j.deny_reason ? ': ' + j.deny_reason : ''}` : 'cancelled');
+  $('rWhen').value = '';
+  $('resendDialog').classList.remove('hidden');
+  await fillDriverSelect('rDriver', 'rDriverOther', { id: j.traccar_driver_id, name: j.driver_name });
+}
+function closeResend(){ resendJob = null; $('resendDialog').classList.add('hidden'); }
+async function doResend(){
+  if(!resendJob) return;
+  const driver = chosenDriver('rDriver', 'rDriverOther');
+  if(!driver){ toast('Choose a driver', false); return; }
+  $('resendBtn').disabled = true;
+  try {
+    await api('POST', `/jobs/${resendJob.id}/resend`, {
+      traccar_driver_id: driver.traccar_driver_id,
+      driver_name: driver.driver_name,
+      scheduled_at: $('rWhen').value ? new Date($('rWhen').value).toISOString() : null,
+    });
+    toast(`Job resent to ${driver.label}`);
+    closeResend();
+    loadJobs();
+  } catch(e){ toast(e.message, false); }
+  finally { $('resendBtn').disabled = false; }
+}
+function closeCreate(){ $('createDialog').classList.add('hidden'); }
+
+async function doCreate(){
+  const d = chosenDriver('cDriver', 'cDriverOther');
+  const t = $('cTitle').value.trim();
+  if(!d||!t){ toast('Driver and title required', false); return; }
+  try {
+    await api('POST', '/jobs', {
+      traccar_driver_id: d.traccar_driver_id, driver_name: d.driver_name, title: t,
+      description: $('cDesc').value.trim() || null,
+      vehicle_reg: $('cVehicle').value.trim() || null,
+      pickup_location: $('cPickup').value.trim() || null,
+      dropoff_location: $('cDropoff').value.trim() || null,
+      priority: $('cPriority').value,
+      scheduled_at: $('cWhen').value ? new Date($('cWhen').value).toISOString() : null,
+    });
+    closeCreate();
+    ['cDriverOther','cTitle','cDesc','cVehicle','cPickup','cDropoff','cWhen'].forEach(id => $(id).value='');
+    $('cDriver').value = '';
+    toast('Job sent!');
+    loadJobs();
+  } catch(e){ toast(e.message, false); }
+}
+
+function fmtDate(iso){ return iso ? new Date(iso).toLocaleString('en-GB', { timeZone:'Europe/London', day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : '-'; }
+
+let msgJob = null;
+async function openMsgs(id){
+  msgJob = id;
+  $('msgDialog').classList.remove('hidden');
+  await refreshMsgs();
+  $('msgIn').focus();
+}
+function closeMsgs(){ msgJob = null; $('msgDialog').classList.add('hidden'); }
+async function refreshMsgs(){
+  if(!msgJob) return;
+  try {
+    const j = await api('GET', `/jobs/${msgJob}`);
+    $('msgTitle').textContent = `${j.ref || 'Job'} · Messages`;
+    $('msgInfo').textContent = `${j.title} — ${j.driver_name} — ${j.status.replace('_',' ')}`;
+    renderMsgs(j.messages || []);
+  } catch(e){ toast(e.message, false); }
+}
+function renderMsgs(msgs){
+  const list = $('msgList');
+  list.innerHTML = msgs.length ? msgs.map(m => `<div style="align-self:${m.sender==='office'?'flex-end':'flex-start'};max-width:80%;padding:8px 11px;border-radius:12px;background:${m.sender==='office'?'var(--acc)':'var(--card2)'};color:${m.sender==='office'?'var(--on-acc)':'var(--fg)'};${m.kind==='change'?'border:1.5px solid var(--warn);':''}">
+      ${m.kind==='change'?'<b>Change reported</b><br>':''}${esc(m.body)}
+      <div style="font-size:10px;opacity:.75;margin-top:3px">${esc(m.author || (m.sender==='office'?'Office':'Driver'))} · ${fmtDate(m.created_at)}</div></div>`).join('')
+    : '<div class="empty">No messages yet</div>';
+  list.scrollTop = list.scrollHeight;
+}
+async function sendMsg(){
+  const body = $('msgIn').value.trim();
+  if(!body || !msgJob) return;
+  try {
+    const msgs = await api('POST', `/jobs/${msgJob}/messages`, { body, sender:'office', author:'Office' });
+    $('msgIn').value = '';
+    renderMsgs(msgs);
+  } catch(e){ toast(e.message, false); }
+}
+
+loadJobs();
+loadDrivers().catch(() => {});   // ready before "Send Job" is opened
+setInterval(() => { loadJobs(); if(msgJob) refreshMsgs(); }, 15000);
+</script>
+</body>
+</html>

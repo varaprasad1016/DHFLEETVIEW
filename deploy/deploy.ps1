@@ -1,8 +1,8 @@
 # Copyright (c) 2026 Infomac Solutions. All rights reserved.
 # Proprietary and confidential. See LICENSE.
 # ============================================================
-# DH FleetView - Production Deployment Script
-# Run this in an elevated PowerShell on 109.228.53.195
+# ${title} - Production Deployment Script
+# Run this in an elevated PowerShell on the production server
 # ============================================================
 #Requires -RunAsAdministrator
 
@@ -29,7 +29,7 @@ $XmlServiceAccountToken = [System.Security.SecurityElement]::Escape($ServiceAcco
 
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Cyan
-Write-Host "   DH FleetView - Production Deployment" -ForegroundColor Cyan
+Write-Host "   ${title} - Production Deployment" -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -102,7 +102,7 @@ New-Item -ItemType Directory -Force -Path "$InstallDir\web" | Out-Null
 Write-Host "  Created $InstallDir" -ForegroundColor Green
 
 # ── Step 4: Clone the repo and get the web build ────────────
-Write-Host "[4/7] Fetching DH FleetView from GitHub..." -ForegroundColor Yellow
+Write-Host "[4/7] Fetching ${title} from GitHub..." -ForegroundColor Yellow
 
 # Download the web build from the repository when it is present.
 $repoUrl = $Repository
@@ -160,29 +160,21 @@ Write-Host "  Config written to $InstallDir\traccar.xml" -ForegroundColor Green
 # ── Step 6: Open Windows Firewall ───────────────────────────
 Write-Host "[6/7] Configuring Windows Firewall..." -ForegroundColor Yellow
 
-# Remove existing rules if any
-Remove-NetFirewallRule -DisplayName "DH FleetView (8082)" -ErrorAction SilentlyContinue
-Remove-NetFirewallRule -DisplayName "DH FleetView GPS (5027)" -ErrorAction SilentlyContinue
+# Remove existing rule if any
+Remove-NetFirewallRule -DisplayName "${title} (8082)" -ErrorAction SilentlyContinue
 
-# Add inbound rules
-New-NetFirewallRule -DisplayName "DH FleetView (8082)" `
+# Add inbound rule
+New-NetFirewallRule -DisplayName "${title} (8082)" `
     -Direction Inbound `
     -Protocol TCP `
     -LocalPort $ServerPort `
     -Action Allow `
     -Profile Any `
-    -Description "DH FleetView web server"
-New-NetFirewallRule -DisplayName "DH FleetView GPS (5027)" `
-    -Direction Inbound `
-    -Protocol TCP `
-    -LocalPort $GpsPort `
-    -Action Allow `
-    -Profile Any `
-    -Description "DH FleetView GPS device connections"
-Write-Host "  Firewall rules added: TCP $ServerPort (web), TCP $GpsPort (GPS)" -ForegroundColor Green
+    -Description "${title} web server"
+Write-Host "  Firewall rule added: TCP $ServerPort inbound ALLOW" -ForegroundColor Green
 
 # ── Step 7: Pull Traccar image and run container ────────────
-Write-Host "[7/7] Starting DH FleetView container..." -ForegroundColor Yellow
+Write-Host "[7/7] Starting ${title} container..." -ForegroundColor Yellow
 
 # Pull the image before stopping the current container so a failed pull does not
 # create avoidable downtime.
@@ -219,7 +211,7 @@ $containerStatus = docker inspect dhfleetview --format '{{.State.Status}}' 2>$nu
 if ($containerStatus -eq "running") {
     Write-Host ""
     Write-Host "============================================" -ForegroundColor Green
-    Write-Host "   DH FleetView is LIVE!" -ForegroundColor Green
+    Write-Host "   ${title} is LIVE!" -ForegroundColor Green
     Write-Host "============================================" -ForegroundColor Green
     Write-Host ""
     Write-Host "  URL:      http://109.228.53.195:${ServerPort}" -ForegroundColor Cyan

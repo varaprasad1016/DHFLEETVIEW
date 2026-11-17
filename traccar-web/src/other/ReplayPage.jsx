@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { IconButton, Paper, Slider, Toolbar, Typography } from '@mui/material';
 import { makeStyles } from 'tss-react/mui';
-import { alpha } from '@mui/material/styles';
+import { alpha, useTheme } from '@mui/material/styles';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import TuneIcon from '@mui/icons-material/Tune';
 import DownloadIcon from '@mui/icons-material/Download';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
@@ -25,6 +26,7 @@ import MapScale from '../map/MapScale';
 import BackIcon from '../common/components/BackIcon';
 import fetchOrThrow from '../common/util/fetchOrThrow';
 import MapOverlay from '../map/overlay/MapOverlay';
+import exportExcel from '../common/util/exportExcel';
 
 const useStyles = makeStyles()((theme) => ({
   root: {
@@ -87,7 +89,7 @@ const useStyles = makeStyles()((theme) => ({
 
 const ReplayPage = () => {
   const t = useTranslation();
-  const { classes } = useStyles();
+  const theme = useTheme();
   const navigate = useNavigate();
   const timerRef = useRef();
 
@@ -178,9 +180,20 @@ const ReplayPage = () => {
     [t],
   );
 
-  const handleDownload = () => {
+  const handleDownload = (format = 'kml') => {
     const query = new URLSearchParams({ deviceId: selectedDeviceId, from, to });
-    window.location.assign(`/api/positions/kml?${query.toString()}`);
+    if (format === 'pdf') {
+      const rows = positions.map((position) => ({
+        [t('positionFixTime')]: formatTime(position.fixTime, 'seconds'),
+        [t('positionLatitude')]: position.latitude,
+        [t('positionLongitude')]: position.longitude,
+        [t('positionSpeed')]: position.speed,
+        [t('positionAddress')]: position.address || '',
+      }));
+      exportExcel(t('reportReplay'), 'replay.xlsx', new Map([[t('reportReplay'), rows]]), theme, format);
+    } else {
+      window.location.assign(`/api/positions/kml?${query.toString()}`);
+    }
   };
 
   return (
@@ -211,8 +224,11 @@ const ReplayPage = () => {
             </Typography>
             {loaded && (
               <>
-                <IconButton onClick={handleDownload}>
+                <IconButton onClick={() => handleDownload('kml')}>
                   <DownloadIcon />
+                </IconButton>
+                <IconButton onClick={() => handleDownload('pdf')}>
+                  <PictureAsPdfIcon />
                 </IconButton>
                 <IconButton edge="end" onClick={() => setFilterOpen((open) => !open)}>
                   <TuneIcon />

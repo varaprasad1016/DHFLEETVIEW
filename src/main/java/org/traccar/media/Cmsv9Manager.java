@@ -734,6 +734,46 @@ public class Cmsv9Manager {
         return "tools/ffmpeg.exe";
     }
 
+    /**
+     * Plays a recorded segment and remuxes the H.265 FLV into a fragmented MP4
+     * on the fly without re-encoding the video or writing the result to disk.
+     * Closing the returned stream tears down the ffmpeg process.
+     */
+    public InputStream openPlaybackMp4(
+            String terminal, int channel, String startTime, String endTime) throws Exception {
+        InputStream flv = openPlaybackStream(terminal, channel, startTime, endTime);
+        if (flv == null) {
+            return null;
+        }
+        ProcessBuilder pb = new ProcessBuilder(
+                ffmpegPath(),
+                "-hide_banner", "-loglevel", "error",
+                "-i", "pipe:0",
+                "-c:v", "copy",
+                "-c:a", "aac",
+                "-movflags", "frag_keyframe+empty_moov+default_base_moof",
+                "-f", "mp4",
+                "pipe:1");
+        pb.redirectError(ProcessBuilder.Redirect.DISCARD);
+        Process process = pb.start();
+        Thread feeder = new Thread(() -> {
+            try (InputStream in = flv; java.io.OutputStream out = process.getOutputStream()) {
+                in.transferTo(out);
+            } catch (java.io.IOException e) {
+                // downstream closed or playback ended
+            }
+        }, "cmsv9-ffmpeg-feed");
+        feeder.setDaemon(true);
+        feeder.start();
+        return new java.io.FilterInputStream(process.getInputStream()) {
+            @Override
+            public void close() throws java.io.IOException {
+                super.close();
+                process.destroy();
+            }
+        };
+    }
+
     private InputStream openUrl(String url) throws Exception {
         HttpRequest request = HttpRequest.newBuilder(URI.create(url))
                 .timeout(Duration.ofSeconds(15))

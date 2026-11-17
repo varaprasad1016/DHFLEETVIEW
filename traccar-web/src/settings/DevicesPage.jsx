@@ -77,7 +77,7 @@ const DevicesPage = () => {
     [reloadKey, loadItems],
   );
 
-  const handleExport = async () => {
+  const handleExport = async (format = 'xlsx') => {
     const data = items.map((item) => ({
       [t('sharedName')]: item.name,
       [t('deviceIdentifier')]: item.uniqueId,
@@ -94,7 +94,7 @@ const DevicesPage = () => {
     }));
     const sheets = new Map();
     sheets.set(t('deviceTitle'), data);
-    await exportExcel(t('deviceTitle'), 'devices.xlsx', sheets, theme);
+    await exportExcel(t('deviceTitle'), 'devices.xlsx', sheets, theme, format);
   };
 
   const actionConnections = {
@@ -169,8 +169,11 @@ const DevicesPage = () => {
         <TableFooter>
           <TableRow>
             <TableCell>
-              <Button onClick={handleExport} variant="text">
-                {t('reportExport')}
+              <Button onClick={() => handleExport('xlsx')} variant="text">
+                {t('reportExport')} XLSX
+              </Button>
+              <Button onClick={() => handleExport('pdf')} variant="text">
+                {t('reportExport')} PDF
               </Button>
             </TableCell>
             <TableCell colSpan={manager ? 9 : 8} align="right">

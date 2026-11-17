@@ -28,6 +28,7 @@ import {
 } from '../common/util/converter';
 import useReportStyles from './common/useReportStyles';
 import fetchOrThrow from '../common/util/fetchOrThrow';
+import exportExcel from '../common/util/exportExcel';
 
 const ChartReportPage = () => {
   const { classes } = useReportStyles();
@@ -128,9 +129,17 @@ const ChartReportPage = () => {
     theme.palette.text.secondary,
   ];
 
+  const onExport = async ({ format = 'xlsx' } = {}) => {
+    const rows = items.map((item) => Object.fromEntries([
+      [t('positionFixTime'), formatTime(item.fixTime, 'seconds')],
+      ...selectedTypes.map((type) => [positionAttributes[type]?.name || type, item[type]]),
+    ]));
+    await exportExcel(t('reportChart'), 'chart.xlsx', new Map([[t('reportChart'), rows]]), theme, format);
+  };
+
   return (
     <PageLayout menu={<ReportsMenu />} breadcrumbs={['reportTitle', 'reportChart']}>
-      <ReportFilter onShow={onShow} onExport={() => {}} deviceType="single" formats={[]}>
+      <ReportFilter onShow={onShow} onExport={onExport} deviceType="single" formats={['xlsx', 'pdf']}>
         <div className={classes.filterItem}>
           <FormControl fullWidth>
             <InputLabel>{t('reportChartType')}</InputLabel>
