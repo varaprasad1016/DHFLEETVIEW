@@ -23,6 +23,15 @@ concurrency:
   group: build-mobile-${{ github.ref }}
   cancel-in-progress: true
 
+# Every build gets a number one higher than the last, taken from the run
+# number. The offset lifts it clear of what the stores have already seen -
+# Play was on version code 225 while the pubspec still said 167, and a store
+# refuses a build whose number it already holds. Play also refuses to roll
+# out a release existing users could not upgrade to, which is what a lower
+# number means.
+env:
+  BUILD_NUMBER_OFFSET: 200
+
 permissions:
   contents: write
 
@@ -229,6 +238,12 @@ jobs:
         working-directory: traccar-manager
         run: flutter pub get
 
+      # The same number the iOS job uses, so one build carries one number
+      # across both stores rather than two unrelated ones.
+      - name: Compute build number
+        shell: bash
+        run: echo "BUILD_NUMBER=$(( ${{ github.run_number }} + BUILD_NUMBER_OFFSET ))" >> "$GITHUB_ENV"
+
       - name: Verify signing secrets
         shell: bash
         env:
@@ -259,7 +274,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           STORE_FILE: ${{ github.workspace }}/environment/dhfleetview.keystore
-        run: flutter build appbundle --release
+        run: flutter build appbundle --release --build-number="$BUILD_NUMBER"
 
       - name: Build APK (release, sideload)
         working-directory: traccar-manager
@@ -268,7 +283,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           STORE_FILE: ${{ github.workspace }}/environment/dhfleetview.keystore
-        run: flutter build apk --release
+        run: flutter build apk --release --build-number="$BUILD_NUMBER"
 
       - name: Upload AAB
         uses: actions/upload-artifact@v4
