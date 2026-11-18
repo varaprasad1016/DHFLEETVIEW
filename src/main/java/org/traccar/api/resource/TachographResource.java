@@ -1,4 +1,9 @@
 /*
+ * Copyright (c) 2026 Infomac Solutions. All rights reserved.
+ * Proprietary and confidential. No licence is granted by access to this file.
+ * See LICENSE in the repository root.
+ */
+/*
  * Copyright 2026 DH FleetView contributors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -39,10 +44,16 @@ import org.traccar.model.TachographAudit;
 import org.traccar.model.TachographBridge;
 import org.traccar.model.TachographConfiguration;
 import org.traccar.model.TachographDownloadJob;
+import org.traccar.model.Position;
 import org.traccar.model.TachographFile;
+import org.traccar.model.User;
 import org.traccar.model.TachographForward;
 import org.traccar.model.TachographForwardTarget;
 import org.traccar.storage.StorageException;
+import org.traccar.storage.query.Columns;
+import org.traccar.storage.query.Condition;
+import org.traccar.storage.query.Order;
+import org.traccar.storage.query.Request;
 import org.traccar.tachograph.TachographAuditService;
 import org.traccar.tachograph.TachographBridgeManager;
 import org.traccar.tachograph.TachographException;
@@ -64,8 +75,12 @@ import java.time.format.DateTimeParseException;
 import java.util.Base64;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 /**
  * REST API for the tachograph module.
@@ -78,6 +93,22 @@ import java.util.Map;
 @jakarta.ws.rs.Path("tachograph")
 @Produces(MediaType.APPLICATION_JSON)
 public class TachographResource extends BaseResource {
+
+    // How far back the live view looks, and the most records it will read to
+    // get there. A parked unit reports every few minutes and a driving one
+    // every few seconds, so the limit is what actually bounds the work.
+    private static final int LIVE_HOURS = 24;
+    private static final int LIVE_MAX_HOURS = 168;
+    private static final int LIVE_SCAN_LIMIT = 5000;
+    private static final int LIVE_BULK_SCAN_LIMIT = 500;
+
+    // Tachograph AVL IDs: the driver slots, their figures and the vehicle-side
+    // elements, plus the 105xx block the newer figures live in.
+    private static final Set<Integer> TACHO_IDS = Set.of(
+            48, 52, 56, 57, 58, 59, 60, 61, 69, 77, 80, 122, 123, 124, 125,
+            184, 185, 186, 187, 188, 189, 190, 195, 196, 197, 198, 528);
+    private static final int TACHO_RANGE_FROM = 10500;
+    private static final int TACHO_RANGE_TO = 10545;
 
     @Context
     private HttpServletRequest request;
@@ -186,6 +217,148 @@ public class TachographResource extends BaseResource {
         permissionsService.checkPermission(Device.class, getUserId(), deviceId);
         configuration.setDeviceId(deviceId);
         return tachographManager.saveConfiguration(configuration, getUserId());
+    }
+
+    // -----------------------------------------------------------------------
+    // Live tachograph state
+    // -----------------------------------------------------------------------
+
+    /**
+     * The vehicle's tachograph state, merged from its recent records.
+     *
+     * A unit sends a tachograph value when it changes, so any one position
+     * carries only what moved - and a parked lorry sends records with none of
+     * them at all. Reading the latest position therefore shows nothing, which
+     * is not the same as there being nothing to show: the driver's hours are
+     * exactly as they were when the engine stopped.
+     *
+     * This walks back through the device's records, newest first, keeping the
+     * first value it finds for each element - the state as last reported,
+     * whatever the ignition is doing now. Merging here rather than in the app
+     * keeps the history off the phone: a day of this unit is several thousand
+     * records, and what comes back instead is about sixty values.
+     */
+    @GET
+    @Path("live/{deviceId}")
+    public Map<String, Object> getLive(
+            @PathParam("deviceId") long deviceId,
+            @QueryParam("hours") int hours) throws StorageException {
+        permissionsService.checkPermission(Device.class, getUserId(), deviceId);
+
+        Date to = new Date();
+        long window = TimeUnit.HOURS.toMillis(hours > 0 ? Math.min(hours, LIVE_MAX_HOURS) : LIVE_HOURS);
+        Date from = new Date(to.getTime() - window);
+
+        var conditions = new LinkedList<Condition>();
+        conditions.add(new Condition.Equals("deviceId", deviceId));
+        conditions.add(new Condition.Between("fixTime", from, to));
+        var positions = storage.getObjects(Position.class, new Request(
+                new Columns.All(), Condition.merge(conditions),
+                new Order("fixTime", true, LIVE_SCAN_LIMIT, 0)));
+
+        Map<String, Object> values = new LinkedHashMap<>();
+        Date recordedAt = null;
+        for (Position position : positions) {
+            for (var entry : position.getAttributes().entrySet()) {
+                if (isTachoKey(entry.getKey()) && !values.containsKey(entry.getKey())) {
+                    values.put(entry.getKey(), entry.getValue());
+                    if (recordedAt == null) {
+                        recordedAt = position.getFixTime();
+                    }
+                }
+            }
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("deviceId", deviceId);
+        result.put("recordedAt", recordedAt);
+        result.put("scanned", positions.size());
+        result.put("attributes", values);
+        return result;
+    }
+
+    /**
+     * The same, for every vehicle the user can see, in one request.
+     *
+     * The vehicle list shows each driver beside their registration, and asking
+     * per row would be a request per vehicle on every visit to the home screen.
+     * Only units that could carry a tachograph are looked at - a camera-only
+     * vehicle has nothing to merge - and the scan per vehicle is short, because
+     * a stopped unit reports every few minutes and a few hundred records
+     * therefore reach back a long way.
+     */
+    @GET
+    @Path("live")
+    public Map<String, Object> getLiveAll() throws StorageException {
+        var devices = storage.getObjects(Device.class, new Request(
+                new Columns.All(), new Condition.Permission(User.class, getUserId(), Device.class)));
+
+        Date to = new Date();
+        Date from = new Date(to.getTime() - TimeUnit.HOURS.toMillis(LIVE_HOURS));
+        Map<String, Object> result = new LinkedHashMap<>();
+        for (Device device : devices) {
+            if (!couldHaveTachograph(device)) {
+                continue;
+            }
+            var conditions = new LinkedList<Condition>();
+            conditions.add(new Condition.Equals("deviceId", device.getId()));
+            conditions.add(new Condition.Between("fixTime", from, to));
+            var positions = storage.getObjects(Position.class, new Request(
+                    new Columns.All(), Condition.merge(conditions),
+                    new Order("fixTime", true, LIVE_BULK_SCAN_LIMIT, 0)));
+
+            Map<String, Object> values = new LinkedHashMap<>();
+            Date recordedAt = null;
+            for (Position position : positions) {
+                for (var entry : position.getAttributes().entrySet()) {
+                    if (isTachoKey(entry.getKey()) && !values.containsKey(entry.getKey())) {
+                        values.put(entry.getKey(), entry.getValue());
+                        if (recordedAt == null) {
+                            recordedAt = position.getFixTime();
+                        }
+                    }
+                }
+            }
+            if (!values.isEmpty()) {
+                Map<String, Object> entry = new LinkedHashMap<>();
+                entry.put("recordedAt", recordedAt);
+                entry.put("attributes", values);
+                result.put(String.valueOf(device.getId()), entry);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Whether this vehicle is worth scanning: it has a tracker on it, rather
+     * than being a camera-only vehicle whose positions come from the DVR.
+     */
+    private static boolean couldHaveTachograph(Device device) {
+        if (device.getString("trackerImei") != null || device.getString("trackerModel") != null) {
+            return true;
+        }
+        String uniqueId = device.getUniqueId();
+        return uniqueId != null && uniqueId.length() >= 15 && uniqueId.chars().allMatch(Character::isDigit);
+    }
+
+    /**
+     * Whether an attribute is a tachograph element, by its Teltonika AVL ID.
+     *
+     * The same set exists in the web app (common/util/fmc650Tacho.js) and in
+     * the tacho server (app/services/fmc650.py); all three have to move
+     * together. Kept as a range plus a short list rather than every ID, because
+     * what matters here is only "is this worth keeping", not what it means.
+     */
+    private static boolean isTachoKey(String key) {
+        if (key == null || !key.startsWith("io")) {
+            return false;
+        }
+        try {
+            int id = Integer.parseInt(key.substring(2));
+            return TACHO_IDS.contains(id) || (id >= TACHO_RANGE_FROM && id <= TACHO_RANGE_TO);
+        } catch (NumberFormatException e) {
+            return false;
+        }
     }
 
     // -----------------------------------------------------------------------

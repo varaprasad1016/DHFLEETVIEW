@@ -3,7 +3,10 @@ import * as maplibregl from 'maplibre-gl';
 import { map } from './core/MapView';
 import { toMapCoordinates } from './core/mapUtil';
 
-const MapCamera = ({ latitude, longitude, positions, coordinates }) => {
+// `zoom` is the closest the camera will pull back to; it keeps the user's own
+// zoom if they have gone in further. 10 shows a town, which is right for a
+// general map and too far out when the point is to see where one vehicle is.
+const MapCamera = ({ latitude, longitude, positions, coordinates, zoom = 10 }) => {
   useEffect(() => {
     if (coordinates || positions) {
       const coords = coordinates
@@ -23,10 +26,10 @@ const MapCamera = ({ latitude, longitude, positions, coordinates }) => {
     } else {
       map.jumpTo({
         center: toMapCoordinates(longitude, latitude),
-        zoom: Math.max(map.getZoom(), 10),
+        zoom: Math.max(map.getZoom(), zoom),
       });
     }
-  }, [latitude, longitude, positions, coordinates]);
+  }, [latitude, longitude, positions, coordinates, zoom]);
 
   return null;
 };

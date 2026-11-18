@@ -27,6 +27,7 @@ import MapScale from '../map/MapScale';
 import SelectField from '../common/components/SelectField';
 import fetchOrThrow from '../common/util/fetchOrThrow';
 import exportExcel from '../common/util/exportExcel';
+import { downloadReportPdf } from '../common/util/reportPdf';
 import AddressValue from '../common/components/AddressValue';
 import formatEventData from './common/formatEventData';
 import { eventIconKey } from '../map/core/preloadImages';
@@ -143,7 +144,12 @@ const EventReportPage = () => {
     [eventTypes, alarmTypes],
   );
 
-  const onExport = useCatch(async ({ format = 'xlsx' } = {}) => {
+  const onExport = useCatch(async (filter) => {
+    // A PDF is laid out on the server; the spreadsheet is built here.
+    if (filter?.format === 'pdf') {
+      await downloadReportPdf('events', filter);
+      return;
+    }
     const sheets = new Map();
     items.forEach((item) => {
       const deviceName = devices[item.deviceId].name;
@@ -164,7 +170,7 @@ const EventReportPage = () => {
       });
       sheets.get(deviceName).push(row);
     });
-    await exportExcel(t('reportEvents'), 'events.xlsx', sheets, theme, format);
+    await exportExcel(t('reportEvents'), 'events.xlsx', sheets, theme);
   });
 
   const onSchedule = useCatch(async (deviceIds, groupIds, report) => {
@@ -259,7 +265,7 @@ const EventReportPage = () => {
               onSchedule={onSchedule}
               deviceType="multiple"
               loading={loading}
-              formats={['xlsx', 'pdf']}
+              formats={['pdf', 'xlsx']}
             >
               <div className={classes.filterItem}>
                 <SelectField

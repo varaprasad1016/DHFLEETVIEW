@@ -8,6 +8,7 @@ import android.provider.MediaStore
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.ByteArrayInputStream
 import java.io.File
 
 /**
@@ -41,11 +42,15 @@ class MainActivity : FlutterFragmentActivity() {
                         val path = call.argument<String>("path")
                         val name = call.argument<String>("name")
                         val mimeType = call.argument<String>("mimeType") ?: "application/octet-stream"
-                        if (path.isNullOrBlank() || name.isNullOrBlank()) {
-                            result.error("bad_arguments", "A file path and a name are required.", null)
+                        val bytes = call.argument<ByteArray>("bytes")
+                        val source = path?.takeIf { it.isNotBlank() }?.let(::File)
+                        if (name.isNullOrBlank() || (source == null && bytes == null)) {
+                            result.error("bad_arguments", "A file path or file bytes and a name are required.", null)
                         } else {
                             try {
-                                result.success(save(File(path), name, mimeType))
+                                result.success(
+                                    if (source != null) save(source, name, mimeType)
+                                    else save(name, mimeType, bytes!!))
                             } catch (e: Exception) {
                                 result.error("save_failed", e.message, null)
                             }
@@ -61,6 +66,14 @@ class MainActivity : FlutterFragmentActivity() {
         if (!source.isFile) {
             throw IllegalArgumentException("That file is no longer there.")
         }
+        return save(name, mimeType, source.inputStream())
+    }
+
+    private fun save(name: String, mimeType: String, bytes: ByteArray): String {
+        return save(name, mimeType, ByteArrayInputStream(bytes))
+    }
+
+    private fun save(name: String, mimeType: String, source: java.io.InputStream): String {
         val kind = when {
             mimeType.startsWith("video/") -> Kind(Environment.DIRECTORY_MOVIES, "Movies")
             mimeType.startsWith("image/") -> Kind(Environment.DIRECTORY_PICTURES, "Pictures")
@@ -88,11 +101,13 @@ class MainActivity : FlutterFragmentActivity() {
             }
             val uri = contentResolver.insert(collection, values)
                 ?: throw IllegalStateException("The phone would not accept the file.")
-            contentResolver.openOutputStream(uri).use { out ->
-                if (out == null) {
-                    throw IllegalStateException("The file could not be written.")
+            source.use { input ->
+                contentResolver.openOutputStream(uri).use { out ->
+                    if (out == null) {
+                        throw IllegalStateException("The file could not be written.")
+                    }
+                    input.copyTo(out)
                 }
-                source.inputStream().use { it.copyTo(out) }
             }
             values.clear()
             values.put(MediaStore.MediaColumns.IS_PENDING, 0)
@@ -105,7 +120,9 @@ class MainActivity : FlutterFragmentActivity() {
                 throw IllegalStateException("The folder could not be created.")
             }
             val target = File(directory, name)
-            source.copyTo(target, overwrite = true)
+            source.use { input ->
+                target.outputStream().use { input.copyTo(it) }
+            }
             MediaScannerConnection.scanFile(this, arrayOf(target.absolutePath), arrayOf(mimeType), null)
         }
         return "${kind.label}/$FOLDER"

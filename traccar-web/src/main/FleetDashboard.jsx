@@ -1,16 +1,19 @@
+/*
+ * Copyright (c) 2026 Infomac Solutions. All rights reserved.
+ * Proprietary and confidential. No licence is granted by access to this file.
+ * See LICENSE in the repository root.
+ */
 import { useMemo } from 'react';
 import { useSelector } from 'react-redux';
 import { makeStyles } from 'tss-react/mui';
 import { alpha } from '@mui/material/styles';
 import DirectionsCarIcon from '@mui/icons-material/DirectionsCar';
 import PauseCircleIcon from '@mui/icons-material/PauseCircle';
-import LocalParkingIcon from '@mui/icons-material/LocalParking';
 import CloudOffIcon from '@mui/icons-material/CloudOff';
-import GpsOffIcon from '@mui/icons-material/GpsOff';
 import GarageIcon from '@mui/icons-material/Garage';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { Typography, Box, Tooltip } from '@mui/material';
-import { computeFleetStats } from '../common/util/vehicleStatus';
+import { computeFleetStats, selectOnlyStatus } from '../common/util/vehicleStatus';
 
 const useStyles = makeStyles()((theme) => ({
   root: {
@@ -95,7 +98,7 @@ const useStyles = makeStyles()((theme) => ({
  * FleetDashboard – ignition-based stats.
  * - DVR/CNMS unchanged: uses standard `ignition` attribute.
  * - Teltonika: resolves ignition via io239 / fallback keys + per-device override (see vehicleStatus.js).
- * Cards are clickable filters (running / idling / parked / offline).
+ * Cards are clickable filters (running / idling / offline), one at a time.
  */
 const FleetDashboard = ({ filter, setFilter }) => {
   const { classes } = useStyles();
@@ -120,23 +123,12 @@ const FleetDashboard = ({ filter, setFilter }) => {
     return v.includes(key);
   };
 
+  // Cards select the same way the chips and the toolbar do: one at a time,
+  // and clicking the selected one goes back to showing everything.
   const toggleStatus = (key) => {
     if (!setFilter || !filter) return;
     const current = filter.vehicleStatuses ?? filter.statuses ?? [];
-    const has = current.includes(key);
-    let next;
-    if (has) {
-      next = current.filter((s) => s !== key);
-    } else {
-      next = [...current, key];
-    }
-    // Prefer new field vehicleStatuses; keep statuses for device online/offline if needed
-    if (filter.vehicleStatuses !== undefined) {
-      setFilter({ ...filter, vehicleStatuses: next });
-    } else {
-      // Migrate to vehicleStatuses
-      setFilter({ ...filter, vehicleStatuses: next });
-    }
+    setFilter({ ...filter, vehicleStatuses: selectOnlyStatus(current, key) });
   };
 
   const Card = ({ statusKey, label, count, icon, bgClass, color }) => (
@@ -205,27 +197,9 @@ const FleetDashboard = ({ filter, setFilter }) => {
         bgClass="idlingBg"
         color="warning"
       />
-      <Card
-        statusKey="parked"
-        label="Parked"
-        count={stats.parked}
-        icon={<LocalParkingIcon fontSize="inherit" />}
-        bgClass="parkedBg"
-        color="neutral"
-      />
-      {/* Reporting, but with no satellite fix: the position on the map is the
-          last one it managed and the speed is unknown, so it must not be
-          counted as running or idling. */}
-      {stats.nofix > 0 && (
-        <Card
-          statusKey="nofix"
-          label="No GPS fix"
-          count={stats.nofix}
-          icon={<GpsOffIcon fontSize="inherit" />}
-          bgClass="nofixBg"
-          color="warning"
-        />
-      )}
+      {/* Parked and no-GPS-fix are no longer filter options, so their cards are
+          gone rather than left clickable and doing something the other controls
+          cannot express. Both are still counted in computeFleetStats. */}
       <Card
         statusKey="offline"
         label="Offline"

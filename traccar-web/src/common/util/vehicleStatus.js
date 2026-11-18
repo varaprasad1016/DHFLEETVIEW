@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2026 Infomac Solutions. All rights reserved.
+ * Proprietary and confidential. No licence is granted by access to this file.
+ * See LICENSE in the repository root.
+ */
 import { formatShortSpeed } from './formatter';
 
 /**
@@ -97,6 +102,25 @@ export const isIgnitionOff = (position, device) => getIgnition(position, device)
 export const hasFix = (position) => position?.valid !== false;
 
 /**
+ * Satellites the unit can see, or null when it does not report it.
+ *
+ * None at all, reported steadily over days, is an aerial fault rather than a
+ * vehicle in a shed - which is the one thing a bare "no fix" never told anyone.
+ */
+export const satelliteCount = (position) => {
+  const value = position?.attributes?.sat;
+  return typeof value === 'number' ? value : null;
+};
+
+/**
+ * When the coordinate on screen was actually taken.
+ *
+ * Without a lock the unit keeps sending its last known coordinate, so the pin
+ * stays put while the lorry does not. This is the age of that pin.
+ */
+export const lastFixTime = (position) => position?.fixTime || position?.deviceTime || null;
+
+/**
  * Derive vehicle status from ignition, speed and whether the fix is real.
  * DVR behaviour is preserved: it already reports ignition, so same path.
  * @returns {'running'|'idling'|'parked'|'nofix'|'offline'}
@@ -167,6 +191,9 @@ export const getStatusColor = (vehicleStatus) => {
  * @returns {'success'|'neutral'|'warning'|'error'}
  */
 export const getIgnitionColor = (position, device) => {
+  // Offline, the ignition attribute is a memory of the last message rather than
+  // the state of the vehicle, so it is not coloured as if it were live.
+  if (device?.status === 'offline' || device?.status === 'unknown') return 'neutral';
   const ignition = getIgnition(position, device);
   if (ignition === true) return 'success';
   if (ignition === false) return 'neutral';
@@ -200,6 +227,32 @@ export const computeFleetStats = (devices, positions) => {
     else if (status === 'offline') stats.offline += 1;
   });
   return stats;
+};
+
+/**
+ * The statuses a user may filter by, and the only ones any filter control
+ * should offer. Three states plus "everything", chosen because they are the
+ * question an operator actually asks of a fleet list.
+ *
+ * Kept here rather than written out in each control: the toolbar, the chips
+ * above the vehicle list and the dashboard cards all drive the same filter, and
+ * when the list of options lived in three places they drifted apart.
+ */
+export const FILTER_STATUSES = [
+  { key: 'running', label: 'Running' },
+  { key: 'idling', label: 'Idling' },
+  { key: 'offline', label: 'Offline' },
+];
+
+/**
+ * Picking a status replaces whatever was selected rather than adding to it, and
+ * picking the selected one again clears back to everything. The value stays an
+ * array of none or one, which is what `matchesVehicleStatusFilter` already
+ * expects, so nothing downstream has to change.
+ */
+export const selectOnlyStatus = (current, key) => {
+  const selected = (current || [])[0];
+  return !key || selected === key ? [] : [key];
 };
 
 // Filter helper for useFilter / UI

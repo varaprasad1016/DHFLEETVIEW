@@ -5,13 +5,29 @@ export default makeStyles()((theme) => ({
     height: '100%',
     display: 'flex',
     flexDirection: 'column',
+    // Printing has no viewport for a height of 100% to mean anything, and a
+    // scrollbox prints only the slice on screen - which is why Save as PDF
+    // came out blank. Let the content flow onto pages instead.
+    '@media print': {
+      height: 'auto',
+      display: 'block',
+      overflow: 'visible',
+    },
   },
   containerMap: {
     flexBasis: 'var(--report-map-height, 40%)',
     flexShrink: 0,
+    // A live map prints as a grey rectangle at best.
+    '@media print': {
+      display: 'none',
+    },
   },
   containerMain: {
     overflow: 'auto',
+    '@media print': {
+      overflow: 'visible',
+      height: 'auto',
+    },
   },
   header: {
     position: 'sticky',

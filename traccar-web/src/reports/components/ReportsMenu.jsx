@@ -1,5 +1,6 @@
 import { Divider, List } from '@mui/material';
 import StarIcon from '@mui/icons-material/Star';
+import AutoAwesomeMotionIcon from '@mui/icons-material/AutoAwesomeMotion';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import PauseCircleFilledIcon from '@mui/icons-material/PauseCircleFilled';
 import PlayCircleFilledIcon from '@mui/icons-material/PlayCircleFilled';
@@ -48,6 +49,12 @@ const ReportsMenu = () => {
   return (
     <>
       <List>
+        <MenuItem
+          title="Build a report"
+          link={buildLink('/reports')}
+          icon={<AutoAwesomeMotionIcon />}
+          selected={location.pathname === '/reports'}
+        />
         <MenuItem
           title={t('reportCombined')}
           link={buildLink('/reports/combined')}

@@ -1,25 +1,23 @@
 import { lazy, Suspense, useState, useCallback, useEffect } from 'react';
 import { makeStyles } from 'tss-react/mui';
-import { alpha, useTheme } from '@mui/material/styles';
+import { useTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate, useLocation } from 'react-router-dom';
-import MapIcon from '@mui/icons-material/Map';
 import DescriptionIcon from '@mui/icons-material/Description';
+import AssignmentIcon from '@mui/icons-material/Assignment';
 import SettingsIcon from '@mui/icons-material/Settings';
 import PersonIcon from '@mui/icons-material/Person';
-import LogoutIcon from '@mui/icons-material/Logout';
 import Badge from '@mui/material/Badge';
-import Divider from '@mui/material/Divider';
 import Typography from '@mui/material/Typography';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
-import Stack from '@mui/material/Stack';
 import ViewListIcon from '@mui/icons-material/ViewList';
 import MapIconMui from '@mui/icons-material/Map';
+import { selectOnlyStatus } from '../common/util/vehicleStatus';
 import DeviceList from './DeviceList';
 import StatusCard from '../common/components/StatusCard';
-import FleetDashboard from './FleetDashboard';
+import VehicleDetails from './VehicleDetails';
 import { devicesActions, sessionActions } from '../store';
 import { nativePostMessage } from '../common/components/NativeInterface';
 import usePersistedState from '../common/util/usePersistedState';
@@ -74,6 +72,34 @@ const useStyles = makeStyles()((theme) => ({
   mapArea: {
     flex: 1,
     position: 'relative',
+    minWidth: 0,
+  },
+  // Mobile Map view is a split: the live map on the top half, the vehicle list
+  // on the bottom half as a sheet. These are only attached when the split is
+  // active (isAppMobile && fleetView === 'map'), so no media query is needed -
+  // and a wide WebView gets the split too, which a width query would miss.
+  bodySplit: {
+    flexDirection: 'column',
+  },
+  mapSplit: {
+    flex: '0 0 50%',
+    height: '50%',
+    minHeight: 0,
+    order: 1,
+  },
+  sidebarSplit: {
+    width: '100%',
+    flex: '0 0 50%',
+    height: '50%',
+    minHeight: 0,
+    order: 2,
+    borderRight: 'none',
+    borderTop: `1px solid ${theme.palette.divider}`,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+  },
+  sidebarInnerSplit: {
+    width: '100%',
     minWidth: 0,
   },
   sectionTitle: {
@@ -141,78 +167,10 @@ const useStyles = makeStyles()((theme) => ({
       display: 'none',
     },
   },
-  navSection: {
-    flexShrink: 0,
-    borderTop: `1px solid ${theme.palette.divider}`,
-    padding: theme.spacing(0.5, 0),
-  },
-  navSectionCompact: {
-    flexShrink: 0,
-    borderTop: `1px solid ${theme.palette.divider}`,
-    display: 'flex',
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    flexWrap: 'wrap',
-    gap: theme.spacing(0.5),
-    padding: theme.spacing(0.5),
-  },
-  navItemCompact: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 44,
-    height: 40,
-    borderRadius: 10,
-    cursor: 'pointer',
-    color: theme.palette.text.secondary,
-    border: 'none',
-    background: 'none',
-    '&:hover': {
-      backgroundColor: alpha(theme.palette.primary.main, 0.06),
-      color: theme.palette.text.primary,
-    },
-  },
-  navItemCompactActive: {
-    backgroundColor: alpha(theme.palette.primary.main, 0.08),
-    color: theme.palette.primary.main,
-  },
-  navItemCompactDanger: {
-    color: theme.palette.error.main,
-    '&:hover': {
-      backgroundColor: alpha(theme.palette.error.main, 0.06),
-    },
-  },
-  navItem: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: theme.spacing(1.5),
-    padding: theme.spacing(1, 2),
-    cursor: 'pointer',
-    color: theme.palette.text.secondary,
-    fontSize: '0.875rem',
-    fontWeight: 500,
-    transition: 'background 0.15s, color 0.15s',
-    border: 'none',
-    background: 'none',
-    width: '100%',
-    textAlign: 'left',
-    '&:hover': {
-      backgroundColor: alpha(theme.palette.primary.main, 0.06),
-      color: theme.palette.text.primary,
-    },
-  },
-  navItemActive: {
-    backgroundColor: alpha(theme.palette.primary.main, 0.08),
-    color: theme.palette.primary.main,
-    fontWeight: 600,
-  },
-  navItemDanger: {
-    color: theme.palette.error.main,
-    '&:hover': {
-      backgroundColor: alpha(theme.palette.error.main, 0.06),
-    },
-  },
 }));
+
+// Named in the list heading so a narrowed view is never silent.
+const STATUS_LABEL = { running: 'Running', idling: 'Idling', offline: 'Offline' };
 
 const MainPage = () => {
   const { classes } = useStyles();
@@ -223,8 +181,6 @@ const MainPage = () => {
   const t = useTranslation();
 
   const desktop = useMediaQuery(theme.breakpoints.up('md'));
-  const compactNav = useMediaQuery(theme.breakpoints.down('sm'))
-    || useMediaQuery('(max-height: 600px)');
 
   const readonly = useRestriction('readonly');
   const disableReports = useRestriction('disableReports');
@@ -278,14 +234,18 @@ const MainPage = () => {
     }
   }, [fleetView, setFleetView]);
 
-  // Selecting a vehicle jumps straight to the full-screen map. Fires only when
-  // the selected id changes, so tapping "Dashboard" afterwards does not bounce
-  // back to the map.
+  // Coming back from a vehicle's cameras lands on the Map view - the split with
+  // the live map above the vehicle list - rather than wherever history points
+  // (which was the dashboard). The video page asks for it with ?view=map; the
+  // param is consumed here and dropped from the URL so a refresh or a later
+  // visit doesn't keep re-applying it.
   useEffect(() => {
-    if (isAppMobile && selectedDeviceId) {
-      setFleetView('map');
+    const wanted = new URLSearchParams(location.search).get('view');
+    if (wanted === 'map' || wanted === 'dashboard') {
+      setFleetView(wanted);
+      navigate('/', { replace: true });
     }
-  }, [isAppMobile, selectedDeviceId, setFleetView]);
+  }, [location.search, setFleetView, navigate]);
 
   useFilter(
     keyword,
@@ -311,14 +271,22 @@ const MainPage = () => {
         navigate('/');
         break;
       case 'reports': {
+        // Straight to the report builder, which is the index of /reports, so
+        // a report can be run from here rather than landing on one particular
+        // report and having to go looking for the others.
         let id = selectedDeviceId;
         if (id == null) {
           const deviceIds = Object.keys(devices);
           if (deviceIds.length === 1) id = deviceIds[0];
         }
-        navigate(id != null ? `/reports/combined?deviceId=${id}` : '/reports/combined');
+        navigate(id != null ? `/reports?deviceId=${id}` : '/reports');
         break;
       }
+      case 'tachoreports':
+        // The tachograph module is served outside this app, so a full
+        // navigation rather than a route change.
+        window.location.href = '/tacho/hours?tab=report';
+        break;
       case 'settings':
         navigate('/settings/preferences?menu=true');
         break;
@@ -364,27 +332,30 @@ const MainPage = () => {
 
   const nav = currentNav();
 
+  // No map entry: this menu opens from the map, so it only ever took you to
+  // where you already were.
   const navItems = [
-    { key: 'map', label: t('mapTitle'), icon: <MapIcon fontSize="small" /> },
-    !disableReports && { key: 'reports', label: t('reportTitle'), icon: <DescriptionIcon fontSize="small" /> },
+    !disableReports && { key: 'reports', label: 'Tracking reports', icon: <DescriptionIcon fontSize="small" /> },
+    !disableReports && { key: 'tachoreports', label: 'Tacho reports', icon: <AssignmentIcon fontSize="small" /> },
     !readonly && { key: 'settings', label: t('settingsTitle'), icon: <SettingsIcon fontSize="small" /> },
     !readonly && { key: 'account', label: t('settingsUser'), icon: <PersonIcon fontSize="small" /> },
   ].filter(Boolean);
 
   const safeFilter = filter || { statuses: [], vehicleStatuses: [], groups: [], geofences: [] };
-  const vehicleFilterActive = (key) => (safeFilter.vehicleStatuses || []).includes(key) || (key === 'parked' && (safeFilter.vehicleStatuses || []).includes('stopped')) || (key === 'stopped' && (safeFilter.vehicleStatuses || []).includes('parked'));
-  const toggleVehicleFilter = (key) => {
-    const current = safeFilter.vehicleStatuses || [];
-    const aliases = key === 'parked' || key === 'stopped' ? ['parked', 'stopped'] : [key];
-    const has = aliases.some((k) => current.includes(k));
-    const next = has ? current.filter((s) => !aliases.includes(s)) : [...current, key === 'stopped' ? 'parked' : key];
-    setFilter({ ...safeFilter, vehicleStatuses: next });
-  };
+  // Only ever none or one, so the selection is simply the first entry.
+  const selectedStatus = (safeFilter.vehicleStatuses || [])[0] || null;
+  const toggleVehicleFilter = (key) => setFilter({
+    ...safeFilter,
+    vehicleStatuses: selectOnlyStatus(safeFilter.vehicleStatuses, key),
+  });
 
   const clearVehicleFilters = () => setFilter({ ...safeFilter, vehicleStatuses: [] });
 
-  // Mobile/WebView shows exactly one full-screen surface at a time.
-  const showSidebar = isAppMobile ? fleetView === 'dashboard' : devicesOpen;
+  // Mobile/WebView: Dashboard is the full-height vehicle list; Map is a split -
+  // the live map on the top half with the same list underneath, so a vehicle
+  // can be read and found on the map at once. (Back from the cameras lands here.)
+  const isSplit = isAppMobile && fleetView === 'map';
+  const showSidebar = isAppMobile ? true : devicesOpen;
   const showMap = isAppMobile ? fleetView === 'map' : true;
 
   return (
@@ -401,6 +372,10 @@ const MainPage = () => {
         setFilterSort={setFilterSort}
         filterMap={filterMap}
         setFilterMap={setFilterMap}
+        navItems={navItems}
+        nav={nav}
+        onNav={handleNav}
+        onLogout={handleLogout}
       />
       {isAppMobile && (
         <div className={classes.viewToggle}>
@@ -420,82 +395,56 @@ const MainPage = () => {
           </button>
         </div>
       )}
-      <div className={classes.body}>
-        {/* Sidebar – Fleet List (primary on APK/iOS) */}
-        <div className={`${classes.sidebar} ${showSidebar ? '' : classes.sidebarClosed} ${!showSidebar && isAppMobile ? classes.sidebarMobileHidden : ''}`}>
-          <div className={classes.sidebarInner}>
-            {/* Fleet Dashboard – ignition-based stats, clickable */}
-            <FleetDashboard filter={filter} setFilter={setFilter} />
-
-            <Divider />
-
-            {/* Quick filter chips – running / idling / parked / offline */}
-            <Stack direction="row" className={classes.filterChips} sx={{ flexWrap: 'wrap' }}>
-              <Chip label={`All (${Object.keys(devices).length})`} size="small" variant={(safeFilter.vehicleStatuses || []).length === 0 ? 'filled' : 'outlined'} color={(safeFilter.vehicleStatuses || []).length === 0 ? 'primary' : 'default'} onClick={clearVehicleFilters} />
-              <Chip label="Running" size="small" color="success" variant={vehicleFilterActive('running') ? 'filled' : 'outlined'} onClick={() => toggleVehicleFilter('running')} />
-              <Chip label="Idling" size="small" color="warning" variant={vehicleFilterActive('idling') ? 'filled' : 'outlined'} onClick={() => toggleVehicleFilter('idling')} />
-              <Chip label="Parked" size="small" variant={vehicleFilterActive('parked') ? 'filled' : 'outlined'} onClick={() => toggleVehicleFilter('parked')} />
-              <Chip label="Offline" size="small" color="error" variant={vehicleFilterActive('offline') ? 'filled' : 'outlined'} onClick={() => toggleVehicleFilter('offline')} />
-            </Stack>
-
-            {/* Vehicle List – uses ignition-colored icons (gray=off, green=running) */}
+      <div className={`${classes.body} ${isSplit ? classes.bodySplit : ''}`}>
+        {/* Sidebar – Fleet List. Full height on Dashboard; the bottom half of
+            the split on Map (the map sits above it via flex order). */}
+        <div className={`${classes.sidebar} ${showSidebar ? '' : classes.sidebarClosed} ${!showSidebar && isAppMobile ? classes.sidebarMobileHidden : ''} ${isSplit ? classes.sidebarSplit : ''}`}>
+          <div className={`${classes.sidebarInner} ${isSplit ? classes.sidebarInnerSplit : ''}`}>
+            {/* In the split, the selected vehicle takes over the bottom half:
+                its driver, tachograph, hours, location and status, with the
+                cameras as one of its actions rather than where a tap lands.
+                The back arrow clears the selection and the list returns. */}
+            {isSplit && selectedDeviceId ? (
+              <VehicleDetails
+                deviceId={selectedDeviceId}
+                position={positions[selectedDeviceId]}
+                onBack={() => dispatch(devicesActions.selectId(null))}
+              />
+            ) : (
+            <>
+            {/*
+              The list is the home screen. The stat cards and the chip row used
+              to sit above it and pushed the registrations below the fold, which
+              is the one thing somebody opening the app actually wants to see.
+              The counts and the status filter are still there, behind the
+              filter control in the toolbar, and the selected filter is named
+              above the list so the view is never silently narrowed.
+            */}
             <div className={classes.sectionTitle}>
-              Vehicles ({filteredDevices.length} / {Object.keys(devices).length})
+              {selectedStatus
+                ? `${STATUS_LABEL[selectedStatus]} (${filteredDevices.length} of ${Object.keys(devices).length})`
+                : `Vehicles (${filteredDevices.length})`}
+              {selectedStatus && (
+                <Chip
+                  label="Show all"
+                  size="small"
+                  variant="outlined"
+                  onClick={clearVehicleFilters}
+                  sx={{ ml: 1, height: 20, fontSize: '0.65rem' }}
+                />
+              )}
             </div>
             <div style={{ flex: 1, minHeight: 0 }}>
-              <DeviceList devices={filteredDevices} />
+              <DeviceList devices={filteredDevices} selectOnly={isSplit} />
             </div>
-
-            {/* Navigation */}
-            {compactNav ? (
-              <div className={classes.navSectionCompact}>
-                {navItems.map((item) => (
-                  <button
-                    key={item.key}
-                    type="button"
-                    title={item.label}
-                    className={`${classes.navItemCompact} ${nav === item.key ? classes.navItemCompactActive : ''}`}
-                    onClick={() => handleNav(item.key)}
-                  >
-                    {item.icon}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  title={t('loginLogout')}
-                  className={`${classes.navItemCompact} ${classes.navItemCompactDanger}`}
-                  onClick={handleLogout}
-                >
-                  <LogoutIcon fontSize="small" />
-                </button>
-              </div>
-            ) : (
-              <div className={classes.navSection}>
-                {navItems.map((item) => (
-                  <button
-                    key={item.key}
-                    className={`${classes.navItem} ${nav === item.key ? classes.navItemActive : ''}`}
-                    onClick={() => handleNav(item.key)}
-                  >
-                    {item.icon}
-                    {item.label}
-                  </button>
-                ))}
-                <button
-                  className={`${classes.navItem} ${classes.navItemDanger}`}
-                  onClick={handleLogout}
-                >
-                  <LogoutIcon fontSize="small" />
-                  {t('loginLogout')}
-                </button>
-              </div>
+            </>
             )}
           </div>
         </div>
 
         {/* Map – hidden on mobile when fleet list is primary (APK/iOS shows list on login) */}
         {showMap && (
-          <div className={`${classes.mapArea} ${!showMap ? classes.mapHiddenMobile : ''}`}>
+          <div className={`${classes.mapArea} ${!showMap ? classes.mapHiddenMobile : ''} ${isSplit ? classes.mapSplit : ''}`}>
             <Suspense fallback={null}>
               <MainMap
                 filteredPositions={filteredPositions}
@@ -507,7 +456,10 @@ const MainPage = () => {
         )}
       </div>
       <EventsDrawer open={eventsOpen} onClose={() => setEventsOpen(false)} />
-      {selectedDeviceId && (
+      {/* The floating card is the desktop's view of a selected vehicle; in the
+          split the details panel below the map is that view, and the card
+          would only cover the map. */}
+      {selectedDeviceId && !isSplit && (
         <StatusCard
           deviceId={selectedDeviceId}
           position={selectedPosition}

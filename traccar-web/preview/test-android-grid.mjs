@@ -1,4 +1,9 @@
 /*
+ * Copyright (c) 2026 Infomac Solutions. All rights reserved.
+ * Proprietary and confidential. No licence is granted by access to this file.
+ * See LICENSE in the repository root.
+ */
+/*
  * Test the multi-camera grid in the Android emulator WebView.
  * Requires: adb forward tcp:9223 localabstract:webview_devtools_remote_<pid>
  * Usage: node preview/test-android-grid.mjs

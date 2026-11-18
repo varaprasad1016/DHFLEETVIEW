@@ -1,4 +1,9 @@
 /*
+ * Copyright (c) 2026 Infomac Solutions. All rights reserved.
+ * Proprietary and confidential. No licence is granted by access to this file.
+ * See LICENSE in the repository root.
+ */
+/*
  * Copyright 2026 DH FleetView contributors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -363,22 +368,6 @@ public class TachographManager {
         return jobs;
     }
 
-    public void cancelJob(long jobId, long userId) throws StorageException, TachographException {
-        TachographDownloadJob job = getJob(jobId);
-        if (job == null) {
-            throw new TachographException("NOT_FOUND", "Job not found: " + jobId);
-        }
-        String status = job.getStatus();
-        if (TachographDownloadJob.STATUS_COMPLETED.equals(status)
-                || TachographDownloadJob.STATUS_FAILED.equals(status)
-                || TachographDownloadJob.STATUS_CANCELLED.equals(status)) {
-            return;
-        }
-        job.setStatus(TachographDownloadJob.STATUS_CANCELLED);
-        job.setUpdatedAt(new Date());
-        storage.updateObject(job, new Request(new Columns.Exclude("id"), new Condition.Equals("id", jobId)));
-        LOGGER.info("Tachograph job {} cancelled by user {}", jobId, userId);
-    }
     // -----------------------------------------------------------------------
     // Job execution
     // -----------------------------------------------------------------------
@@ -541,6 +530,19 @@ public class TachographManager {
         AtomicBoolean flag = running.get(jobId);
         if (flag != null && flag.get()) {
             throw new JobCancelledException();
+        }
+    }
+
+    private void queueForwarding(TachographFile file, TachographDownloadJob job) {
+        try {
+            Device device = storage.getObject(
+                    Device.class, new Request(new Columns.All(), new Condition.Equals("id", job.getDeviceId())));
+            int queued = forwardService.enqueue(file, device);
+            if (queued > 0) {
+                LOGGER.info("Queued {} forwarding deliveries for tachograph file {}", queued, file.getId());
+            }
+        } catch (StorageException e) {
+            LOGGER.warn("Could not queue tachograph file {} for forwarding", file.getId(), e);
         }
     }
 
@@ -959,8 +961,6 @@ public class TachographManager {
         if (fmc650Client.canHandle(deviceId)) {
             return fmc650Client;
         }
-        storage.updateObject(bridge, new Request(
-                new Columns.Exclude("id"), new Condition.Equals("id", bridge.getId())));
         throw new TachographException(
                 TachographDownloadJob.ERROR_PROTOCOL_SPEC_MISSING,
                 "No tachograph transport is configured. Set tacho.tunnel.port so vehicles can "

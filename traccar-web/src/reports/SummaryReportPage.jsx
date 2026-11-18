@@ -33,6 +33,7 @@ import TableShimmer from '../common/components/TableShimmer';
 import scheduleReport from './common/scheduleReport';
 import fetchOrThrow from '../common/util/fetchOrThrow';
 import exportExcel from '../common/util/exportExcel';
+import { downloadReportPdf } from '../common/util/reportPdf';
 import { deviceEquality } from '../common/util/deviceEquality';
 
 const columnsArray = [
@@ -90,7 +91,12 @@ const SummaryReportPage = () => {
     [daily],
   );
 
-  const onExport = useCatch(async ({ format = 'xlsx' } = {}) => {
+  const onExport = useCatch(async (filter) => {
+    // A PDF is laid out on the server; the spreadsheet is built here.
+    if (filter?.format === 'pdf') {
+      await downloadReportPdf('summary', filter);
+      return;
+    }
     const rows = [];
     const deviceHeader = t('sharedDevice');
     items.forEach((item) => {
@@ -107,7 +113,7 @@ const SummaryReportPage = () => {
     const titleKey = daily ? 'reportDaily' : 'reportSummary';
     const title = t(titleKey);
     const sheets = new Map([[title, rows]]);
-    await exportExcel(title, 'summary.xlsx', sheets, theme, format);
+    await exportExcel(title, 'summary.xlsx', sheets, theme);
   });
 
   const onSchedule = useCatch(async (deviceIds, groupIds, report) => {
@@ -151,7 +157,7 @@ const SummaryReportPage = () => {
           onSchedule={onSchedule}
           deviceType="multiple"
           loading={loading}
-          formats={['xlsx', 'pdf']}
+          formats={['pdf', 'xlsx']}
         >
           <div className={classes.filterItem}>
             <FormControl fullWidth>

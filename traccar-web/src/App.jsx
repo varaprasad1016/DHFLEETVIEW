@@ -136,27 +136,33 @@ const App = () => {
           <Outlet />
         </ErrorBoundary>
       </div>
-      <nav className={classes.shortcuts} aria-label="Shortcuts">
-        <button
-          type="button"
-          className={classes.homeButton}
-          onClick={() => navigate('/')}
-          title="Home"
-          aria-label="Home"
-        >
-          <HomeRoundedIcon fontSize="small" />
-        </button>
-        {complianceAccess && (
-          <a
+      {/* The video page carries its own Home and Compliance buttons up in its
+          controls row, because here the map's bottom-right corner is taken by
+          the map's own controls. Hiding the stacked pair there avoids both the
+          overlap and a duplicate set. */}
+      {!location.pathname.includes('cmsv9-video') && (
+        <nav className={classes.shortcuts} aria-label="Shortcuts">
+          <button
+            type="button"
             className={classes.homeButton}
-            href="/tacho/compliance"
-            title="Compliance hub"
-            aria-label="Compliance hub"
+            onClick={() => navigate('/')}
+            title="Home"
+            aria-label="Home"
           >
-            <FactCheckRoundedIcon fontSize="small" />
-          </a>
-        )}
-      </nav>
+            <HomeRoundedIcon fontSize="small" />
+          </button>
+          {complianceAccess && (
+            <a
+              className={classes.homeButton}
+              href="/tacho/compliance"
+              title="Compliance hub"
+              aria-label="Compliance hub"
+            >
+              <FactCheckRoundedIcon fontSize="small" />
+            </a>
+          )}
+        </nav>
+      )}
     </>
   );
 };

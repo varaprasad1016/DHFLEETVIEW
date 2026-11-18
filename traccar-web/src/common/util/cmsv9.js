@@ -1,4 +1,9 @@
 /*
+ * Copyright (c) 2026 Infomac Solutions. All rights reserved.
+ * Proprietary and confidential. No licence is granted by access to this file.
+ * See LICENSE in the repository root.
+ */
+/*
  * CNMS video platform client.
  *
  * Uses official CNMS Open Platform API via the Traccar backend proxy.
@@ -35,6 +40,14 @@ export const cmsv9StreamStatus = async (deviceId, channel) => {
   return response.json();
 };
 
+/* Whether this vehicle is busy sending footage, and what of. Live video is
+   paused while it is, because the camera's uplink cannot carry both. */
+export const cmsv9Activity = async (deviceId) => {
+  const response = await fetch(`api/cmsv9/activity/${deviceId}`);
+  if (!response.ok) throw new Error('Could not check the vehicle');
+  return response.json();
+};
+
 export const cmsv9StopLive = async (deviceId, channel) => {
   const response = await fetch(`api/cmsv9/stop/${deviceId}/${channel}`, {
     method: 'POST',
@@ -44,11 +57,14 @@ export const cmsv9StopLive = async (deviceId, channel) => {
   return data.errCode === 0;
 };
 
-export const cmsv9StartPlayback = async (deviceId, channel, startTime, endTime) => {
+/* stream '1' asks the camera for its sub recording - far less data, which is
+   what makes watching several cameras at once possible on a vehicle's mobile
+   connection. Omit it for the full-quality recording. */
+export const cmsv9StartPlayback = async (deviceId, channel, startTime, endTime, stream) => {
   const response = await fetch(`api/cmsv9/playback/${deviceId}/${channel}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ startTime, endTime }),
+    body: JSON.stringify({ startTime, endTime, ...(stream === undefined ? {} : { stream: String(stream) }) }),
   });
   if (!response.ok) throw new Error('Failed to start playback');
   return response.json();

@@ -63,6 +63,12 @@ const useStyles = makeStyles()((theme, { miniVariant }) => ({
     display: 'flex',
     flexDirection: 'column',
     overflowY: 'auto',
+    // Same reason as the report container: a scrolling box prints one screen.
+    '@media print': {
+      overflowY: 'visible',
+      height: 'auto',
+      display: 'block',
+    },
   },
 }));
 

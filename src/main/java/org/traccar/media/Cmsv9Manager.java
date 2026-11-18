@@ -1,4 +1,9 @@
 /*
+ * Copyright (c) 2026 Infomac Solutions. All rights reserved.
+ * Proprietary and confidential. No licence is granted by access to this file.
+ * See LICENSE in the repository root.
+ */
+/*
  * Copyright 2026 DH FleetView contributors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -32,6 +37,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -54,6 +60,9 @@ public class Cmsv9Manager {
     private static final Logger LOG = LoggerFactory.getLogger(Cmsv9Manager.class);
     private static final Duration TIMEOUT = Duration.ofSeconds(30);
     private static final String WS_KEY = "J04Tb9pcLF7y6QrFmgTJLeVv33YbMhqW";
+
+    /** Orders whose argument is a message object rather than a flat string. */
+    private static final Set<String> TEXT_ORDERS = Set.of("8300");
 
     private final Config config;
     private final ObjectMapper objectMapper;
@@ -107,17 +116,36 @@ public class Cmsv9Manager {
 
     // --- FLV URL construction ---
 
+    /**
+     * A stream address for the browser: the site's own origin, not the media
+     * server's port.
+     *
+     * ZLMediaKit serves video on 4022, over TLS only. A browser on a network
+     * that allows 443 and little else - an office, a depot - cannot open that,
+     * which is why the cameras played on a phone and not on a desk. Apache
+     * proxies /live to 4022, so the page fetches video from where it was
+     * served. Relative on purpose: the white-label build then works under its
+     * own hostname with nothing to configure.
+     *
+     * Server-side fetches keep the absolute form (see openStreamOnHost and the
+     * media-list call) - from here 4022 is reachable, and a hop through Apache
+     * would be waste.
+     */
     public String buildLiveFlvUrl(String terminal, int channel) {
-        String host = apiUri("").getHost();
-        int port = getMediaPort();
-        return "https://" + host + ":" + port + "/live/" + liveStreamName(terminal, channel) + ".live.flv";
+        return "/live/" + liveStreamName(terminal, channel) + ".live.flv";
     }
 
     public String buildPlaybackFlvUrl(String terminal, int channel) {
-        String host = apiUri("").getHost();
-        int port = getMediaPort();
-        return "https://" + host + ":" + port
-                + "/live/" + canonicalTerminal(terminal) + "_channel_" + channel + "_playback.live.flv";
+        return "/live/" + canonicalTerminal(terminal) + "_channel_" + channel + "_playback.live.flv";
+    }
+
+    /** The same, for an address CNMS hands us: keep the path, drop host and port. */
+    public String forBrowser(String url) {
+        if (url == null) {
+            return null;
+        }
+        int idx = url.indexOf("/live/");
+        return idx > 0 ? url.substring(idx) : url;
     }
 
     public String rtmpToFlv(String rtmpUrl) {
@@ -187,7 +215,9 @@ public class Cmsv9Manager {
         body.put("terminal", terminal);
         body.put("id", String.valueOf(channel));
         body.put("protocol", "1");
-        body.put("vedioType", "1");
+        // 0 = audio and video, 1 = video only (the portal's MediaController
+        // documents and sends 0; with 1 the DVR pushes a silent audio track).
+        body.put("vedioType", "0");
         body.put("streamType", "1");
 
         JsonNode response = signedPost("/ajax/cmsapi/playSend", body);
@@ -200,10 +230,24 @@ public class Cmsv9Manager {
 
     public JsonNode playbackAppoint(
             String terminal, String channel, String startTime, String endTime) throws Exception {
+        return playbackAppoint(terminal, channel, startTime, endTime, 0);
+    }
+
+    /**
+     * Asks the camera to play a recording back.
+     *
+     * <p>streamType 0 is the main recording and 1 the sub: the sub is a
+     * fraction of the data, which is what makes several cameras at once
+     * watchable at all over a vehicle's mobile connection. Footage being
+     * fetched to keep always asks for the main one.
+     */
+    public JsonNode playbackAppoint(
+            String terminal, String channel, String startTime, String endTime, int streamType)
+            throws Exception {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("terminal", terminal);
         body.put("id", String.valueOf(channel));
-        body.put("streamType", "0");
+        body.put("streamType", String.valueOf(streamType));
         body.put("vedioType", "0");
         body.put("memoryType", "1");
         body.put("startTime", startTime);
@@ -231,6 +275,35 @@ public class Cmsv9Manager {
         return signedPost("/ajax/cmsapi/queryTerminalFileList", body);
     }
 
+    /**
+     * Whether CNMS currently sees this camera, or null when it cannot say.
+     *
+     * <p>Null and false are different answers and are kept apart on purpose: a
+     * caller should refuse to send a live order to a camera known to be offline,
+     * but should not refuse merely because CNMS was unreachable for a moment.
+     *
+     * <p>carstatus 2 is what the portal itself renders as offline. Ignition is
+     * not a connectivity signal, so a parked vehicle still counts as online -
+     * the same rule {@code TaskCnmsSync} applies.
+     */
+    public Boolean isDeviceOnline(String terminal) {
+        try {
+            JsonNode response = getGpsStatus(terminal);
+            if (response.path("errCode").asInt(-1) != 0) {
+                return null;
+            }
+            JsonNode list = response.path("resultData");
+            if (!list.isArray() || list.isEmpty()) {
+                return null;
+            }
+            int carstatus = list.get(0).path("carstatus").asInt(0);
+            return carstatus > 0 && carstatus != 2;
+        } catch (Exception e) {
+            LOG.warn("Could not read online status for {}: {}", terminal, e.getMessage());
+            return null;
+        }
+    }
+
     public JsonNode getGpsStatus(String terminal) throws Exception {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("terminal", terminal);
@@ -253,10 +326,13 @@ public class Cmsv9Manager {
         return wsPlay(terminal, channel, 1);
     }
 
-    // streamType 0 = main (HD), 1 = sub (SD). Content: host,port,0,channel,dataType(1=video),streamType
+    // streamType 0 = main (HD), 1 = sub (SD). Content: host,port,0,channel,dataType,streamType
+    // dataType is the JT/T 1078 media type: 0 = audio and video, 1 = video only. The
+    // portal asks for 0, so the DVR sends the cab microphone along with the picture;
+    // the player keeps it muted until someone turns a camera's speaker on.
     public boolean wsPlay(String terminal, int channel, int streamType) {
         return wsSendOrderOnce(terminal, "9101",
-                videoServerHost() + "," + videoServerPort() + ",0," + (channel) + ",1," + streamType);
+                videoServerHost() + "," + videoServerPort() + ",0," + (channel) + ",0," + streamType);
     }
 
     /**
@@ -288,6 +364,8 @@ public class Cmsv9Manager {
      * (or flicking between channels/vehicles) skips the whole start-up handshake.
      */
     private static final long KEEP_ALIVE_MS = 60000;
+    /** The most channels a DVR in this fleet has; used when sweeping them all. */
+    private static final int MAX_CHANNELS = 8;
     private final ScheduledExecutorService keepAliveExecutor =
             Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread t = new Thread(r, "cmsv9-keepalive");
@@ -430,6 +508,35 @@ public class Cmsv9Manager {
     }
 
     /**
+     * Stops every live channel on a vehicle at once, now rather than after the
+     * keep-alive.
+     *
+     * <p>Used when footage is about to be pulled off that vehicle: the camera
+     * has one uplink and playback cannot win a share of it from four live
+     * streams, so it abandons the playback a few seconds in. Only channels the
+     * media server is actually carrying are stopped, so a vehicle nobody is
+     * watching costs nothing.
+     */
+    public void stopAllLiveNow(String terminal) {
+        for (int channel = 1; channel <= MAX_CHANNELS; channel++) {
+            if (!isStreamLive(liveStreamName(terminal, channel))) {
+                continue;
+            }
+            cancelPendingStop(terminal, channel);
+            stopKeepAliveReader(terminal, channel);
+            try {
+                synchronized (wsOrderLock) {
+                    wsStop(terminal, channel);
+                    mediacontrol(terminal, channel, 1);
+                }
+                LOG.info("Paused live {}/{} while footage is downloading", terminal, channel);
+            } catch (Exception e) {
+                LOG.warn("Could not pause live {}/{}: {}", terminal, channel, e.getMessage());
+            }
+        }
+    }
+
+    /**
      * Internal CNMS media control API (same one the portal's on-demand
      * hooks use). The device appears to only start pushing when this
      * command is delivered; the WebSocket order alone is not enough.
@@ -446,7 +553,10 @@ public class Cmsv9Manager {
             body.put("terminal", terminal);
             body.put("id", String.valueOf(channel));
             body.put("protocol", 1);
-            body.put("vedioType", 1);
+            // 0 = audio and video, 1 = video only. The portal sends 0; this
+            // call is what actually makes the device push, so 1 here is why
+            // live streams arrived with their microphone muted at the source.
+            body.put("vedioType", 0);
             body.put("streamType", streamType);
             String json = objectMapper.writeValueAsString(body);
             HttpRequest request = HttpRequest.newBuilder(
@@ -615,16 +725,19 @@ public class Cmsv9Manager {
         return new java.io.File(ffmpegPath()).isFile();
     }
 
+    /** The ffmpeg to run, for anything that needs to assemble footage. */
+    public String ffmpegCommand() {
+        return ffmpegPath();
+    }
+
     private String ffmpegPath() {
         return "tools/ffmpeg.exe";
     }
 
     /**
      * Plays a recorded segment and remuxes the H.265 FLV into a fragmented MP4
-     * on the fly (ffmpeg -c copy for video, no re-encode, nothing written to
-     * disk; audio transcoded to AAC so the file is broadly playable). Closing
-     * the returned stream tears down the ffmpeg process. Returns null if
-     * playback is unavailable.
+     * on the fly without re-encoding the video or writing the result to disk.
+     * Closing the returned stream tears down the ffmpeg process.
      */
     public InputStream openPlaybackMp4(
             String terminal, int channel, String startTime, String endTime) throws Exception {
@@ -698,6 +811,39 @@ public class Cmsv9Manager {
 
     public boolean wsStop(String terminal, int channel) {
         return wsSendOrderOnce(terminal, "9102", channel + ",0,0,0");
+    }
+
+    /**
+     * Ask a camera to open the tunnel that exposes its own settings page.
+     *
+     * <p>The page is served by the camera itself, not by us, and it is only
+     * reachable while the camera holds a tunnel open to the FRP server. The
+     * camera opens one when it is told where to dial, which is what this order
+     * carries. Nothing happens until then: requests for the address simply meet
+     * "no such domain" at the proxy, which is a 404 to whoever asked.
+     *
+     * <p>The terminal is padded to twelve digits here because that is the form
+     * the platform's own client uses for this order, and a camera addressed any
+     * other way never sees it.
+     */
+    public boolean wsOpenDeviceWeb(String terminal) {
+        String host = require(Keys.CMSV9_FRP_HOST);
+        String token = require(Keys.CMSV9_FRP_TOKEN);
+        int port = config.getInteger(Keys.CMSV9_FRP_PORT);
+        String padded = terminal.length() >= 12 ? terminal
+                : "0".repeat(12 - terminal.length()) + terminal;
+        // The token is a shared secret; the order is logged by number only.
+        LOG.info("WS device-web tunnel requested for {} via {}:{}", padded, host, port);
+        return wsSendOrderOnce(padded, "8300", "#FRPSET:" + host + "," + port + "," + token);
+    }
+
+    /**
+     * Where that page appears once the tunnel is up. The camera registers its
+     * unpadded id as the subdomain, so this is not the padded form above.
+     */
+    public String deviceWebUrl(String terminal) {
+        return "http://" + terminal + "." + require(Keys.CMSV9_FRP_WEB_HOST)
+                + ":" + config.getInteger(Keys.CMSV9_FRP_WEB_PORT);
     }
 
     public boolean wsPlayback(String terminal, int channel, String startTime, String endTime) {
@@ -863,6 +1009,20 @@ public class Cmsv9Manager {
         }
     }
 
+    /**
+     * The tunnel order carries a shared secret as its last field. The rest of
+     * the order is worth having in the log; the secret is not.
+     */
+    private static String redactOrder(String content) {
+        if (content != null && content.startsWith("#FRPSET:")) {
+            int last = content.lastIndexOf(',');
+            if (last > 0) {
+                return content.substring(0, last + 1) + "<token>";
+            }
+        }
+        return content;
+    }
+
     private void sendWsOrderMsg(WebSocket webSocket, String orderId,
             String terminal, String order, String content) {
         try {
@@ -880,14 +1040,23 @@ public class Cmsv9Manager {
             ObjectNode c = objectMapper.createObjectNode();
             c.put("deviceid", terminal);
             c.put("order", order);
-            c.put("content", content);
+            // Most orders take their arguments as one comma separated string.
+            // The text-to-terminal orders take an object instead, and a camera
+            // ignores the message entirely if it arrives in the flat form.
+            if (TEXT_ORDERS.contains(order)) {
+                ObjectNode inner = objectMapper.createObjectNode();
+                inner.put("msg", content);
+                c.set("content", inner);
+            } else {
+                c.put("content", content);
+            }
             msg.set("content", c);
             msg.put("username", username);
             msg.put("time", time);
             msg.put("sign", sign);
 
             String json = objectMapper.writeValueAsString(msg);
-            LOG.info("WS send order {} to {}: {}", order, terminal, content);
+            LOG.info("WS send order {} to {}: {}", order, terminal, redactOrder(content));
             webSocket.sendText(json, true);
         } catch (Exception e) {
             LOG.error("WS order send failed: {}", e.getMessage());
